@@ -1,0 +1,33 @@
+{
+  "resourceType": "Patient",
+  "id": "patient-with-contained",
+  "active": true,
+  "contained": [
+    {
+      "resourceType": "Observation",
+      "id": "contained-observation",
+      "status": "final",
+      "code": {
+        "text": "Smoking status"
+      },
+      "valueCodeableConcept": {
+        "coding": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "266919005",
+            "display": "Never smoked"
+          }
+        ]
+      }
+    }
+  ],
+  "name": [
+    {
+      "family": "Contained",
+      "given": [
+        "Carol"
+      ]
+    }
+  ],
+  "gender": "female"
+}

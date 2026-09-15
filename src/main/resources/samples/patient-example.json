@@ -1,0 +1,46 @@
+{
+  "resourceType": "Patient",
+  "id": "sample-patient",
+  "identifier": [
+    {
+      "system": "http://hospital.example.org/mrn",
+      "value": "MRN-98765"
+    }
+  ],
+  "active": true,
+  "name": [
+    {
+      "use": "official",
+      "family": "Nguyen",
+      "given": [
+        "Alex",
+        "Marie"
+      ]
+    }
+  ],
+  "telecom": [
+    {
+      "system": "phone",
+      "value": "555-0142",
+      "use": "home"
+    }
+  ],
+  "gender": "female",
+  "birthDate": "1988-03-14",
+  "address": [
+    {
+      "line": [
+        "42 Elm Street"
+      ],
+      "city": "Springfield",
+      "state": "IL",
+      "postalCode": "62701"
+    }
+  ],
+  "extension": [
+    {
+      "url": "http://example.org/fhir/StructureDefinition/patient-preferred-language",
+      "valueString": "en-AU"
+    }
+  ]
+}

@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example.fhirviewer</groupId>
+  <artifactId>fhir-viewer</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+
+  <name>FHIR Resource Viewer</name>
+  <description>Cross-platform desktop viewer for FHIR resources (JavaFX + HAPI FHIR)</description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+    <!--
+      Source/target level. Java 21 bytecode runs on the JDK 21+ runtime used to
+      launch the application (JDK 25 is used on this machine).
+    -->
+    <maven.compiler.release>21</maven.compiler.release>
+
+    <!--
+      Bump javafx.version so it matches the JDK major version used to run the
+      app (JavaFX n.x runs on JDK n and newer).
+    -->
+    <javafx.version>25.0.4</javafx.version>
+
+    <!-- HAPI FHIR: R4 model + parsers + validation support. -->
+    <hapi-fhir.version>8.12.0</hapi-fhir.version>
+
+    <junit.version>5.14.4</junit.version>
+    <slf4j.version>2.0.19</slf4j.version>
+    <maven-compiler-plugin.version>3.14.1</maven-compiler-plugin.version>
+    <maven-surefire-plugin.version>3.5.6</maven-surefire-plugin.version>
+    <maven-dependency-plugin.version>3.8.1</maven-dependency-plugin.version>
+    <javafx-maven-plugin.version>0.0.8</javafx-maven-plugin.version>
+
+    <main.class>com.example.fhirviewer.Main</main.class>
+
+    <!--
+      Optional file to open at startup:
+        mvn javafx:run "-Djavafx.args=C:\path\to\patient.json"
+    -->
+    <javafx.args></javafx.args>
+  </properties>
+
+  <dependencies>
+
+    <!-- ==================== UI: JavaFX ==================== -->
+    <dependency>
+      <groupId>org.openjfx</groupId>
+      <artifactId>javafx-controls</artifactId>
+      <version>${javafx.version}</version>
+    </dependency>
+
+    <!-- ==================== FHIR: HAPI FHIR (R4) ==================== -->
+    <dependency>
+      <groupId>ca.uhn.hapi.fhir</groupId>
+      <artifactId>hapi-fhir-base</artifactId>
+      <version>${hapi-fhir.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>ca.uhn.hapi.fhir</groupId>
+      <artifactId>hapi-fhir-structures-r4</artifactId>
+      <version>${hapi-fhir.version}</version>
+    </dependency>
+
+    <!-- Validation support (Phase 5) -->
+    <dependency>
+      <groupId>ca.uhn.hapi.fhir</groupId>
+      <artifactId>hapi-fhir-validation</artifactId>
+      <version>${hapi-fhir.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>ca.uhn.hapi.fhir</groupId>
+      <artifactId>hapi-fhir-validation-resources-r4</artifactId>
+      <version>${hapi-fhir.version}</version>
+    </dependency>
+
+    <!--
+      HAPI FHIR 8 requires a cache service provider at runtime
+      (HAPI-2200: "No Cache Service Providers found"). The caffeine
+      implementation is the default for desktop/JVM applications.
+    -->
+    <dependency>
+      <groupId>ca.uhn.hapi.fhir</groupId>
+      <artifactId>hapi-fhir-caching-caffeine</artifactId>
+      <version>${hapi-fhir.version}</version>
+    </dependency>
+
+    <!-- ==================== Logging ==================== -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>${slf4j.version}</version>
+    </dependency>
+
+    <!-- ==================== Tests ==================== -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>${maven-compiler-plugin.version}</version>
+        <configuration>
+          <release>${maven.compiler.release}</release>
+          <parameters>true</parameters>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${maven-surefire-plugin.version}</version>
+        <configuration>
+          <!-- Not a JPMS module project: keep everything on the classpath. -->
+          <useModulePath>false</useModulePath>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.2</version>
+        <configuration>
+          <archive>
+            <manifest>
+              <!--
+                Launcher (not Main) so that jpackage launchers and plain class path
+                runs do not hit "JavaFX runtime components are missing".
+              -->
+              <mainClass>com.example.fhirviewer.Launcher</mainClass>
+            </manifest>
+          </archive>
+        </configuration>
+      </plugin>
+
+      <!-- mvn javafx:run -->
+      <plugin>
+        <groupId>org.openjfx</groupId>
+        <artifactId>javafx-maven-plugin</artifactId>
+        <version>${javafx-maven-plugin.version}</version>
+        <configuration>
+          <mainClass>${main.class}</mainClass>
+          <commandlineArgs>${javafx.args}</commandlineArgs>
+        </configuration>
+      </plugin>
+
+      <!--
+        Copies every runtime dependency into target/lib so the application can be
+        launched with:
+          java -cp "target/classes;target/lib/*" com.example.fhirviewer.Launcher
+        (Launcher, not Main: Main extends javafx.application.Application and would
+        fail with "JavaFX runtime components are missing" when JavaFX comes from the
+        class path) and so jpackage/jlink style packaging (Phase 7) has a stable input.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>${maven-dependency-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>copy-runtime-dependencies</id>
+            <phase>package</phase>
+            <goals>
+              <goal>copy-dependencies</goal>
+            </goals>
+            <configuration>
+              <includeScope>runtime</includeScope>
+              <outputDirectory>${project.build.directory}/lib</outputDirectory>
+              <overWriteReleases>false</overWriteReleases>
+              <overWriteSnapshots>false</overWriteSnapshots>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+    </plugins>
+  </build>
+
+</project>

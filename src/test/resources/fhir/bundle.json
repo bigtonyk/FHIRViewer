@@ -1,0 +1,51 @@
+{
+  "resourceType": "Bundle",
+  "id": "bundle-1",
+  "type": "collection",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:8f1e1e2a-0001-4a1a-9c3a-000000000001",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient-a",
+        "active": true,
+        "name": [
+          {
+            "family": "Doe",
+            "given": [
+              "Jane"
+            ]
+          }
+        ],
+        "gender": "female"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:8f1e1e2a-0002-4a1a-9c3a-000000000002",
+      "resource": {
+        "resourceType": "Organization",
+        "id": "organization-a",
+        "name": "Springfield General Hospital",
+        "active": true
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:8f1e1e2a-0003-4a1a-9c3a-000000000003",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "observation-a",
+        "status": "final",
+        "code": {
+          "text": "Body height"
+        },
+        "subject": {
+          "reference": "Patient/patient-a"
+        },
+        "valueQuantity": {
+          "value": 168,
+          "unit": "cm"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "resourceType": "Observation",
+  "id": "observation-1",
+  "status": "final",
+  "code": {
+    "coding": [
+      {
+        "system": "http://loinc.org",
+        "code": "8867-4",
+        "display": "Heart rate"
+      }
+    ],
+    "text": "Heart rate"
+  },
+  "subject": {
+    "reference": "Patient/example-1",
+    "display": "John Smith"
+  },
+  "effectiveDateTime": "2024-05-01T10:15:00Z",
+  "valueQuantity": {
+    "value": 72,
+    "unit": "beats/minute",
+    "system": "http://unitsofmeasure.org",
+    "code": "/min"
+  },
+  "component": [
+    {
+      "code": {
+        "text": "systolic"
+      },
+      "valueQuantity": {
+        "value": 120,
+        "unit": "mmHg"
+      }
+    },
+    {
+      "code": {
+        "text": "diastolic"
+      },
+      "valueQuantity": {
+        "value": 80,
+        "unit": "mmHg"
+      }
+    }
+  ]
+}

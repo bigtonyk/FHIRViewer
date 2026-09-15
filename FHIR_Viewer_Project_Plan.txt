@@ -1,0 +1,370 @@
+FHIR Resource Viewer — Project Plan
+=================================
+
+Purpose
+-------
+Build a cross-platform desktop FHIR Resource Viewer that runs on:
+- Windows
+- macOS
+- Linux
+
+The application is intended for development/testing/inspection of FHIR resources. It should make it easy to load, view, inspect, and understand FHIR resources and their structure.
+
+Technology Stack
+----------------
+- Language: Java
+- UI: JavaFX
+- FHIR library: HAPI FHIR
+- Build system: Maven
+- IDE: Visual Studio Code
+- AI coding assistant: Cline
+- Target runtime: Cross-platform Java/JVM desktop application
+
+Why this stack
+--------------
+Java provides excellent cross-platform support and is a natural fit for HAPI FHIR.
+JavaFX provides a native desktop UI framework without tying the application to Windows.
+HAPI FHIR provides mature parsing, validation, model classes, and FHIR utilities rather than requiring FHIR parsing to be implemented from scratch.
+Maven provides standard dependency management, builds, testing, and packaging.
+
+High-Level Architecture
+-----------------------
+Use a layered architecture so the JavaFX UI is separated from FHIR processing.
+
+Suggested layers:
+
+1. UI Layer
+   - JavaFX application
+   - Main window
+   - Resource viewer/editor
+   - Resource tree
+   - JSON/XML display
+   - Resource details/properties
+   - Error/status display
+
+2. Application/Service Layer
+   - Coordinates user actions
+   - Loads resources
+   - Converts between representations
+   - Invokes HAPI FHIR operations
+   - Handles validation and errors
+
+3. FHIR Layer
+   - HAPI FHIR
+   - FHIR context/parser
+   - Resource parsing
+   - Resource type detection
+   - Validation
+   - Serialization
+   - FHIR metadata/StructureDefinitions as needed
+
+4. File/Input Layer
+   - Load FHIR JSON files
+   - Load FHIR XML files
+   - Potential support for directories/bundles
+   - Save/export resources
+
+5. Model/View Model Layer
+   - UI-friendly representation of FHIR resources
+   - Tree nodes representing resource elements
+   - Display metadata such as type, path, value, cardinality, and datatype
+
+Initial Features
+----------------
+The first version should focus on viewing rather than editing.
+
+1. Open a FHIR JSON resource.
+2. Open a FHIR XML resource.
+3. Automatically determine the FHIR resource type.
+4. Parse the resource with HAPI FHIR.
+5. Display the resource in a readable tree.
+6. Display the original JSON/XML.
+7. Show resource metadata:
+   - Resource type
+   - Resource ID
+   - Element/path
+   - Datatype
+   - Value
+   - Cardinality where available
+8. Allow expanding/collapsing nested elements.
+9. Display arrays/repeating elements clearly.
+10. Display primitive values and complex datatypes.
+11. Display references clearly.
+12. Display extensions.
+13. Handle Bundles and allow navigation through entries.
+14. Show parsing errors in a useful way.
+15. Provide basic FHIR validation.
+
+FHIR Resource Tree
+------------------
+The main viewer should represent the resource hierarchically.
+
+Example:
+
+Patient
+  id
+    12345
+  identifier
+    [0]
+      system
+      value
+  name
+    [0]
+      use
+      family
+      given
+        [0]
+        [1]
+  gender
+  birthDate
+  address
+    [0]
+      line
+      city
+      state
+      postalCode
+
+The tree should be generated dynamically from the HAPI FHIR resource/model rather than hard-coded for Patient or other individual resource types.
+
+JSON/XML Views
+--------------
+Provide separate or switchable views for:
+
+- Structured/tree view
+- JSON view
+- XML view
+
+The structured view should make the FHIR resource easier to understand.
+The JSON/XML views should preserve the actual FHIR representation.
+
+HAPI FHIR
+---------
+Use HAPI FHIR as the primary FHIR implementation.
+
+The application should use HAPI FHIR for:
+- Parsing JSON
+- Parsing XML
+- Creating FHIR resource objects
+- Serializing resources
+- Resource type detection
+- Validation
+- FHIR version support
+
+Keep FHIR-version-specific code isolated so additional FHIR versions can be supported later.
+
+FHIR Version
+------------
+Start with FHIR R4 unless the project requirements indicate otherwise.
+
+Design the code so FHIR version support can be changed or expanded without rewriting the UI.
+
+Maven Project
+-------------
+Use a standard Maven project.
+
+Suggested structure:
+
+fhir-viewer/
+|
++-- pom.xml
++-- README.md
++-- src/
+    +-- main/
+    |   +-- java/
+    |   |   +-- ...
+    |   +-- resources/
+    |       +-- ...
+    |
+    +-- test/
+        +-- java/
+            +-- ...
+
+Suggested package organization:
+
+com.example.fhirviewer
+|
++-- Main.java
++-- ui/
+|   +-- MainWindow
+|   +-- ResourceTreeView
+|   +-- JsonView
+|   +-- XmlView
+|   +-- StatusView
+|
++-- service/
+|   +-- FhirService
+|   +-- ResourceLoader
+|   +-- ValidationService
+|
++-- fhir/
+|   +-- FhirContextFactory
+|   +-- ResourceParser
+|   +-- ResourceSerializer
+|   +-- ResourceTreeBuilder
+|
++-- model/
+|   +-- ResourceNode
+|   +-- ElementInfo
+|
++-- util/
+    +-- ...
+
+UI Design
+---------
+Suggested main window:
+
++-------------------------------------------------------------+
+| File  View  Tools  Help                                     |
++-------------------------------------------------------------+
+| Open | Save | Validate | JSON | XML                         |
++----------------------+--------------------------------------+
+| Resource Tree        | Resource Details / Value             |
+|                      |                                      |
+| Patient              | Path: Patient.name[0].family         |
+|  id                  | Type: string                          |
+|  identifier          | Value: Smith                          |
+|  name                |                                      |
+|    [0]               | Definition: ...                      |
+|      family         |                                      |
+|      given          |                                      |
+|  gender              |                                      |
+|                      |                                      |
++----------------------+--------------------------------------+
+| Status / validation messages                                |
++-------------------------------------------------------------+
+
+Important Design Principles
+---------------------------
+1. Do not hard-code individual FHIR resources.
+2. Do not hard-code individual FHIR elements.
+3. Generate the resource tree dynamically.
+4. Keep JavaFX UI code separate from HAPI FHIR processing.
+5. Keep FHIR-version-specific implementation isolated.
+6. Use interfaces where they provide meaningful separation.
+7. Keep classes small and testable.
+8. Handle errors gracefully.
+9. Avoid putting business/FHIR logic directly into JavaFX event handlers.
+10. Make the application usable without an external FHIR server for the initial release.
+
+Testing
+-------
+Include unit tests for:
+- JSON parsing
+- XML parsing
+- Resource type detection
+- Tree generation
+- Nested elements
+- Repeating elements
+- Extensions
+- References
+- Bundles
+- Invalid FHIR input
+- Serialization
+- Validation
+
+Include representative test resources for:
+- Patient
+- Observation
+- Encounter
+- Organization
+- Bundle
+
+Development Approach
+--------------------
+Build incrementally.
+
+Phase 1 — Project Skeleton
+- Create Maven project.
+- Configure Java version.
+- Configure JavaFX.
+- Add HAPI FHIR dependencies.
+- Create application entry point.
+- Verify the application launches on Windows.
+
+Phase 2 — Basic FHIR Loading
+- Implement file-open functionality.
+- Detect JSON vs XML.
+- Parse resources using HAPI FHIR.
+- Display basic resource information.
+
+Phase 3 — Resource Tree
+- Create a generic tree builder.
+- Traverse HAPI FHIR structures dynamically.
+- Support primitives, complex types, lists, nested elements, and references.
+- Display the resulting hierarchy in JavaFX.
+
+Phase 4 — JSON/XML Views
+- Add JSON serialization.
+- Add XML serialization.
+- Add tabs or a view selector.
+
+Phase 5 — Validation
+- Add HAPI FHIR validation.
+- Display errors/warnings in the UI.
+
+Phase 6 — Bundles and Advanced Resources
+- Support Bundle resources.
+- Allow selecting an entry from a Bundle.
+- Improve handling of extensions, contained resources, references, and repeating elements.
+
+Phase 7 — Packaging
+- Package the application for Windows, macOS, and Linux.
+- Document installation and runtime requirements.
+- Consider jpackage for platform-specific application bundles.
+
+Future Enhancements
+-------------------
+Possible later features:
+
+- Drag-and-drop resource files
+- FHIR server connection
+- REST GET/search against a FHIR server
+- SMART on FHIR support
+- OAuth/OIDC authentication
+- Resource editing
+- Resource creation
+- Save modified resources
+- Compare two FHIR resources
+- FHIRPath evaluation
+- Search within a resource
+- Search/filter the resource tree
+- Show StructureDefinition information
+- Show element definitions and cardinality
+- Terminology/code lookup
+- Resource validation against profiles
+- Profile selection
+- Bundle visualization
+- HTTP request/response viewer
+- Support for multiple FHIR versions
+- Dark/light UI themes
+- Recent files
+- Application preferences
+
+AI/Cline Development Guidance
+-----------------------------
+Use Cline to implement the project incrementally rather than asking it to generate the entire application in one pass.
+
+For each phase:
+1. Explain the current architecture.
+2. Ask Cline to inspect the existing project before changing it.
+3. Make one coherent feature at a time.
+4. Require compilation after changes.
+5. Require tests for new functionality.
+6. Do not rewrite working code unnecessarily.
+7. Keep HAPI FHIR and JavaFX responsibilities separated.
+8. Prefer generic/dynamic FHIR processing over resource-specific code.
+
+Important requirement:
+The viewer must be generic. Adding support for a new FHIR resource should not require creating a special Java class or special UI code for that resource.
+
+Recommended First Milestone
+---------------------------
+A useful first milestone is:
+
+"Open a FHIR R4 JSON or XML file, parse it with HAPI FHIR, and display the resource dynamically in a JavaFX tree, with JSON and XML tabs."
+
+Once that works reliably, add validation, Bundles, StructureDefinition information, and server connectivity.
+
+End Goal
+--------
+Create a maintainable, cross-platform Java desktop application that provides a developer-friendly way to inspect FHIR resources, with HAPI FHIR handling the FHIR semantics and JavaFX providing the desktop UI.

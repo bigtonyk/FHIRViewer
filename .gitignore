@@ -1,0 +1,32 @@
+# Maven
+target/
+pom.xml.versionsBackup
+
+# Maven wrapper download cache
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE / editor
+.idea/
+*.iml
+.vscode/settings.json
+.settings/
+.classpath
+.project
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+
+# jpackage output (Phase 7: app-image directory and installers)
+# Note: leading "/" anchors the name to the repository root. Without it,
+# "FHIRViewer/" would also match the Java package directory
+# src/main/java/com/example/fhirviewer/ (git ignores case on Windows).
+/FHIRViewer/
+*.msi
+*.exe
+*.dmg
+*.deb
+*.rpm

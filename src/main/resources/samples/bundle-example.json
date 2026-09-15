@@ -1,0 +1,50 @@
+{
+  "resourceType": "Bundle",
+  "id": "sample-bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:5d0c1f2e-aaaa-4b1c-9d2e-000000000001",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "sample-patient",
+        "active": true,
+        "name": [
+          {
+            "family": "Nguyen",
+            "given": [
+              "Alex"
+            ]
+          }
+        ],
+        "gender": "female"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:5d0c1f2e-aaaa-4b1c-9d2e-000000000002",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "sample-observation",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "29463-7",
+              "display": "Body weight"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/sample-patient"
+        },
+        "valueQuantity": {
+          "value": 64.5,
+          "unit": "kg",
+          "system": "http://unitsofmeasure.org",
+          "code": "kg"
+        }
+      }
+    }
+  ]
+}

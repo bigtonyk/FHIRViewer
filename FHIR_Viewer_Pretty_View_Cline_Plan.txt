@@ -1,0 +1,370 @@
+FHIR Resource Viewer — Pretty View Plan for Cline
+
+Goal
+Add a FHIR-aware “Pretty View” to the existing cross-platform FHIR Resource Viewer. It should present a FHIR resource as a human-readable clinical/document-style view rather than raw JSON.
+
+Technology
+- Java
+- JavaFX
+- HAPI FHIR
+- Maven
+- VS Code
+- Cline
+- FHIR R4
+
+Important: Do not replace or rewrite the existing architecture. Inspect the current implementation first and integrate the Pretty View cleanly.
+
+1. Pretty View
+Add a new Pretty tab/view alongside:
+- Tree
+- JSON
+- XML
+
+Prefer Pretty as the default view when a resource opens.
+
+2. Generic FHIR-aware implementation
+The Pretty View must be metadata-driven and generic.
+
+Do NOT use resource-specific logic such as:
+- if Patient
+- if Observation
+- if Encounter
+
+Use HAPI FHIR runtime/model information to discover:
+- resource elements
+- datatypes
+- repeating elements
+- nested structures
+- references
+- extensions
+- choice elements
+
+The renderer should work across FHIR R4 resources without requiring a custom renderer for every resource type.
+
+3. Overall appearance
+At the top, prominently display:
+- Resource type
+- Resource ID
+- Useful metadata such as Meta/lastUpdated
+- Profiles when present
+
+Organize resources into logical visual sections where appropriate.
+
+Use JavaFX controls such as VBox, HBox, GridPane, Label, TitledPane, Accordion, ScrollPane, and TableView as appropriate.
+
+4. Human-friendly datatypes
+Render common FHIR datatypes in a readable form rather than dumping JSON.
+
+Support, at minimum:
+- HumanName
+- Address
+- ContactPoint
+- Coding
+- CodeableConcept
+- Reference
+- Quantity
+- Period
+- Range
+- Ratio
+
+Examples:
+HumanName: family, given, prefix/suffix, use
+Address: lines, city, state, postal code, country, use/type
+CodeableConcept: text plus coding system/code/display
+Reference: display text and reference
+Quantity: value, unit, system/code
+Period: start/end
+
+5. Repeating elements
+Display repeated FHIR elements as separate readable entries.
+
+Examples:
+- multiple names
+- addresses
+- telecom entries
+- identifiers
+- codings
+- observation components
+
+Do not collapse repeating data into unreadable comma-separated strings.
+
+6. BackboneElement and nested structures
+Support generic rendering of BackboneElements and deeply nested structures, such as:
+- Observation.component
+- MedicationRequest.dosageInstruction
+- Encounter.participant
+- Bundle.entry
+
+Discover nested structures dynamically rather than hard-coding resource-specific structures.
+
+7. Choice elements
+Handle FHIR choice elements such as:
+- value[x]
+- effective[x]
+- onset[x]
+- deceased[x]
+- performed[x]
+
+Display the actual datatype present, e.g. valueQuantity, valueCodeableConcept, valueString, effectiveDateTime, or effectivePeriod.
+
+Do not expose [x] in a confusing way.
+
+8. Extensions
+Display extensions in a readable expandable section.
+
+For each extension show:
+- URL
+- value
+- nested extensions when present
+
+Do not hide extensions simply because they are less common.
+
+9. Contained resources
+Support contained resources as expandable sections showing:
+- resource type
+- ID
+- Pretty-rendered contents
+
+10. Bundles
+Display Bundle entries clearly, for example:
+- Entry 1 — Patient
+- Entry 2 — Observation
+- Entry 3 — Encounter
+
+If practical, allow selecting an entry to view it in the existing viewer.
+
+Reuse generic resource handling rather than creating an entirely separate Bundle architecture.
+
+11. References
+Display references in a readable way.
+
+For local references such as Patient/123 or Observation/456, consider making them clickable when the referenced resource is available in the current Bundle or application context.
+
+Do not add remote reference resolution unless the existing architecture already supports it.
+
+12. Missing/unexpected values
+Gracefully handle:
+- missing elements
+- empty elements
+- null values
+- unexpected datatypes
+- unknown extensions
+- unknown resources
+- malformed/minimal resources where possible
+
+Do not crash because a resource contains an uncommon or unsupported element.
+
+Architecture
+
+Keep FHIR interpretation/traversal separate from JavaFX presentation.
+
+Conceptual pipeline:
+
+FHIR Resource
+    ->
+FHIR Resource Inspector / Presentation Model
+    ->
+Pretty View Renderer
+    ->
+JavaFX Controls
+
+Ideally, Tree View and Pretty View should share the same underlying FHIR traversal/model information. Do not duplicate FHIR parsing logic.
+
+Suggested responsibilities:
+
+FHIR Resource Inspector / Presentation Model:
+- inspect HAPI FHIR resources
+- discover elements
+- determine datatypes
+- identify repeating elements
+- identify BackboneElements
+- identify choice elements
+- identify references
+- identify extensions
+- build a presentation-friendly model
+
+Pretty View Renderer:
+- convert the presentation model into JavaFX controls
+- manage layout
+- provide readable labels
+- manage expand/collapse behavior
+
+Keep JSON/XML views unchanged except where integration is necessary.
+
+UI Integration
+Prefer:
+
+[ Pretty ] [ Tree ] [ JSON ] [ XML ]
+
+Make Pretty the default selected tab when opening a resource unless there is a strong architectural reason not to.
+
+The Pretty View should update when a different resource is selected.
+
+Reuse the existing selected-resource/tab architecture.
+
+Performance
+Keep the UI responsive for large resources.
+
+Avoid:
+- unnecessary repeated parsing
+- repeated expensive reflection/model inspection
+- excessive JavaFX control creation where avoidable
+
+Reuse the already-parsed HAPI FHIR resource and cache metadata where appropriate.
+
+Development Process
+
+Before changing code, inspect the existing project.
+
+First explain:
+1. Current project/package structure
+2. Current JavaFX UI architecture
+3. How FHIR resources are parsed
+4. How Tree/JSON/XML views are implemented
+5. How the selected resource is passed to views
+6. Best integration point for Pretty View
+7. Classes to add
+8. Classes to modify
+9. Whether Maven dependencies are actually required
+
+Do not make unnecessary architectural changes.
+
+Implement incrementally.
+
+After each meaningful stage:
+- compile with Maven
+- run existing tests
+- fix errors
+- keep the application runnable
+
+Do not rewrite working Tree, JSON, or XML functionality just to add Pretty View.
+
+Testing
+
+Add tests for the generic FHIR inspection/presentation logic.
+
+At minimum test:
+- Patient
+- Observation
+- Encounter
+- Organization
+- Bundle
+- repeating elements
+- references
+- extensions
+- nested BackboneElements
+- choice/[x] elements
+- contained resources
+- common datatypes
+- minimal resources
+- missing optional elements
+- multiple levels of nesting
+
+Prefer testing the presentation model rather than requiring JavaFX UI tests for every case. Add a small number of JavaFX integration tests if practical.
+
+Expected Result
+
+Opening a FHIR resource should produce a useful human-readable Pretty View.
+
+For example, a Patient might conceptually show:
+
+Patient
+ID: 12345
+
+Identifiers
+  Medical Record Number: 12345
+
+Name
+  John A. Smith
+  Use: Official
+
+Contact
+  Phone: ...
+  Email: ...
+
+Address
+  123 Main Street
+  Bethlehem, PA ...
+
+Gender
+  Male
+
+Birth Date
+  ...
+
+An Observation might conceptually show:
+
+Observation
+ID: 98765
+
+Status
+  Final
+
+Code
+  Blood Pressure
+  LOINC: ...
+
+Subject
+  Patient/12345
+
+Effective
+  2026-09-15
+
+Value
+  120 mmHg
+
+Components
+  Systolic
+    120 mmHg
+
+  Diastolic
+    80 mmHg
+
+These are only presentation examples. Do NOT hard-code Patient or Observation rendering.
+
+Deliverables
+1. Pretty View UI
+2. Integration with the existing viewer
+3. Generic FHIR traversal/inspection logic
+4. Presentation model if needed
+5. Human-friendly datatype formatting
+6. Repeating-element handling
+7. BackboneElement handling
+8. Choice/[x] handling
+9. Extension handling
+10. Reference handling
+11. Bundle handling
+12. Contained-resource handling
+13. Tests
+14. Maven dependency changes only if necessary
+15. Brief documentation of the Pretty View architecture
+
+Cline Instructions
+- Inspect before modifying.
+- Reuse the existing architecture.
+- Do not rewrite working code unnecessarily.
+- Keep implementation generic and metadata-driven.
+- Do not create resource-specific renderers unless there is a compelling reason.
+- Keep FHIR traversal separate from JavaFX rendering.
+- Compile frequently with Maven.
+- Run tests frequently.
+- Fix errors before proceeding.
+- Prefer small classes with clear responsibilities.
+- Explain significant architectural decisions.
+- At the end, summarize files changed and how the Pretty View works.
+
+Future extensibility
+Design the Pretty View so it can later support:
+- FHIR StructureDefinitions
+- profiles
+- validation results
+- FHIRPath
+- terminology display
+- search/filtering
+- resource comparison
+- clickable references
+- FHIR server resources
+- SMART/OIDC context
+- highlighting invalid elements
+
+Do not implement these future features now unless required by the Pretty View architecture.

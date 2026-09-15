@@ -1,0 +1,4 @@
+{
+  "thisIsNotAFhirResource": true,
+  "value": "no resourceType element is present"
+}
