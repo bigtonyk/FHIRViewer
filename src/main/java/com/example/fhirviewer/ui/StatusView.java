@@ -23,6 +23,7 @@ public class StatusView extends VBox {
     private final TitledPane issuesPane = new TitledPane("Validation messages", issueList);
 
     public StatusView() {
+        getStyleClass().add("status-bar");
         statusLabel.setMaxWidth(Double.MAX_VALUE);
         statusLabel.setPadding(new Insets(6, 8, 6, 8));
 
@@ -69,10 +70,11 @@ public class StatusView extends VBox {
             }
             setText(item.getDisplayText());
             setWrapText(true);
+            getStyleClass().removeAll("status-error", "status-warning");
             switch (item.severity()) {
-                case FATAL, ERROR -> setStyle("-fx-text-fill: #b00020;");
-                case WARNING -> setStyle("-fx-text-fill: #8a6d00;");
-                case INFORMATION -> setStyle("");
+                case FATAL, ERROR -> getStyleClass().add("status-error");
+                case WARNING -> getStyleClass().add("status-warning");
+                case INFORMATION -> { }
             }
         }
     }

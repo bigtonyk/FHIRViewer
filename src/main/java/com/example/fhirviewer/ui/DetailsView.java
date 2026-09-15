@@ -1,6 +1,5 @@
 package com.example.fhirviewer.ui;
 
-import javafx.geometry.Insets;
 import javafx.scene.control.Label;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
@@ -25,8 +24,8 @@ public class DetailsView extends VBox {
     private final Label definitionValue = newValueLabel();
 
     public DetailsView() {
+        getStyleClass().add("card");
         setSpacing(10);
-        setPadding(new Insets(12));
 
         GridPane grid = new GridPane();
         grid.setHgap(12);
@@ -97,7 +96,7 @@ public class DetailsView extends VBox {
 
     private static void addRow(GridPane grid, int row, String labelText, Label value) {
         Label label = new Label(labelText);
-        label.setStyle("-fx-font-weight: bold;");
+        label.getStyleClass().add("pretty-row-label");
         grid.add(label, 0, row);
         grid.add(value, 1, row);
     }

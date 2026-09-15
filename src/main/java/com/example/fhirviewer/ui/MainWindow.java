@@ -11,6 +11,7 @@ import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
 
 import com.example.fhirviewer.model.BundleEntryInfo;
+import com.example.fhirviewer.model.ElementInfo;
 import com.example.fhirviewer.model.LoadedResource;
 import com.example.fhirviewer.model.ResourceFormat;
 import com.example.fhirviewer.model.ResourceNode;
@@ -24,6 +25,7 @@ import javafx.scene.Parent;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckMenuItem;
+import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
 import javafx.scene.control.MenuItem;
@@ -33,9 +35,14 @@ import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
+import javafx.scene.control.TextField;
 import javafx.scene.control.ToolBar;
+import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
@@ -68,12 +75,18 @@ public class MainWindow {
     private final TabPane documentTabs = new TabPane();
     private final Tab treeTab = new Tab("Resource Tree");
     private final Tab bundleTab = new Tab("Bundle");
+    private final PrettyView prettyView = new PrettyView();
+    private final Tab prettyTab = new Tab("Pretty");
     private final Tab detailsTab = new Tab("Details");
     private final Tab jsonTab = new Tab("JSON");
     private final Tab xmlTab = new Tab("XML");
 
     private final CheckMenuItem showUnpopulated =
             new CheckMenuItem("Show elements that are not populated");
+
+    private final TextField treeSearchField = new TextField();
+    private final Button themeToggle = new Button("◐ Dark theme");
+    private final ThemeManager themeManager = new ThemeManager();
 
     /** The resource loaded from a file or sample. */
     private LoadedResource loadedResource;
@@ -102,21 +115,65 @@ public class MainWindow {
         bundleTab.setClosable(false);
         structureTabs.getTabs().addAll(treeTab, bundleTab);
 
+        prettyTab.setContent(prettyView);
+        prettyTab.setClosable(false);
         detailsTab.setContent(new ScrollPane(detailsView));
         detailsTab.setClosable(false);
         jsonTab.setContent(jsonView);
         jsonTab.setClosable(false);
         xmlTab.setContent(xmlView);
         xmlTab.setClosable(false);
-        documentTabs.getTabs().addAll(detailsTab, jsonTab, xmlTab);
-        documentTabs.getSelectionModel().select(detailsTab);
+        documentTabs.getTabs().addAll(prettyTab, detailsTab, jsonTab, xmlTab);
+        documentTabs.getSelectionModel().select(prettyTab);
 
         SplitPane splitPane = new SplitPane(structureTabs, documentTabs);
         splitPane.setDividerPositions(0.38);
+        structureTabs.getStyleClass().add("sidebar");
 
-        root.setTop(new VBox(buildMenuBar(), buildToolBar()));
-        root.setCenter(splitPane);
+        root.setTop(new VBox(buildMenuBar(), buildHeaderBar(), buildToolBar()));
+
+        StackPane contentArea = new StackPane(splitPane);
+        contentArea.getStyleClass().add("content-area");
+        root.setCenter(contentArea);
         root.setBottom(statusView);
+    }
+
+    /**
+     * The application header bar: application name, tree search field, and the
+     * theme toggle on the right — the modern shell of the window.
+     */
+    private HBox buildHeaderBar() {
+        Label logo = new Label();
+        logo.getStyleClass().add("app-logo");
+
+        Label appTitle = new Label("FHIR Viewer");
+        appTitle.getStyleClass().add("app-title");
+
+        treeSearchField.setPromptText("Search resource tree...");
+        treeSearchField.getStyleClass().add("search-field");
+        treeSearchField.setTooltip(new Tooltip("Filter the resource tree (case insensitive substring)."));
+        treeSearchField.textProperty().addListener((observable, previous, text) -> treeView.applyFilter(text));
+
+        Button openButton = new Button("Open");
+        openButton.getStyleClass().add("button-primary");
+        openButton.setOnAction(event -> openFile());
+        Button validateButton = new Button("Validate");
+        validateButton.getStyleClass().add("button-ghost");
+        validateButton.setOnAction(event -> validateDisplayedResource());
+
+        HBox leftActions = new HBox(8, openButton, validateButton);
+        leftActions.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        themeToggle.getStyleClass().add("button-ghost");
+        themeToggle.setTooltip(new Tooltip("Switch between the light and the dark theme."));
+        themeToggle.setOnAction(event -> toggleTheme());
+
+        HBox header = new HBox(14, logo, appTitle, leftActions, treeSearchField, themeToggle);
+        header.getStyleClass().add("header-bar");
+        header.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        HBox.setHgrow(treeSearchField, Priority.ALWAYS);
+        treeSearchField.setMaxWidth(340);
+        return header;
     }
 
     private MenuBar buildMenuBar() {
@@ -161,6 +218,8 @@ public class MainWindow {
         showTree.setOnAction(event -> structureTabs.getSelectionModel().select(treeTab));
         MenuItem showBundle = new MenuItem("Bundle Navigator");
         showBundle.setOnAction(event -> structureTabs.getSelectionModel().select(bundleTab));
+        MenuItem showPretty = new MenuItem("Pretty");
+        showPretty.setOnAction(event -> documentTabs.getSelectionModel().select(prettyTab));
         MenuItem showDetails = new MenuItem("Details");
         showDetails.setOnAction(event -> documentTabs.getSelectionModel().select(detailsTab));
         MenuItem showJson = new MenuItem("JSON");
@@ -179,6 +238,7 @@ public class MainWindow {
                 showTree,
                 showBundle,
                 new SeparatorMenuItem(),
+                showPretty,
                 showDetails,
                 showJson,
                 showXml,
@@ -204,24 +264,75 @@ public class MainWindow {
     }
 
     private ToolBar buildToolBar() {
-        Button openButton = new Button("Open");
-        openButton.setOnAction(event -> openFile());
-
-        Button validateButton = new Button("Validate");
-        validateButton.setOnAction(event -> validateDisplayedResource());
-
         Button expandButton = new Button("Expand All");
+        expandButton.getStyleClass().add("button-ghost");
         expandButton.setOnAction(event -> treeView.expandAll());
 
         Button collapseButton = new Button("Collapse All");
+        collapseButton.getStyleClass().add("button-ghost");
         collapseButton.setOnAction(event -> treeView.collapseAll());
 
-        return new ToolBar(openButton, validateButton, new Separator(), expandButton, collapseButton);
+        return new ToolBar(expandButton, collapseButton);
     }
 
     private void wireInteractions() {
         treeView.setOnNodeSelected(detailsView::show);
+        treeView.setOnReferenceActivated(this::navigateToReference);
         bundleView.setOnEntrySelected(this::displayBundleEntry);
+    }
+
+    /**
+     * Navigates a double clicked tree element when it is a FHIR Reference whose
+     * target exists in the loaded data set: the matching Bundle entry is shown.
+     */
+    private void navigateToReference(ResourceNode node) {
+        if (node == null
+                || node.getElementInfo().getKind() != ElementInfo.Kind.REFERENCE
+                || loadedResource == null || !loadedResource.isBundle()) {
+            return;
+        }
+        String target = referenceTarget(node.getValueText());
+        if (target == null) {
+            return;
+        }
+        for (BundleEntryInfo entry : flattenEntries(fhirService.bundleEntries(loadedResource.getResource()))) {
+            if (target.equalsIgnoreCase(entry.displayName())) {
+                displayBundleEntry(entry);
+                return;
+            }
+        }
+        setStatus("The referenced resource " + target + " is not part of the loaded Bundle.");
+    }
+
+    /** Extracts <code>Type/id</code> from a rendered reference value. */
+    private static String referenceTarget(String valueText) {
+        if (valueText == null || valueText.isBlank()) {
+            return null;
+        }
+        java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("([A-Za-z]+/[A-Za-z0-9\\-.]{1,64})").matcher(valueText);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    /** All entries of the Bundle, including nested Bundle-in-Bundle entries. */
+    private static List<BundleEntryInfo> flattenEntries(List<BundleEntryInfo> entries) {
+        List<BundleEntryInfo> all = new java.util.ArrayList<>();
+        for (BundleEntryInfo entry : entries) {
+            all.add(entry);
+            all.addAll(flattenEntries(entry.childEntries()));
+        }
+        return all;
+    }
+
+    /** Switches between the light and the dark theme. */
+    private void toggleTheme() {
+        if (stage.getScene() == null) {
+            return;
+        }
+        themeManager.apply(stage.getScene(),
+                themeManager.isDark() ? ThemeManager.Theme.LIGHT : ThemeManager.Theme.DARK);
+        themeToggle.setText(themeManager.isDark() ? "☀ Light theme" : "◐ Dark theme");
+        setStatus("Theme switched to " + (themeManager.isDark() ? "dark" : "light") + ".");
     }
 
     // ------------------------------------------------------------------
@@ -290,7 +401,7 @@ public class MainWindow {
         statusView.clearValidation();
         updateBundleView();
 
-        documentTabs.getSelectionModel().select(detailsTab);
+        documentTabs.getSelectionModel().select(prettyTab);
         structureTabs.getSelectionModel().select(treeTab);
 
         setStatus("Loaded " + resource.getSourceName()
@@ -338,7 +449,7 @@ public class MainWindow {
         treeView.show(fhirService.buildTree(entry, showUnpopulated.isSelected()));
         updateDocumentViews();
         detailsView.showNothingSelected();
-        documentTabs.getSelectionModel().select(detailsTab);
+        documentTabs.getSelectionModel().select(prettyTab);
         setStatus("Showing Bundle entry [" + entry.index() + "] " + entry.displayName());
         updateWindowTitle();
     }
@@ -354,10 +465,14 @@ public class MainWindow {
 
     private void updateDocumentViews() {
         if (displayedResource == null) {
+            prettyView.showNothing();
             jsonView.showNothing();
             xmlView.showNothing();
             return;
         }
+        prettyView.show(displayedEntry == null
+                ? fhirService.buildPrettyView(loadedResource)
+                : fhirService.buildPrettyView(displayedEntry));
         jsonView.show(fhirService.toJson(displayedResource));
         xmlView.show(fhirService.toXml(displayedResource));
     }
@@ -424,6 +539,7 @@ public class MainWindow {
         displayedEntry = null;
         displayedLabel = "";
         treeView.show(null);
+        prettyView.showNothing();
         jsonView.showNothing();
         xmlView.showNothing();
         detailsView.showNothingSelected();

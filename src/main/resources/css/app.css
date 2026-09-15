@@ -1,0 +1,521 @@
+/*
+ * Application stylesheet.
+ *
+ * Everything is written against the design tokens defined in light.css /
+ * dark.css (looked-up colors on .root), so this file never hardcodes a theme
+ * color. The base control look comes from AtlantaFX, applied as the user
+ * agent stylesheet by ThemeManager; the rules below shape the application
+ * layout, cards, buttons, tabs, trees, lists and scrollbars on top of it.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Menu bar, menus, toolbar                                            */
+/* ------------------------------------------------------------------ */
+
+.menu-bar {
+    -fx-background-color: -surface;
+    -fx-border-color: transparent transparent -border transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0 6 0 6;
+}
+
+.menu-bar .menu {
+    -fx-padding: 5 10 5 10;
+    -fx-background-radius: 6;
+}
+
+.menu-bar .menu:hover,
+.menu-bar .menu:showing {
+    -fx-background-color: -accent-soft;
+}
+
+.menu-item {
+    -fx-padding: 5 12 5 12;
+}
+
+.menu-item:focused {
+    -fx-background-color: -accent-soft;
+}
+
+.tool-bar {
+    -fx-background-color: -surface;
+    -fx-padding: 6 12 6 12;
+    -fx-spacing: 6;
+    -fx-border-color: transparent transparent -border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Content area: tinted background, transparent dividers               */
+/* ------------------------------------------------------------------ */
+
+.content-area {
+    -fx-background-color: -app-bg;
+    -fx-padding: 8;
+}
+
+.split-pane {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.split-pane > .split-pane-divider {
+    -fx-background-color: transparent;
+    -fx-padding: 0 3 0 3;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tabs: flat, pill style, elevated selection                          */
+/* ------------------------------------------------------------------ */
+
+.tab-pane {
+    -fx-background-color: transparent;
+}
+
+.tab-pane > .tab-header-area {
+    -fx-background-color: transparent;
+    -fx-padding: 6 8 0 8;
+}
+
+.tab-pane > .tab-header-area .tab-header-background {
+    -fx-background-color: transparent;
+}
+
+.tab {
+    -fx-background-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 5 14 5 14;
+    -fx-background-radius: 8;
+    -fx-cursor: hand;
+}
+
+.tab .tab-label {
+    -fx-text-fill: -text-muted;
+    -fx-font-weight: normal;
+}
+
+.tab:hover .tab-label {
+    -fx-text-fill: -text-strong;
+}
+
+.tab:selected {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(gaussian, rgba(13, 20, 30, 0.12), 3, 0.1, 0, 1);
+}
+
+.tab:selected .tab-label {
+    -fx-text-fill: -accent-strong;
+    -fx-font-weight: bold;
+}
+
+.tab:selected .focus-indicator {
+    -fx-border-width: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* JSON / XML code views                                               */
+/* ------------------------------------------------------------------ */
+
+.code-view {
+    -fx-spacing: 0;
+    -fx-padding: 0;
+}
+
+.code-toolbar {
+    -fx-padding: 8 10 8 10;
+    -fx-spacing: 8;
+    -fx-border-color: transparent transparent -border transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-background-color: transparent;
+}
+
+.code-area, .text-area {
+    -fx-background-color: -surface;
+    -fx-border-width: 0;
+    -fx-background-insets: 0;
+}
+
+.text-area .content {
+    -fx-background-color: -surface;
+}
+
+.text-area:focused {
+    -fx-background-color: -surface;
+    -fx-border-width: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Status bar and validation pane                                      */
+/* ------------------------------------------------------------------ */
+
+.status-bar {
+    -fx-padding: 7 16 7 16;
+    -fx-background-color: -surface;
+    -fx-border-color: -border transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
+.status-bar > .label {
+    -fx-text-fill: -text-muted;
+}
+
+.status-error {
+    -fx-text-fill: -danger;
+}
+
+.status-warning {
+    -fx-text-fill: -warning;
+}
+
+.titled-pane {
+    -fx-text-fill: -text-strong;
+}
+
+.titled-pane > .title {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent -border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.titled-pane > .title > .text {
+    -fx-fill: -text-strong;
+}
+
+/* ------------------------------------------------------------------ */
+/* Scroll bars: slim, rounded, unobtrusive                             */
+/* ------------------------------------------------------------------ */
+
+.scroll-bar {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar:vertical {
+    -fx-pref-width: 10;
+}
+
+.scroll-bar:horizontal {
+    -fx-pref-height: 10;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: -border-strong;
+    -fx-background-radius: 999;
+    -fx-background-insets: 2;
+}
+
+.scroll-bar .thumb:hover {
+    -fx-background-color: -text-muted;
+}
+
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 1;
+}
+
+.scroll-bar .increment-arrow,
+.scroll-bar .decrement-arrow {
+    -fx-shape: null;
+    -fx-background-color: transparent;
+}
+
+.scroll-pane {
+    -fx-background-color: transparent;
+}
+
+.scroll-pane .viewport {
+    -fx-background-color: transparent;
+}
+
+.virtual-flow .clipped-container {
+    -fx-background-color: transparent;
+}
+
+
+.tree-view, .list-view {
+    -fx-background-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 4;
+}
+
+.tree-view .tree-cell, .list-view .list-cell {
+    -fx-background-color: transparent;
+    -fx-padding: 4 8 4 8;
+    -fx-background-radius: 6;
+    -fx-text-fill: -text-strong;
+    -fx-cursor: hand;
+}
+
+.tree-view .tree-cell:odd, .list-view .list-cell:odd {
+    -fx-background-color: transparent;
+}
+
+.tree-view .tree-cell:selected, .list-view .list-cell:selected {
+    -fx-background-color: -accent-soft;
+    -fx-text-fill: -accent-strong;
+    -fx-font-weight: bold;
+}
+
+.tree-view .tree-cell:hover, .list-view .list-cell:hover {
+    -fx-background-color: -surface-alt;
+}
+
+.tree-view .tree-cell:selected:hover, .list-view .list-cell:selected:hover {
+    -fx-background-color: -accent-soft;
+}
+
+.tree-view .tree-disclosure-node {
+    -fx-cursor: hand;
+}
+
+/* ------------------------------------------------------------------ */
+/* Cards and panels                                                    */
+/* ------------------------------------------------------------------ */
+
+.card {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+    -fx-padding: 14;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(gaussian, rgba(13, 20, 30, 0.08), 5, 0.15, 0, 2);
+}
+
+/* ------------------------------------------------------------------ */
+/* Pretty View                                                         */
+/* ------------------------------------------------------------------ */
+
+.pretty-view {
+    -fx-background-color: transparent;
+    -fx-padding: 4;
+}
+
+.pretty-content {
+    -fx-padding: 8 12 20 12;
+    -fx-spacing: 12;
+}
+
+.pretty-header {
+    -fx-spacing: 6;
+    -fx-padding: 4 0 4 0;
+}
+
+.pretty-header-title {
+    -fx-font-size: 21px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-strong;
+}
+
+.pretty-empty {
+    -fx-text-fill: -text-muted;
+    -fx-padding: 32;
+    -fx-alignment: center;
+    -fx-font-size: 14px;
+}
+
+.pretty-section {
+    -fx-spacing: 6;
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 10 14 12 14;
+    -fx-effect: dropshadow(gaussian, rgba(13, 20, 30, 0.07), 4, 0.1, 0, 1);
+}
+
+.pretty-section-nested {
+    -fx-border-color: transparent transparent transparent -accent;
+    -fx-border-width: 0 0 0 2.5;
+    -fx-background-radius: 0 6 6 0;
+    -fx-border-radius: 0 6 6 0;
+    -fx-background-color: -surface-alt;
+    -fx-border-insets: 2 0 2 2;
+    -fx-padding: 8 10 8 12;
+}
+
+.pretty-section-title {
+    -fx-font-weight: bold;
+    -fx-font-size: 13.5px;
+    -fx-text-fill: -accent-strong;
+}
+
+.pretty-row-label {
+    -fx-text-fill: -text-muted;
+}
+
+.pretty-row-value {
+    -fx-wrap-text: true;
+    -fx-text-fill: -text-strong;
+}
+
+.sidebar > .tab-header-area .tab {
+    -fx-padding: 4 12 4 12;
+}
+
+.sidebar > .tab-header-area .tab:selected {
+    -fx-background-color: -accent-soft;
+    -fx-border-color: -accent;
+    -fx-border-width: 1;
+}
+
+.sidebar > .tab-header-area .tab:selected .tab-label {
+    -fx-text-fill: -accent-strong;
+}
+
+/* Sidebar and document panes float as cards on the tinted background */
+.sidebar > .tab-content-area,
+.tab-pane > .tab-content-area {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+}
+
+.sidebar {
+    -fx-background-color: transparent;
+}
+
+
+.root {
+    -fx-font-size: 13px;
+    -fx-font-family: "Segoe UI", "SF Pro Text", "Inter", "System", sans-serif;
+    -fx-text-fill: -text-strong;
+}
+
+.mono-text {
+    -fx-font-family: "Cascadia Code", "Consolas", "Menlo", "DejaVu Sans Mono", monospace;
+    -fx-font-size: 12.5px;
+}
+
+.label {
+    -fx-text-fill: -text-strong;
+}
+
+/* ------------------------------------------------------------------ */
+/* Header bar (application shell)                                      */
+/* ------------------------------------------------------------------ */
+
+.header-bar {
+    -fx-padding: 10 16 10 16;
+    -fx-spacing: 14;
+    -fx-alignment: center-left;
+    -fx-background-color: -surface;
+    -fx-border-color: transparent transparent -border transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-effect: dropshadow(gaussian, rgba(13, 20, 30, 0.10), 4, 0.2, 0, 1);
+}
+
+.app-logo {
+    -fx-min-width: 22;
+    -fx-min-height: 22;
+    -fx-max-width: 22;
+    -fx-max-height: 22;
+    -fx-background-color: -accent;
+    -fx-background-radius: 7;
+    -fx-border-radius: 7;
+    -fx-effect: dropshadow(gaussian, -accent, 6, 0.35, 0, 1);
+}
+
+.app-title {
+    -fx-font-size: 15.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-strong;
+}
+
+.app-subtitle {
+    -fx-text-fill: -text-muted;
+}
+
+.search-field {
+    -fx-pref-width: 300;
+    -fx-max-width: 340;
+    -fx-background-color: -surface-alt;
+    -fx-background-radius: 999;
+    -fx-background-insets: 0;
+    -fx-border-radius: 999;
+    -fx-border-color: -border;
+    -fx-border-width: 1;
+    -fx-padding: 2 12 2 12;
+}
+
+.search-field:focused {
+    -fx-border-color: -accent;
+    -fx-background-color: -surface;
+}
+
+/* ------------------------------------------------------------------ */
+/* Buttons: primary, ghost, flat icon                                  */
+/* ------------------------------------------------------------------ */
+
+.button {
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-padding: 5 14 5 14;
+    -fx-cursor: hand;
+    -fx-background-color: -surface;
+    -fx-border-color: -border-strong;
+    -fx-border-width: 1;
+    -fx-text-fill: -text-strong;
+}
+
+.button:hover {
+    -fx-background-color: -surface-alt;
+    -fx-border-color: -accent;
+}
+
+.button:pressed {
+    -fx-background-color: -border;
+}
+
+.button-primary {
+    -fx-background-color: -accent;
+    -fx-border-color: -accent;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, -accent, 6, 0.25, 0, 2);
+}
+
+.button-primary:hover {
+    -fx-background-color: -accent-strong;
+    -fx-border-color: -accent-strong;
+}
+
+.button-primary:pressed {
+    -fx-background-color: -accent;
+}
+
+.button-ghost {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-text-fill: -text-muted;
+    -fx-font-weight: normal;
+}
+
+.button-ghost:hover {
+    -fx-background-color: -accent-soft;
+    -fx-border-color: transparent;
+    -fx-text-fill: -accent-strong;
+}
+
+.button-ghost:pressed {
+    -fx-background-color: -accent-soft;
+}
+
+.button-icon,
+.flat {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-text-fill: -accent;
+    -fx-padding: 4 10 4 10;
+}
+
+.button-icon:hover,
+.flat:hover {
+    -fx-background-color: -accent-soft;
+    -fx-border-color: transparent;
+}

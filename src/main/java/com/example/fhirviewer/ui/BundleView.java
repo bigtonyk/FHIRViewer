@@ -116,7 +116,10 @@ public class BundleView extends VBox {
                 return;
             }
             setText(item.getDisplayText());
-            setStyle(item.hasResource() ? "" : "-fx-text-fill: #777777;");
+            getStyleClass().remove("app-subtitle");
+            if (!item.hasResource()) {
+                getStyleClass().add("app-subtitle");
+            }
         }
     }
 }

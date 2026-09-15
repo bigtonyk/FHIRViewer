@@ -56,6 +56,16 @@
       <version>${javafx.version}</version>
     </dependency>
 
+    <!--
+      Modern theme library for JavaFX. Provides the base look (Primer Light/Dark);
+      application specific styling lives in src/main/resources/css/.
+    -->
+    <dependency>
+      <groupId>io.github.mkpaz</groupId>
+      <artifactId>atlantafx-base</artifactId>
+      <version>2.1.0</version>
+    </dependency>
+
     <!-- ==================== FHIR: HAPI FHIR (R4) ==================== -->
     <dependency>
       <groupId>ca.uhn.hapi.fhir</groupId>

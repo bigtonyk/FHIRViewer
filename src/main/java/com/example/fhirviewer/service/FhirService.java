@@ -15,6 +15,8 @@ import com.example.fhirviewer.model.LoadedResource;
 import com.example.fhirviewer.model.ResourceFormat;
 import com.example.fhirviewer.model.ResourceNode;
 import com.example.fhirviewer.model.ValidationReport;
+import com.example.fhirviewer.pretty.PrettyDocument;
+import com.example.fhirviewer.pretty.PrettyModelBuilder;
 
 import ca.uhn.fhir.context.FhirContext;
 
@@ -35,6 +37,7 @@ public class FhirService {
     private final ResourceSerializer serializer;
     private final ResourceLoader loader;
     private final ResourceTreeBuilder treeBuilder;
+    private final PrettyModelBuilder prettyBuilder;
     private final ValidationService validationService;
 
     /** Creates a service for the default (R4) FHIR version. */
@@ -51,6 +54,7 @@ public class FhirService {
         this.serializer = new ResourceSerializer(context);
         this.loader = new ResourceLoader(new ResourceParser(context));
         this.treeBuilder = new ResourceTreeBuilder(modelAdapter);
+        this.prettyBuilder = new PrettyModelBuilder(modelAdapter);
         this.validationService = new ValidationService(context);
     }
 
@@ -88,6 +92,23 @@ public class FhirService {
             throw new ResourceLoadException("Bundle entry " + entry.index() + " does not contain a resource.", null);
         }
         return treeBuilder.build(resource, entry.displayName(), null, includeUnpopulated);
+    }
+
+    /**
+     * Builds the human friendly presentation model of a loaded resource for the
+     * Pretty View.
+     */
+    public PrettyDocument buildPrettyView(LoadedResource loaded) {
+        return prettyBuilder.build(loaded.getResource());
+    }
+
+    /** Builds the human friendly presentation model of one Bundle entry for the Pretty View. */
+    public PrettyDocument buildPrettyView(BundleEntryInfo entry) {
+        IBaseResource resource = entry.resource();
+        if (resource == null) {
+            throw new ResourceLoadException("Bundle entry " + entry.index() + " does not contain a resource.", null);
+        }
+        return prettyBuilder.build(resource);
     }
 
     /** Renders a resource as pretty printed JSON. */

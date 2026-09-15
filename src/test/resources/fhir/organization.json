@@ -1,0 +1,68 @@
+{
+  "resourceType": "Organization",
+  "id": "org-1",
+  "identifier": [
+    {
+      "system": "http://hospital.example.org/org-id",
+      "value": "ORG-001"
+    },
+    {
+      "system": "http://hl7.org/fhir/sid/us-npi",
+      "value": "1234567890"
+    }
+  ],
+  "active": true,
+  "name": "Springfield General Hospital",
+  "telecom": [
+    {
+      "system": "phone",
+      "value": "+1-555-0100",
+      "use": "work"
+    },
+    {
+      "system": "email",
+      "value": "info@example.org"
+    }
+  ],
+  "address": [
+    {
+      "use": "work",
+      "line": [
+        "100 Main Street"
+      ],
+      "city": "Springfield",
+      "state": "IL",
+      "postalCode": "62701"
+    },
+    {
+      "city": "Shelbyville",
+      "state": "IL"
+    }
+  ],
+  "contact": [
+    {
+      "purpose": {
+        "coding": [
+          {
+            "system": "http://terminology.hl7.org/CodeSystem/v2-0131",
+            "code": "ADMIN",
+            "display": "Administration"
+          }
+        ]
+      },
+      "name": {
+        "family": "Grey",
+        "given": [
+          "Alice"
+        ]
+      },
+      "telecom": [
+        {
+          "system": "phone",
+          "value": "+1-555-0111",
+          "use": "work"
+        }
+      ]
+    }
+  ]
+}

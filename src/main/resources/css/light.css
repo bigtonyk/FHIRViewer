@@ -1,0 +1,26 @@
+/*
+ * Light theme: design tokens used by /css/app.css.
+ *
+ * All application colors are looked-up colors defined here on .root, so the
+ * dark theme is only a matter of different token values (see dark.css).
+ * The base control look comes from AtlantaFX (Primer Light), applied as the
+ * user agent stylesheet by ThemeManager.
+ */
+
+.root {
+    -fx-background-color: -app-bg;
+
+    -app-bg: #eef1f5;
+    -surface: #ffffff;
+    -surface-alt: #f3f5f8;
+    -border: #dfe4ea;
+    -border-strong: #c7cfd8;
+    -text-strong: #1b2430;
+    -text-muted: #67737f;
+    -accent: #2563eb;
+    -accent-strong: #1d4ed8;
+    -accent-soft: #e4edfd;
+    -success: #1a7f37;
+    -warning: #9a6700;
+    -danger: #d1242f;
+}

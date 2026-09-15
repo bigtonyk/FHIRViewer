@@ -1,0 +1,176 @@
+Modernize the UI of my existing FHIR Viewer application.
+
+The application is a cross-platform desktop application built with:
+
+* Java
+* JavaFX
+* Maven
+* HAPI FHIR
+
+Do NOT replace JavaFX.
+Do NOT migrate to another UI framework.
+Do NOT rewrite the application's FHIR/HAPI architecture.
+Do NOT change existing functionality unless necessary to support the new UI.
+
+The goal is to make the application look like a modern professional developer/healthcare application rather than a traditional/default JavaFX application.
+
+### Overall Design
+
+Create a clean, modern desktop UI with:
+
+* A professional application shell
+* Left navigation/sidebar
+* Modern top toolbar
+* Clean content area
+* Consistent spacing and padding
+* Modern typography
+* Rounded panels/cards where appropriate
+* Subtle borders
+* Modern buttons and controls
+* Improved tables and lists
+* Modern scrollbars
+* Clear visual hierarchy
+* Professional light theme
+* Architecture that allows a dark theme to be added later
+
+Avoid excessive decoration. The application should feel like a professional developer tool, not a web page.
+
+### Application Layout
+
+Use a structure similar to:
+
+---
+
+## | FHIR Viewer     Search...                     Settings    |
+
+|              |                                             |
+| Resources    |                                             |
+|              | Patient                                     |
+| Patients     |                                             |
+| Encounters   | [Pretty View] [JSON] [Tree] [References]    |
+| Conditions   |                                             |
+| Observations |                                             |
+| Medications  |                                             |
+| Diagnostic   |                                             |
+|              |                                             |
+|              | Resource content                             |
+|              |                                             |
+--------------------------------------------------------------
+
+The exact layout can be improved if the existing application structure suggests something better.
+
+### Pretty View
+
+The Pretty View should be a major feature.
+
+Instead of displaying raw JSON, render FHIR resources as readable information organized into sections.
+
+For example, a Patient should have sections such as:
+
+* Patient name
+* Demographics
+* Identifiers
+* Contact information
+* Address
+* Telecom
+* Managing organization
+* General practitioners
+* Links/references
+* Extensions when present
+
+Use cards/panels and labeled fields where appropriate.
+
+The Pretty View must be generated dynamically from the FHIR resource rather than hard-coded for a single example.
+
+Design the architecture so additional FHIR resource types can have specialized renderers later.
+
+### JSON View
+
+Keep a raw JSON view.
+
+Improve its presentation with:
+
+* Monospaced font
+* Syntax highlighting if practical
+* Proper indentation
+* Line numbers if practical
+* Copy button
+* Format/prettify button
+
+### Tree View
+
+Provide a tree representation of the FHIR resource where appropriate.
+
+For example:
+
+Patient
+├── resourceType
+├── id
+├── meta
+├── identifier
+│    ├── use
+│    ├── system
+│    └── value
+├── name
+│    ├── family
+│    └── given
+└── telecom
+
+### References
+
+Make FHIR references visually useful.
+
+References such as:
+
+Patient/123
+Organization/456
+Practitioner/789
+
+should be displayed as navigable references where possible.
+
+If the referenced resource exists in the current data set, allow the user to select/click it and navigate to that resource.
+
+### JavaFX CSS
+
+Use a dedicated CSS architecture rather than embedding styling throughout Java code.
+
+For example:
+
+src/main/resources/
+css/
+app.css
+light.css
+dark.css
+
+Use CSS classes consistently.
+
+Avoid inline JavaFX styling unless there is a compelling reason.
+
+### Theme
+
+Use a modern JavaFX theme/library if appropriate, such as AtlantaFX, provided that it integrates cleanly with the existing Maven project.
+
+Do not introduce unnecessary dependencies.
+
+If AtlantaFX is used, configure it cleanly through Maven and keep application-specific styling in our own CSS.
+
+### Important
+
+Before modifying code:
+
+1. Examine the existing project structure.
+2. Identify the current JavaFX entry point.
+3. Identify the existing FXML, JavaFX controllers, CSS, and views.
+4. Identify how FHIR resources currently reach the UI.
+5. Identify the current resource-selection/navigation mechanism.
+6. Identify the existing JSON display implementation.
+
+Then propose the UI changes before making major architectural changes.
+
+Preserve existing functionality.
+
+Make incremental changes so the application remains buildable and runnable throughout the process.
+
+Do not create a completely new application beside the existing one.
+
+The final result should look like a modern 2026 desktop developer application while remaining a native JavaFX application.

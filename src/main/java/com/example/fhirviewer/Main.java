@@ -3,6 +3,7 @@ package com.example.fhirviewer;
 import java.util.List;
 
 import com.example.fhirviewer.ui.MainWindow;
+import com.example.fhirviewer.ui.ThemeManager;
 
 import javafx.application.Application;
 import javafx.scene.Scene;
@@ -29,6 +30,7 @@ public class Main extends Application {
         MainWindow mainWindow = new MainWindow(stage);
 
         Scene scene = new Scene(mainWindow.getRoot(), INITIAL_WIDTH, INITIAL_HEIGHT);
+        new ThemeManager().apply(scene, ThemeManager.Theme.LIGHT);
         stage.setTitle("FHIR Resource Viewer");
         stage.setScene(scene);
         stage.setMinWidth(MINIMUM_WIDTH);
