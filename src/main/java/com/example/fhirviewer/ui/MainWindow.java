@@ -276,7 +276,12 @@ public class MainWindow {
     }
 
     private void wireInteractions() {
-        treeView.setOnNodeSelected(detailsView::show);
+        treeView.setOnNodeSelected(node -> {
+            detailsView.show(node);
+            prettyView.scrollToElement(node);
+            jsonView.scrollToElement(node);
+            xmlView.scrollToElement(node);
+        });
         treeView.setOnReferenceActivated(this::navigateToReference);
         bundleView.setOnEntrySelected(this::displayBundleEntry);
     }

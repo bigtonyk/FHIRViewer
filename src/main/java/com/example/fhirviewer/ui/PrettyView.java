@@ -1,5 +1,6 @@
 package com.example.fhirviewer.ui;
 
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
@@ -9,6 +10,7 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
+import com.example.fhirviewer.model.ResourceNode;
 import com.example.fhirviewer.pretty.PrettyBlock;
 import com.example.fhirviewer.pretty.PrettyDocument;
 import com.example.fhirviewer.pretty.PrettyRow;
@@ -21,7 +23,7 @@ import com.example.fhirviewer.pretty.PrettyRow;
  * knows how to lay out sections, rows and nested blocks. All styling comes
  * from <code>/css/app.css</code> (classes <code>pretty-*</code>).</p>
  */
-public class PrettyView extends ScrollPane {
+public class PrettyView extends ScrollPane implements ElementNavigationTarget {
 
     private static final String EMPTY_MESSAGE = "Open a FHIR resource to see it here.";
 
@@ -30,7 +32,10 @@ public class PrettyView extends ScrollPane {
     public PrettyView() {
         content.getStyleClass().add("pretty-content");
         setContent(content);
-        setFitToWidth(true);
+        setFitToWidth(false);  // Allow horizontal scrolling for long content
+        setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);  // Allow the ScrollPane to grow
         getStyleClass().add("pretty-view");
         showNothing();
     }
@@ -127,5 +132,50 @@ public class PrettyView extends ScrollPane {
         label.setWrapText(true);
         label.getStyleClass().add("pretty-row-value");
         return label;
+    }
+
+    @Override
+    public void scrollToElement(ResourceNode node) {
+        if (node == null || node.getElementInfo().getName() == null) {
+            return;
+        }
+        String name = node.getElementInfo().getName();
+        
+        Platform.runLater(() -> {
+            // Find the label with matching text
+            for (Node child : content.getChildren()) {
+                if (child instanceof Label label) {
+                    if (label.getText() != null && label.getText().contains(name)) {
+                        // Scroll this label into view by setting the vvalue
+                        double targetY = label.getBoundsInParent().getMinY();
+                        double viewportHeight = getViewportBounds().getHeight();
+                        double contentHeight = content.getBoundsInParent().getHeight();
+                        
+                        if (contentHeight > viewportHeight) {
+                            double v = Math.max(0, Math.min(targetY / (contentHeight - viewportHeight), 1.0));
+                            setVvalue(v);
+                        }
+                        return;
+                    }
+                }
+                // Also check nested containers
+                if (child instanceof GridPane grid) {
+                    for (Node gridChild : grid.getChildren()) {
+                        if (gridChild instanceof Label gridLabel && 
+                            gridLabel.getText() != null && gridLabel.getText().contains(name)) {
+                            double targetY = gridLabel.getBoundsInParent().getMinY();
+                            double viewportHeight = getViewportBounds().getHeight();
+                            double contentHeight = content.getBoundsInParent().getHeight();
+                            
+                            if (contentHeight > viewportHeight) {
+                                double v = Math.max(0, Math.min(targetY / (contentHeight - viewportHeight), 1.0));
+                                setVvalue(v);
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+        });
     }
 }

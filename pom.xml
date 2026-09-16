@@ -164,7 +164,7 @@
         <version>${javafx-maven-plugin.version}</version>
         <configuration>
           <mainClass>${main.class}</mainClass>
-          <commandlineArgs>${javafx.args}</commandlineArgs>
+          <commandlineArgs>--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED</commandlineArgs>
         </configuration>
       </plugin>
 

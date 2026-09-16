@@ -199,7 +199,27 @@ Encounter, Organization, Bundles, contained resources and extensions:
 When a datatype has no friendly rendering its primitive value text is shown directly,
 so no value is ever silently dropped.
 
+## App UI and navigation
+
+The window is a modern desktop shell: a header bar with the application name,
+Open/Validate actions, a tree search field, a theme toggle and a menu bar. The
+left sidebar holds the resource tree and the Bundle navigator; the right pane
+holds the document tabs (Pretty, Details, JSON, XML); a status bar shows the
+validation messages at the bottom.
+
+- **Select → jump:** clicking a node in the resource tree now scrolls the open
+  document tab (Pretty, JSON and XML) to the corresponding section or line and
+  highlights it. Double-clicking a `Reference` in the tree navigates to the
+  referenced resource when it is present in the loaded Bundle.
+- **Themes:** the look is provided by the AtlantaFX Primer theme plus the
+  application stylesheets `src/main/resources/css/app.css` (tokens in
+  `light.css` / `dark.css`). Click the **◐ / ☀** button in the header to switch
+  between the light and the dark theme; the architecture supports adding more
+  themes later without touching the Java code.
+- **JSON view:** the JSON tab is a card with Copy and Format buttons.
+
 ## Packaging (Phase 7)
+
 
 `mvn package` copies all runtime dependencies into `target/lib`, which makes packaging
 with jpackage straightforward:
