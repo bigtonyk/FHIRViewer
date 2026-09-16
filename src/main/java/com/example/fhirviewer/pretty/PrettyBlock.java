@@ -11,14 +11,26 @@ import java.util.List;
  * backbone elements (Observation.component), contained resources and Bundle
  * entries without any resource specific code.</p>
  *
- * @param title    the section heading, for example <code>Address 1</code>
- * @param rows     the label/value lines of this section
- * @param children nested blocks shown inside this section
+ * @param title       the section heading, for example <code>Address 1</code>
+ * @param rows        the label/value lines of this section
+ * @param children    nested blocks shown inside this section
+ * @param elementName the FHIR element this section was rendered from, for example
+ *                    <code>address</code>; empty when the section groups something
+ *                    that has no single element (a nested resource section)
  */
-public record PrettyBlock(String title, List<PrettyRow> rows, List<PrettyBlock> children) {
+public record PrettyBlock(
+        String title,
+        String elementName,
+        List<PrettyRow> rows,
+        List<PrettyBlock> children) {
+
+    public PrettyBlock(String title, List<PrettyRow> rows, List<PrettyBlock> children) {
+        this(title, "", rows, children);
+    }
 
     public PrettyBlock {
         title = title == null ? "" : title;
+        elementName = elementName == null ? "" : elementName;
         rows = rows == null ? List.of() : List.copyOf(rows);
         children = children == null ? List.of() : List.copyOf(children);
     }
@@ -36,6 +48,7 @@ public record PrettyBlock(String title, List<PrettyRow> rows, List<PrettyBlock> 
     public static final class Builder {
 
         private final String title;
+        private String elementName = "";
         private final List<PrettyRow> rows = new ArrayList<>();
         private final List<PrettyBlock> children = new ArrayList<>();
 
@@ -43,8 +56,22 @@ public record PrettyBlock(String title, List<PrettyRow> rows, List<PrettyBlock> 
             this.title = title == null ? "" : title;
         }
 
+        /**
+         * Names the FHIR element this block was rendered from, so the UI can jump
+         * from the resource tree to this section.
+         */
+        public Builder elementName(String name) {
+            this.elementName = name == null ? "" : name;
+            return this;
+        }
+
         public Builder row(String label, String value) {
             rows.add(new PrettyRow(label, value));
+            return this;
+        }
+
+        public Builder row(String label, String value, String elementName) {
+            rows.add(new PrettyRow(label, value, elementName));
             return this;
         }
 
@@ -73,7 +100,7 @@ public record PrettyBlock(String title, List<PrettyRow> rows, List<PrettyBlock> 
         }
 
         public PrettyBlock build() {
-            return new PrettyBlock(title, rows, children);
+            return new PrettyBlock(title, elementName, rows, children);
         }
     }
 }

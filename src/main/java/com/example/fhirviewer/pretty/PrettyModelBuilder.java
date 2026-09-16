@@ -53,7 +53,8 @@ public final class PrettyModelBuilder {
             }
             switch (property.name()) {
                 case "meta" -> renderInto(header, property.values().get(0), 1);
-                case "language" -> header.row("Language", formatter.textOf(property.values().get(0)));
+                case "language" -> header.row("Language", formatter.textOf(property.values().get(0)),
+                        "language");
                 default -> {
                     // handled by the generic traversal below
                 }
@@ -98,51 +99,62 @@ public final class PrettyModelBuilder {
             if (first instanceof IPrimitiveType<?>) {
                 String joined = joinedPrimitiveText(values);
                 if (!joined.isBlank()) {
-                    target.row(label, joined);
+                    target.row(label, joined, property.name());
                 }
             } else if (formatter.isSummarizable(first) && !topLevel) {
-                addSummaryRows(target, label, values);
+                addSummaryRows(target, label, values, property.name());
             } else if (depth >= MAX_DEPTH) {
-                target.row(label, "(recursion limit reached)");
+                target.row(label, "(recursion limit reached)", property.name());
             } else {
                 for (int index = 0; index < values.size(); index++) {
-                    target.child(valueBlock(label, values.get(index), index + 1, depth + 1));
+                    target.child(valueBlock(label, values.get(index), index + 1, depth + 1,
+                            property.name()));
                 }
             }
         }
     }
 
     /** One or more rows with a one line summary per value. */
-    private void addSummaryRows(PrettyBlock.Builder target, String label, List<IBase> values) {
+    private void addSummaryRows(
+            PrettyBlock.Builder target,
+            String label,
+            List<IBase> values,
+            String elementName) {
         if (values.size() == 1) {
             String summary = formatter.summarize(values.get(0));
             if (!summary.isBlank()) {
-                target.row(label, summary);
+                target.row(label, summary, elementName);
             }
             return;
         }
         for (int index = 0; index < values.size(); index++) {
             String summary = formatter.summarize(values.get(index));
             if (!summary.isBlank()) {
-                target.row(label + " " + (index + 1), summary);
+                target.row(label + " " + (index + 1), summary, elementName);
             }
         }
     }
 
     /** A titled section for one value, filled with its own content. */
-    private PrettyBlock valueBlock(String label, IBase value, int indexOneBased, int depth) {
+    private PrettyBlock valueBlock(
+            String label,
+            IBase value,
+            int indexOneBased,
+            int depth,
+            String elementName) {
         if (value instanceof IBaseResource resource) {
             // Nested resources (Bundle entries, contained resources) get an outer
             // section named after the element and an inner one named after the
             // resource itself, so both the position and the identity are visible.
-            PrettyBlock.Builder outer = PrettyBlock.builder(label + " " + indexOneBased);
+            PrettyBlock.Builder outer = PrettyBlock.builder(label + " " + indexOneBased)
+                    .elementName(elementName);
             outer.child(resourceBlock(resource, depth));
             return outer.build();
         }
         String title = "Extension".equals(value.fhirType())
                 ? formatter.extensionName(value)
                 : label + " " + indexOneBased;
-        PrettyBlock.Builder block = PrettyBlock.builder(title);
+        PrettyBlock.Builder block = PrettyBlock.builder(title).elementName(elementName);
         renderInto(block, value, depth);
         if (block.rows().isEmpty() && block.children().isEmpty()) {
             block.row("", "(no populated values)");

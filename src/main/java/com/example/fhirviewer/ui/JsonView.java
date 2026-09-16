@@ -36,20 +36,21 @@ public class JsonView extends VBox implements ElementNavigationTarget {
         area.setWrapText(false);
         area.getStyleClass().addAll("mono-text", "code-area");
         
-        // Wrap the TextArea in a ScrollPane for proper scrolling
+        // The editor fills the whole pane; its own scroll bars handle text that does
+        // not fit (fitToWidth/fitToHeight keep the wrapper from shrinking the editor).
         scrollPane.setContent(area);
-        scrollPane.setFitToWidth(false);
-        scrollPane.setFitToHeight(false);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setFitToHeight(true);
         scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         scrollPane.getStyleClass().add("code-scroll-pane");
         VBox.setVgrow(scrollPane, Priority.ALWAYS);
         scrollPane.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);  // Allow ScrollPane to grow
 
-        copyButton.getStyleClass().addAll("button-icon", "flat");
+        copyButton.getStyleClass().addAll("button-flat", "flat");
         copyButton.setOnAction(event -> copyToClipboard());
 
-        formatButton.getStyleClass().addAll("button-icon", "flat");
+        formatButton.getStyleClass().addAll("button-flat", "flat");
         formatButton.setOnAction(event -> format());
 
         HBox toolbar = new HBox(copyButton, formatButton);

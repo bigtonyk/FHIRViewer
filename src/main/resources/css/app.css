@@ -221,14 +221,17 @@
     -fx-background-color: transparent;
 }
 
-/* Code scroll pane - for JSON/XML views */
+/* Code scroll pane - for JSON/XML views.
+ * fit-to-width/fit-to-height stretch the editor to the whole pane; the TextArea
+ * itself scrolls when a line is wider than the pane. Note that these CSS values
+ * take precedence over the corresponding setters in JsonView/XmlView. */
 .code-scroll-pane {
     -fx-background-color: -surface;
     -fx-border-color: transparent;
     -fx-vbar-policy: as-needed;
     -fx-hbar-policy: as-needed;
-    -fx-fit-to-width: false;
-    -fx-fit-to-height: false;
+    -fx-fit-to-width: true;
+    -fx-fit-to-height: true;
 }
 
 .code-scroll-pane .viewport {
@@ -408,6 +411,14 @@
     -fx-text-fill: -text-strong;
 }
 
+/* The label a tree selection jumped to (see PrettyView.scrollToElement). */
+.pretty-highlight {
+    -fx-background-color: -accent-soft;
+    -fx-background-radius: 4;
+    -fx-text-fill: -accent-strong;
+    -fx-font-weight: bold;
+}
+
 .sidebar > .tab-header-area .tab {
     -fx-padding: 4 12 4 12;
 }
@@ -562,7 +573,14 @@
     -fx-background-color: -accent-soft;
 }
 
-.button-icon,
+/*
+ * Flat text button used by the small toolbars (JSON view).
+ *
+ * Do not name this class "button-icon": the AtlantaFX Primer theme treats
+ * .button.button-icon as an icon-only button (-fx-content-display: graphic-only)
+ * and would render the label of a text-only button as nothing at all.
+ */
+.button-flat,
 .flat {
     -fx-background-color: transparent;
     -fx-border-color: transparent;
@@ -570,7 +588,7 @@
     -fx-padding: 4 10 4 10;
 }
 
-.button-icon:hover,
+.button-flat:hover,
 .flat:hover {
     -fx-background-color: -accent-soft;
     -fx-border-color: transparent;

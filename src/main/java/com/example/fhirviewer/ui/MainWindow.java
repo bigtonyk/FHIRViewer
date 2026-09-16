@@ -84,6 +84,9 @@ public class MainWindow {
     private final CheckMenuItem showUnpopulated =
             new CheckMenuItem("Show elements that are not populated");
 
+    /** The node currently selected in the resource tree, if any. */
+    private ResourceNode selectedNode;
+
     private final TextField treeSearchField = new TextField();
     private final Button themeToggle = new Button("◐ Dark theme");
     private final ThemeManager themeManager = new ThemeManager();
@@ -117,7 +120,7 @@ public class MainWindow {
 
         prettyTab.setContent(prettyView);
         prettyTab.setClosable(false);
-        detailsTab.setContent(new ScrollPane(detailsView));
+        detailsTab.setContent(detailsScrollPane());
         detailsTab.setClosable(false);
         jsonTab.setContent(jsonView);
         jsonTab.setClosable(false);
@@ -125,6 +128,10 @@ public class MainWindow {
         xmlTab.setClosable(false);
         documentTabs.getTabs().addAll(prettyTab, detailsTab, jsonTab, xmlTab);
         documentTabs.getSelectionModel().select(prettyTab);
+        // Hidden tabs are not laid out, so a scroll performed while a tab is hidden
+        // would be lost; sync the views again whenever a tab is selected.
+        documentTabs.getSelectionModel().selectedItemProperty().addListener(
+                (observable, previous, selected) -> resyncDocumentViews());
 
         SplitPane splitPane = new SplitPane(structureTabs, documentTabs);
         splitPane.setDividerPositions(0.38);
@@ -136,6 +143,18 @@ public class MainWindow {
         contentArea.getStyleClass().add("content-area");
         root.setCenter(contentArea);
         root.setBottom(statusView);
+    }
+
+    /**
+     * The Details tab content: the details card in a scroll pane that stretches the
+     * card to the width of the tab (values wrap, long ones are still scrollable).
+     */
+    private ScrollPane detailsScrollPane() {
+        ScrollPane scrollPane = new ScrollPane(detailsView);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        return scrollPane;
     }
 
     /**
@@ -277,6 +296,7 @@ public class MainWindow {
 
     private void wireInteractions() {
         treeView.setOnNodeSelected(node -> {
+            selectedNode = node;
             detailsView.show(node);
             prettyView.scrollToElement(node);
             jsonView.scrollToElement(node);
@@ -284,6 +304,20 @@ public class MainWindow {
         });
         treeView.setOnReferenceActivated(this::navigateToReference);
         bundleView.setOnEntrySelected(this::displayBundleEntry);
+    }
+
+    /**
+     * Syncs the document views to the current tree selection again. Called when a
+     * document tab is selected: hidden tabs are not laid out, so a scroll that was
+     * requested while a tab was hidden would otherwise be lost.
+     */
+    private void resyncDocumentViews() {
+        if (selectedNode == null) {
+            return;
+        }
+        prettyView.scrollToElement(selectedNode);
+        jsonView.scrollToElement(selectedNode);
+        xmlView.scrollToElement(selectedNode);
     }
 
     /**
@@ -543,6 +577,7 @@ public class MainWindow {
         displayedResource = null;
         displayedEntry = null;
         displayedLabel = "";
+        selectedNode = null;
         treeView.show(null);
         prettyView.showNothing();
         jsonView.showNothing();
