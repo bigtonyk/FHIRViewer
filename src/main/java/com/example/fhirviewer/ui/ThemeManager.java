@@ -16,10 +16,12 @@ import javafx.scene.Scene;
  * Applies the application theme to a {@link Scene}.
  *
  * <p>The base look is provided by an AtlantaFX theme; application specific
- * styling lives in <code>/css/app.css</code> plus a small per theme sheet
+ * styling lives in <code>/css/app.css</code> plus a small token sheet
  * (<code>/css/light.css</code> for light themes, <code>/css/dark.css</code>
- * for dark themes). The theme can be switched at runtime; doing so replaces
- * the stylesheets on the scene, which restyles the whole application.</p>
+ * for dark themes) whose values derive from the palette of the applied
+ * theme, so every theme keeps its own colors. The theme can be switched at
+ * runtime; doing so replaces the stylesheets on the scene, which restyles
+ * the whole application.</p>
  */
 public final class ThemeManager {
 

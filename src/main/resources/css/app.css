@@ -542,7 +542,7 @@
 .button-primary {
     -fx-background-color: -accent;
     -fx-border-color: -accent;
-    -fx-text-fill: white;
+    -fx-text-fill: -text-on-accent;
     -fx-font-weight: bold;
     -fx-effect: dropshadow(gaussian, -accent, 6, 0.25, 0, 2);
 }

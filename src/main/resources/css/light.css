@@ -1,26 +1,25 @@
 /*
- * Light theme: design tokens used by /css/app.css.
- *
- * All application colors are looked-up colors defined here on .root, so the
- * dark theme is only a matter of different token values (see dark.css).
- * The base control look comes from AtlantaFX (Primer Light), applied as the
- * user agent stylesheet by ThemeManager.
+ * Light theme tokens: the values are looked-up colors that resolve against the
+ * palette of the active AtlantaFX light theme (Primer, Nord or Cupertino), so
+ * switching themes restyles the whole application, accent and all. app.css
+ * only ever reads the token names defined below, never a theme variable.
  */
 
 .root {
     -fx-background-color: -app-bg;
 
-    -app-bg: #eef1f5;
-    -surface: #ffffff;
-    -surface-alt: #f3f5f8;
-    -border: #dfe4ea;
-    -border-strong: #c7cfd8;
-    -text-strong: #1b2430;
-    -text-muted: #67737f;
-    -accent: #2563eb;
-    -accent-strong: #1d4ed8;
-    -accent-soft: #e4edfd;
-    -success: #1a7f37;
-    -warning: #9a6700;
-    -danger: #d1242f;
+    -app-bg: -color-bg-inset;
+    -surface: -color-bg-default;
+    -surface-alt: -color-bg-subtle;
+    -border: -color-border-muted;
+    -border-strong: -color-border-default;
+    -text-strong: -color-fg-default;
+    -text-muted: -color-fg-muted;
+    -text-on-accent: -color-fg-emphasis;
+    -accent: -color-accent-emphasis;
+    -accent-strong: derive(-color-accent-emphasis, -14%);
+    -accent-soft: -color-accent-subtle;
+    -success: -color-success-fg;
+    -warning: -color-warning-fg;
+    -danger: -color-danger-fg;
 }
