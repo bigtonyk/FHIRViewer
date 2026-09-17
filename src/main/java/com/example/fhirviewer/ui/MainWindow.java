@@ -28,6 +28,7 @@ import javafx.scene.control.CheckMenuItem;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
+import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
@@ -88,7 +89,7 @@ public class MainWindow {
     private ResourceNode selectedNode;
 
     private final TextField treeSearchField = new TextField();
-    private final Button themeToggle = new Button("◐ Dark theme");
+    private final MenuButton themeMenu = new MenuButton("Theme");
     private final ThemeManager themeManager = new ThemeManager();
 
     /** The resource loaded from a file or sample. */
@@ -98,6 +99,9 @@ public class MainWindow {
     private String displayedLabel = "";
     /** When a Bundle entry is being displayed, the entry it came from. */
     private BundleEntryInfo displayedEntry;
+
+    /** Last directory used by a file chooser, so dialogs reopen in the same folder. */
+    private File lastDirectory;
 
     public MainWindow(Stage stage) {
         this.stage = stage;
@@ -136,6 +140,16 @@ public class MainWindow {
         SplitPane splitPane = new SplitPane(structureTabs, documentTabs);
         splitPane.setDividerPositions(0.38);
         structureTabs.getStyleClass().add("sidebar");
+
+        // Returning to the Resource Tree tab from the Bundle tab resets the
+        // views to the whole Bundle, so the tree no longer shows the last
+        // selected entry (issue: "back to Resource Tree shows only the last entry").
+        structureTabs.getSelectionModel().selectedItemProperty().addListener(
+                (observable, previous, selected) -> {
+                    if (selected == treeTab && displayedEntry != null) {
+                        displayBundleEntry(null);
+                    }
+                });
 
         root.setTop(new VBox(buildMenuBar(), buildHeaderBar(), buildToolBar()));
 
@@ -183,11 +197,11 @@ public class MainWindow {
         HBox leftActions = new HBox(8, openButton, validateButton);
         leftActions.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
-        themeToggle.getStyleClass().add("button-ghost");
-        themeToggle.setTooltip(new Tooltip("Switch between the light and the dark theme."));
-        themeToggle.setOnAction(event -> toggleTheme());
+        themeMenu.getStyleClass().add("button-ghost");
+        themeMenu.setTooltip(new Tooltip("Pick one of the available application themes."));
+        themeMenu.getItems().setAll(themeMenuItems());
 
-        HBox header = new HBox(14, logo, appTitle, leftActions, treeSearchField, themeToggle);
+        HBox header = new HBox(14, logo, appTitle, leftActions, treeSearchField, themeMenu);
         header.getStyleClass().add("header-bar");
         header.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
         HBox.setHgrow(treeSearchField, Priority.ALWAYS);
@@ -253,6 +267,9 @@ public class MainWindow {
 
         showUnpopulated.setOnAction(event -> refreshTree());
 
+        Menu themesMenu = new Menu("Theme");
+        themesMenu.getItems().setAll(themeMenuItems());
+
         viewMenu.getItems().addAll(
                 showTree,
                 showBundle,
@@ -265,6 +282,7 @@ public class MainWindow {
                 expandAll,
                 collapseAll,
                 new SeparatorMenuItem(),
+                themesMenu,
                 showUnpopulated);
         return viewMenu;
     }
@@ -298,7 +316,12 @@ public class MainWindow {
         treeView.setOnNodeSelected(node -> {
             selectedNode = node;
             detailsView.show(node);
-            prettyView.scrollToElement(node);
+            // Show the pretty detail of the selected element, the same way
+            // selecting a Bundle entry shows the detail of that entry.
+            if (node != null && displayedResource != null) {
+                prettyView.show(fhirService.buildPrettyView(displayedResource, node));
+                prettyView.scrollToElement(node);
+            }
             jsonView.scrollToElement(node);
             xmlView.scrollToElement(node);
         });
@@ -363,15 +386,25 @@ public class MainWindow {
         return all;
     }
 
-    /** Switches between the light and the dark theme. */
-    private void toggleTheme() {
+    /** Builds one menu item per available theme. */
+    private List<MenuItem> themeMenuItems() {
+        List<MenuItem> items = new java.util.ArrayList<>();
+        for (ThemeManager.Theme theme : ThemeManager.Theme.values()) {
+            MenuItem item = new MenuItem(theme.getDisplayName());
+            item.setOnAction(event -> applyTheme(theme));
+            items.add(item);
+        }
+        return items;
+    }
+
+    /** Applies the given theme and reports the change in the status bar. */
+    private void applyTheme(ThemeManager.Theme theme) {
         if (stage.getScene() == null) {
             return;
         }
-        themeManager.apply(stage.getScene(),
-                themeManager.isDark() ? ThemeManager.Theme.LIGHT : ThemeManager.Theme.DARK);
-        themeToggle.setText(themeManager.isDark() ? "☀ Light theme" : "◐ Dark theme");
-        setStatus("Theme switched to " + (themeManager.isDark() ? "dark" : "light") + ".");
+        themeManager.apply(stage.getScene(), theme);
+        themeMenu.setText("Theme: " + theme.getDisplayName());
+        setStatus("Theme switched to " + theme.getDisplayName() + ".");
     }
 
     // ------------------------------------------------------------------
@@ -381,6 +414,9 @@ public class MainWindow {
     private void openFile() {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Open FHIR resource");
+        if (lastDirectory != null && lastDirectory.isDirectory()) {
+            chooser.setInitialDirectory(lastDirectory);
+        }
         chooser.getExtensionFilters().addAll(
                 new FileChooser.ExtensionFilter("FHIR resources", "*.json", "*.xml"),
                 new FileChooser.ExtensionFilter("FHIR JSON", "*.json"),
@@ -391,6 +427,7 @@ public class MainWindow {
         if (file == null) {
             return;
         }
+        lastDirectory = file.getParentFile();
         openPath(file.toPath());
     }
 
@@ -431,6 +468,7 @@ public class MainWindow {
         loadedResource = resource;
         displayedResource = resource.getResource();
         displayedLabel = resource.getDisplayName();
+        selectedNode = null;
 
         displayedEntry = null;
         ResourceNode tree = fhirService.buildTree(resource, showUnpopulated.isSelected());
@@ -467,6 +505,7 @@ public class MainWindow {
         if (loadedResource == null) {
             return;
         }
+        selectedNode = null;
         if (entry == null) {
             displayedEntry = null;
             displayedResource = loadedResource.getResource();
@@ -550,6 +589,9 @@ public class MainWindow {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Export " + format.getDisplayName());
         chooser.setInitialFileName(suggestedFileName(format));
+        if (lastDirectory != null && lastDirectory.isDirectory()) {
+            chooser.setInitialDirectory(lastDirectory);
+        }
         chooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter(format.getDisplayName(), "*." + format.getExtension()));
 
@@ -557,6 +599,7 @@ public class MainWindow {
         if (file == null) {
             return;
         }
+        lastDirectory = file.getParentFile();
         try {
             FileSupport.writeText(file.toPath(), fhirService.serialize(displayedResource, format));
             setStatus("Exported " + displayedLabel + " to " + file.getAbsolutePath());

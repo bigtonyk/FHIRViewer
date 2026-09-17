@@ -30,7 +30,7 @@ public class Main extends Application {
         MainWindow mainWindow = new MainWindow(stage);
 
         Scene scene = new Scene(mainWindow.getRoot(), INITIAL_WIDTH, INITIAL_HEIGHT);
-        new ThemeManager().apply(scene, ThemeManager.Theme.LIGHT);
+        new ThemeManager().apply(scene, ThemeManager.Theme.PRIMER_LIGHT);
         stage.setTitle("FHIR Resource Viewer");
         stage.setScene(scene);
         stage.setMinWidth(MINIMUM_WIDTH);

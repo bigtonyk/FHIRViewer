@@ -11,6 +11,7 @@ import org.hl7.fhir.instance.model.api.IPrimitiveType;
 
 import com.example.fhirviewer.fhir.ElementProperty;
 import com.example.fhirviewer.fhir.FhirModelAdapter;
+import com.example.fhirviewer.model.ResourceNode;
 
 /**
  * Builds the presentation model of a FHIR resource for the Pretty View.
@@ -68,6 +69,177 @@ public final class PrettyModelBuilder {
                 header.rows(),
                 body.rows(),
                 body.children());
+    }
+
+    /**
+     * Builds the Pretty View presentation model for one element selected in the
+     * resource tree, rather than the whole resource. The node's path is resolved
+     * against the live HAPI model so the formatting matches the full resource
+     * view exactly: primitives become a row, summarizable datatypes become
+     * titled sections, repeating elements are numbered.
+     *
+     * @param resource the currently displayed resource (or Bundle entry resource)
+     * @param node     the tree node the user selected
+     * @return a PrettyDocument focused on the selected node
+     */
+    public PrettyDocument build(IBaseResource resource, ResourceNode node) {
+        if (node == null) {
+            return build(resource);
+        }
+        // The root resource node → the full pretty view (with header).
+        if (node.getParent() == null) {
+            return build(resource);
+        }
+        String path = node.getPath();
+        // Group nodes (path without [n] at the end but with indexed children)
+        // contain repeating values that all need to be shown.
+        if (isGroupNode(node)) {
+            return buildFromGroup(resource, node, path);
+        }
+        // Single value node (leaf or non-repeating complex).
+        IBase element = resolveElement(resource, path);
+        if (element == null) {
+            return build(resource);
+        }
+        return build(element, node.getElementInfo().getName());
+    }
+
+    /**
+     * Builds a PrettyDocument for a single resolved FHIR element.
+     * Primitives become a single row; complex values are rendered recursively
+     * with {@link #renderInto}.
+     */
+    private PrettyDocument build(IBase element, String elementName) {
+        PrettyBlock.Builder body = PrettyBlock.builder("document");
+        if (element instanceof IPrimitiveType<?> primitive && primitive.hasValue()) {
+            String text = formatter.textOf(element);
+            if (!text.isBlank()) {
+                body.row(friendly(elementName), text, elementName);
+            }
+        } else {
+            renderInto(body, element, 0);
+        }
+        return new PrettyDocument(
+                element.fhirType(),
+                null,
+                List.of(),
+                body.rows(),
+                body.children());
+    }
+
+    /**
+     * True when the node is a repeating group: not a leaf, and every child is
+     * labelled with an index such as {@code [0]}, {@code [1]}.
+     */
+    private static boolean isGroupNode(ResourceNode node) {
+        if (node.isLeaf()) {
+            return false;
+        }
+        for (ResourceNode child : node.getChildren()) {
+            if (!child.getLabel().startsWith("[")) {
+                return false;
+            }
+        }
+        return !node.getChildren().isEmpty();
+    }
+
+    /** Builds a PrettyDocument from all values of a repeating property. */
+    private PrettyDocument buildFromGroup(IBaseResource root, ResourceNode group, String path) {
+        ElementProperty property = resolveProperty(root, path);
+        if (property == null || property.values().isEmpty()) {
+            return build(root);
+        }
+        List<IBase> values = property.values();
+        PrettyBlock.Builder body = PrettyBlock.builder("document");
+        String elementName = group.getElementInfo().getName();
+        IBase first = values.get(0);
+
+        if (first instanceof IPrimitiveType<?>) {
+            // Repeating primitives are joined into a single row.
+            String joined = joinedPrimitiveText(values);
+            if (!joined.isBlank()) {
+                body.row(friendly(elementName), joined, elementName);
+            }
+        } else {
+            // Repeating complex values become numbered sections.
+            for (int index = 0; index < values.size(); index++) {
+                body.child(valueBlock(
+                        friendly(elementName), values.get(index),
+                        index + 1, 1, elementName));
+            }
+        }
+        return new PrettyDocument(
+                property.typeCode(),
+                null,
+                List.of(),
+                body.rows(),
+                body.children());
+    }
+
+    // ------------------------------------------------------------------
+    // Path resolution
+    // ------------------------------------------------------------------
+
+    /** Resolves a node path to its single HAPI value (for non-group nodes). */
+    private IBase resolveElement(IBaseResource root, String path) {
+        IBase current = root;
+        String[] segments = path.split("\\.");
+        for (int segment = 1; segment < segments.length; segment++) {
+            String name = segmentName(segments[segment]);
+            int index = segmentIndex(segments[segment]);
+            ElementProperty property = findProperty(current, name);
+            if (property == null || property.values().isEmpty()) {
+                return null;
+            }
+            current = property.values().get(Math.min(index, property.values().size() - 1));
+        }
+        return current;
+    }
+
+    /** Resolves a group node path to its property (with all values). */
+    private ElementProperty resolveProperty(IBaseResource root, String path) {
+        String[] segments = path.split("\\.");
+        IBase current = root;
+        for (int segment = 1; segment < segments.length - 1; segment++) {
+            String name = segmentName(segments[segment]);
+            int index = segmentIndex(segments[segment]);
+            ElementProperty property = findProperty(current, name);
+            if (property == null || property.values().isEmpty()) {
+                return null;
+            }
+            current = property.values().get(Math.min(index, property.values().size() - 1));
+        }
+        return findProperty(current, segmentName(segments[segments.length - 1]));
+    }
+
+    private static String segmentName(String segment) {
+        int bracket = segment.indexOf('[');
+        return bracket >= 0 ? segment.substring(0, bracket) : segment;
+    }
+
+    private static int segmentIndex(String segment) {
+        int bracket = segment.indexOf('[');
+        if (bracket < 0) {
+            return 0;
+        }
+        int end = segment.indexOf(']', bracket);
+        if (end < 0) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(segment.substring(bracket + 1, end));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private ElementProperty findProperty(IBase element, String name) {
+        for (ElementProperty property : adapter.propertiesOf(element)) {
+            if (property.name().equals(name)) {
+                return property;
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------

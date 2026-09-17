@@ -111,6 +111,16 @@ public class FhirService {
         return prettyBuilder.build(resource);
     }
 
+    /**
+     * Builds the human friendly presentation model of a single element selected
+     * in the resource tree, rather than the whole resource. The node's path is
+     * resolved against the live HAPI model so the formatting matches the full
+     * resource view exactly.
+     */
+    public PrettyDocument buildPrettyView(IBaseResource resource, ResourceNode node) {
+        return prettyBuilder.build(resource, node);
+    }
+
     /** Renders a resource as pretty printed JSON. */
     public String toJson(IBaseResource resource) {
         return serializer.toJson(resource);

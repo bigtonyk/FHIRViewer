@@ -7,7 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import java.util.Optional;
 
+import com.example.fhirviewer.TreeAssert;
 import com.example.fhirviewer.model.LoadedResource;
+import com.example.fhirviewer.model.ResourceNode;
 import com.example.fhirviewer.service.FhirService;
 
 import org.junit.jupiter.api.BeforeAll;
@@ -213,5 +215,89 @@ class PrettyModelBuilderTest {
 
         assertTrue(document.sections().isEmpty());
         assertEquals("unknown", requireRow(document.rows(), "Gender").value());
+    }
+
+    // ------------------------------------------------------------------
+    // Focused documents (resource tree selection)
+    // ------------------------------------------------------------------
+
+    private static PrettyDocument focusedDocument(String fileName, String nodePath) {
+        LoadedResource loaded = service.openSample("/fhir/" + fileName);
+        ResourceNode node = TreeAssert.require(service.buildTree(loaded, false), nodePath);
+        return service.buildPrettyView(loaded.getResource(), node);
+    }
+
+    @Test
+    @DisplayName("A primitive tree node resolves to a single row")
+    void primitiveNodeBecomesSingleRow() {
+        PrettyDocument document = focusedDocument("patient.json", "Patient.name[0].family");
+
+        assertEquals("string", document.resourceType());
+        assertEquals("Smith", requireRow(document.rows(), "Family").value());
+    }
+
+    @Test
+    @DisplayName("A complex tree node shows the element's own detail")
+    void complexNodeShowsElementDetail() {
+        PrettyDocument document = focusedDocument("patient.json", "Patient.name[0]");
+
+        assertEquals("HumanName", document.resourceType());
+        assertEquals("Smith", requireRow(document.rows(), "Family").value());
+        assertEquals("John, Jacob", requireRow(document.rows(), "Given").value());
+        assertEquals("official", requireRow(document.rows(), "Use").value());
+    }
+
+    @Test
+    @DisplayName("A repeating group node shows numbered sections for every value")
+    void groupNodeShowsNumberedSections() {
+        PrettyDocument document = focusedDocument("patient.json", "Patient.identifier");
+
+        assertEquals("Identifier", document.resourceType());
+        PrettyBlock first = requireBlock(document.sections(), "Identifier 1");
+        assertEquals("http://hospital.example.org/mrn", requireRow(first.rows(), "System").value());
+        assertEquals("MRN-12345", requireRow(first.rows(), "Value").value());
+        assertEquals("000-00-0000", requireRow(
+                requireBlock(document.sections(), "Identifier 2").rows(), "Value").value());
+    }
+
+    @Test
+    @DisplayName("A repeating primitive group node joins its values into one row")
+    void primitiveGroupNodeJoinsValues() {
+        PrettyDocument document = focusedDocument("patient.json", "Patient.name[0].given");
+
+        assertEquals("string", document.resourceType());
+        assertEquals("John, Jacob", requireRow(document.rows(), "Given").value());
+    }
+
+    @Test
+    @DisplayName("The root tree node shows the full resource pretty view")
+    void rootNodeShowsFullPrettyView() {
+        LoadedResource loaded = service.openSample("/fhir/patient.json");
+        PrettyDocument document =
+                service.buildPrettyView(loaded.getResource(), service.buildTree(loaded, false));
+
+        assertEquals("Patient", document.resourceType());
+        assertEquals("example-1", document.resourceId());
+        assertEquals("true", requireRow(document.rows(), "Active").value());
+        assertNotNull(requireBlock(document.sections(), "Name 1"));
+    }
+
+    @Test
+    @DisplayName("A single reference node is resolved and rendered")
+    void referenceNodeIsResolved() {
+        PrettyDocument document = focusedDocument("patient.json", "Patient.managingOrganization");
+
+        assertEquals("Reference", document.resourceType());
+        assertEquals("Organization/example-org", requireRow(document.rows(), "Reference").value());
+    }
+
+    @Test
+    @DisplayName("A repeating reference group shows numbered sections like the full view")
+    void referenceGroupShowsNumberedSections() {
+        PrettyDocument document = focusedDocument("patient.json", "Patient.generalPractitioner");
+
+        PrettyBlock section = requireBlock(document.sections(), "General Practitioner 1");
+        assertEquals("Practitioner/example-gp", requireRow(section.rows(), "Reference").value());
+        assertEquals("Dr. Alice Grey", requireRow(section.rows(), "Display").value());
     }
 }
