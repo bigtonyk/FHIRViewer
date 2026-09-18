@@ -71,7 +71,7 @@ missing"*). `mvn javafx:run` uses the module path and therefore `Main`.
 - **Details panel** for the selected element: element name, full path, datatype,
   cardinality (for example `0..*`), kind, value and the specification definition.
 - **Pretty View tab** (the default view) renders the resource the way a human would
-  read it — see [The Pretty View](#the-pretty-view).
+  read it â€” see [The Pretty View](#the-pretty-view).
 - **JSON and XML tabs** render the parsed resource pretty printed.
 - **Bundle navigator**: inspect the Bundle itself or jump into any entry.
 - **Validation** (Tools > Validate, `Ctrl+T`) reports errors and warnings with their
@@ -168,7 +168,7 @@ plus Encounter, Organization and a minimal Patient for the Pretty View).
 
 The **Pretty** tab is the default document view. It renders the resource as labelled
 sections instead of raw JSON/XML, the way a clinical application would present it.
-Like the tree it is completely generic — the same rules work for Patient, Observation,
+Like the tree it is completely generic â€” the same rules work for Patient, Observation,
 Encounter, Organization, Bundles, contained resources and extensions:
 
 - **Document header**: resource type, logical id, and resource level metadata
@@ -180,19 +180,19 @@ Encounter, Organization, Bundles, contained resources and extensions:
   readable name derived from their canonical URL (`Patient Race` for
   `.../patient-race`).
 - **Friendly datatype renderings** inside sections:
-  - `HumanName` → `John Jacob Smith` (or the `text` value when present)
-  - `Address` → `123 Main St, Springfield, IL 62701`
-  - `ContactPoint` → `+1-555-0100 (phone work)`
-  - `Quantity` → `72 beats/minute (UCUM /min)`
-  - `Coding`/`CodeableConcept` → `Heart rate (LOINC 8867-4)`
-  - `Reference` → `Dr. Alice Grey (Practitioner/example-gp)`; contained targets show as
+  - `HumanName` â†’ `John Jacob Smith` (or the `text` value when present)
+  - `Address` â†’ `123 Main St, Springfield, IL 62701`
+  - `ContactPoint` â†’ `+1-555-0100 (phone work)`
+  - `Quantity` â†’ `72 beats/minute (UCUM /min)`
+  - `Coding`/`CodeableConcept` â†’ `Heart rate (LOINC 8867-4)`
+  - `Reference` â†’ `Dr. Alice Grey (Practitioner/example-gp)`; contained targets show as
     `(contained resource)`
-  - `Period` → `2024-05-01 → (ongoing)`
-  - `dateTime`/`instant` → `2024-05-01 10:15:00 UTC`
+  - `Period` â†’ `2024-05-01 â†’ (ongoing)`
+  - `dateTime`/`instant` â†’ `2024-05-01 10:15:00 UTC`
   - `Narrative` (xhtml) is reduced to plain text, `base64Binary` is summarised by size
 - **Backbone elements** (`Observation.component`), **contained resources** and
   **Bundle entries** become nested sections; a Bundle entry section is titled
-  `Entry 1 — Patient/patient-a`.
+  `Entry 1 â€” Patient/patient-a`.
 - **Bundle navigation** works with the Pretty View: selecting an entry in the Bundle
   navigator renders that entry's pretty document.
 
@@ -207,15 +207,16 @@ left sidebar holds the resource tree and the Bundle navigator; the right pane
 holds the document tabs (Pretty, Details, JSON, XML); a status bar shows the
 validation messages at the bottom.
 
-- **Select → jump:** clicking a node in the resource tree now scrolls the open
+- **Select â†’ jump:** clicking a node in the resource tree now scrolls the open
   document tab (Pretty, JSON and XML) to the corresponding section or line and
   highlights it. Double-clicking a `Reference` in the tree navigates to the
   referenced resource when it is present in the loaded Bundle.
-- **Themes:** the look is provided by the AtlantaFX Primer theme plus the
-  application stylesheets `src/main/resources/css/app.css` (tokens in
-  `light.css` / `dark.css`). Click the **◐ / ☀** button in the header to switch
-  between the light and the dark theme; the architecture supports adding more
-  themes later without touching the Java code.
+- **Themes:** the look is provided by an AtlantaFX theme plus the application
+  stylesheets `src/main/resources/css/app.css` (tokens in `light.css` /
+  `dark.css`, mapped onto the active theme's palette). The **Theme** menu in the
+  header offers Primer Light/Dark, Nord Light/Dark, Cupertino Light/Dark and
+  Dracula; adding a theme means adding one enum constant in `ThemeManager`
+  without touching the rest of the Java code.
 - **JSON view:** the JSON tab is a card with Copy and Format buttons.
 
 ## Packaging (Phase 7)
@@ -245,3 +246,38 @@ operating system to produce a native bundle.
 Drag and drop, FHIR server connectivity, FHIRPath evaluation, resource editing,
 resource comparison, search within a resource, StructureDefinition browsing,
 terminology lookup, multiple FHIR versions, themes and recent files.
+
+## License
+
+FHIR Resource Viewer is free software: you can redistribute it and/or modify it
+under the terms of the **GNU General Public License, version 3**
+(SPDX: `GPL-3.0-only`) as published by the Free Software Foundation.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the [GNU General Public License](LICENSE) for more
+details.
+
+- Project home page: <https://github.com/bigtonyk/FHIRViewer>
+- Contact: <bigtonyk@gmail.com>
+
+The full license text ships with the project in [`LICENSE`](LICENSE).
+
+### Bundled open-source libraries
+
+The About dialog (**Help â†’ About**) lists the license of every associated
+library. The families are:
+
+| License | Libraries |
+|---------|-----------|
+| Apache License 2.0 | HAPI FHIR, HL7 `org.hl7.fhir` core, Jackson, Woodstox, Gson, Xpp3, Guava, Caffeine, Apache Commons (Codec, Compress, IO, Lang, Logging, Text), Apache HttpClient, Apache Santuario XMLSec, Thymeleaf, Attoparser, Unbescape, OGNL, Kotlin stdlib, OkHttp/Okio, Nimbus JOSE+JWT, JavaEWAH, Jakarta RegExp, SQLite JDBC, XMLResolver, JCL-over-SLF4J, OpenTelemetry, Google annotations (error-prone, jsr305, j2objc) |
+| MIT | AtlantaFX (UI themes), SLF4J (API and Simple), Checker Framework annotations, PlantUML (MIT edition) |
+| GPL v2 with Classpath Exception | JavaFX (OpenJFX) UI toolkit |
+| Eclipse Public License 2.0 | JUnit 5 and JUnit Platform (testing only); Jakarta Annotations is dual-licensed EPL 2.0 / GPL v2+CE |
+| Mozilla Public License 2.0 | Saxon-HE (XPath/XSLT engine used by validation) |
+| ICU License (Unicode-3.0) | ICU4J |
+| BSD 2-Clause | StAX2 API, CommonMark |
+| BSD 3-Clause / Eclipse Distribution License 1.0 | Eclipse JGit, UCUM library |
+| MPL 1.1 / LGPL 2.1 / Apache 2.0 (tri-licensed) | Javassist |
+
+Consult each project for the complete license text.

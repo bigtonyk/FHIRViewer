@@ -593,3 +593,27 @@
     -fx-background-color: -accent-soft;
     -fx-border-color: transparent;
 }
+
+/* ------------------------------------------------------------------ */
+/* About dialog                                                        */
+/* ------------------------------------------------------------------ */
+
+.about-content {
+    -fx-padding: 2 6 2 2;
+    -fx-spacing: 4;
+}
+
+.about-section-title {
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-strong;
+    -fx-padding: 8 0 2 0;
+}
+
+.about-line {
+    -fx-wrap-text: true;
+    -fx-text-fill: -text-strong;
+}
+
+.about-muted {
+    -fx-text-fill: -text-muted;
+}

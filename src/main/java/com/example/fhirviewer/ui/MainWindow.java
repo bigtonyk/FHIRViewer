@@ -20,11 +20,14 @@ import com.example.fhirviewer.service.FhirService;
 import com.example.fhirviewer.service.ResourceLoadException;
 import com.example.fhirviewer.util.FileSupport;
 
+import javafx.application.HostServices;
 import javafx.scene.Cursor;
+import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckMenuItem;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
@@ -62,6 +65,7 @@ public class MainWindow {
     private static final String READY_STATUS = "Ready. Use File > Open to load a FHIR JSON or XML resource.";
 
     private final Stage stage;
+    private final HostServices hostServices;
     private final BorderPane root = new BorderPane();
     private final FhirService fhirService = new FhirService();
 
@@ -103,8 +107,9 @@ public class MainWindow {
     /** Last directory used by a file chooser, so dialogs reopen in the same folder. */
     private File lastDirectory;
 
-    public MainWindow(Stage stage) {
+    public MainWindow(Stage stage, HostServices hostServices) {
         this.stage = stage;
+        this.hostServices = hostServices;
         buildLayout();
         wireInteractions();
         updateWindowTitle();
@@ -637,11 +642,71 @@ public class MainWindow {
         alert.initOwner(stage);
         alert.setTitle("About " + APPLICATION_TITLE);
         alert.setHeaderText(APPLICATION_TITLE);
-        alert.setContentText("FHIR version: " + fhirService.fhirVersion()
-                + "\nJava runtime: " + System.getProperty("java.version")
-                + "\nJavaFX: " + System.getProperty("javafx.version", "unknown")
-                + "\n\nParsing, serialization and validation are provided by HAPI FHIR.");
+        // The dialog lives in its own scene; give it the same stylesheets so
+        // the design tokens (-surface, -text-strong, ...) resolve there too.
+        alert.getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
+        alert.getDialogPane().setContent(aboutContent());
+        alert.getDialogPane().setPrefWidth(680);
         alert.showAndWait();
+    }
+
+    /**
+     * The About dialog content: the GPL v3 notice, the project links and the
+     * licenses of the bundled open-source libraries, scrollable because the
+     * license list is long.
+     */
+    private Node aboutContent() {
+        AboutInfo about = new AboutInfo(
+                fhirService.fhirVersion(),
+                System.getProperty("java.version"),
+                System.getProperty("javafx.version", "unknown"));
+
+        VBox content = new VBox(4);
+        content.getStyleClass().add("about-content");
+        for (AboutInfo.Line line : about.lines()) {
+            switch (line.kind()) {
+                case SECTION -> {
+                    Label label = new Label(line.text());
+                    label.getStyleClass().add("about-section-title");
+                    content.getChildren().add(label);
+                }
+                case TEXT -> {
+                    Label label = new Label(line.text());
+                    label.setWrapText(true);
+                    label.getStyleClass().add("about-line");
+                    content.getChildren().add(label);
+                }
+                case MUTED -> {
+                    Label label = new Label(line.text());
+                    label.setWrapText(true);
+                    label.getStyleClass().addAll("about-line", "about-muted");
+                    content.getChildren().add(label);
+                }
+                case LINK -> {
+                    Hyperlink link = new Hyperlink(line.text());
+                    link.setWrapText(true);
+                    link.setOnAction(event -> openInBrowser(line.target()));
+                    content.getChildren().add(link);
+                }
+            }
+        }
+
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setPrefHeight(420);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        return scroll;
+    }
+
+    /** Opens a project or contact link, reporting failures in the status bar. */
+    private void openInBrowser(String target) {
+        try {
+            if (hostServices != null) {
+                hostServices.showDocument(target);
+            }
+        } catch (RuntimeException e) {
+            setStatus("Could not open " + target);
+        }
     }
 
     /** Runs a loading action, reporting failures in the status bar and in a dialog. */
@@ -684,6 +749,8 @@ public class MainWindow {
         alert.setTitle(APPLICATION_TITLE);
         alert.setHeaderText(message);
         alert.setContentText(detail);
+        // Same stylesheets as the main scene, so dialogs follow the active theme.
+        alert.getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
         alert.getDialogPane().setPrefWidth(620);
         alert.showAndWait();
     }

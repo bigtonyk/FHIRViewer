@@ -27,7 +27,7 @@ public class Main extends Application {
 
     @Override
     public void start(Stage stage) {
-        MainWindow mainWindow = new MainWindow(stage);
+        MainWindow mainWindow = new MainWindow(stage, getHostServices());
 
         Scene scene = new Scene(mainWindow.getRoot(), INITIAL_WIDTH, INITIAL_HEIGHT);
         new ThemeManager().apply(scene, ThemeManager.Theme.PRIMER_LIGHT);

@@ -11,6 +11,25 @@
 
   <name>FHIR Resource Viewer</name>
   <description>Cross-platform desktop viewer for FHIR resources (JavaFX + HAPI FHIR)</description>
+  <url>https://github.com/bigtonyk/FHIRViewer</url>
+
+  <licenses>
+    <license>
+      <name>GNU General Public License v3.0 only</name>
+      <url>https://www.gnu.org/licenses/gpl-3.0.txt</url>
+      <distribution>repo</distribution>
+      <comments>SPDX license identifier: GPL-3.0-only</comments>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>bigtonyk</id>
+      <name>bigtonyk</name>
+      <email>bigtonyk@gmail.com</email>
+      <url>https://github.com/bigtonyk</url>
+    </developer>
+  </developers>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

@@ -1,6 +1,7 @@
 package com.example.fhirviewer.ui;
 
 import java.net.URL;
+import java.util.List;
 
 import atlantafx.base.theme.CupertinoDark;
 import atlantafx.base.theme.CupertinoLight;
@@ -89,9 +90,19 @@ public final class ThemeManager {
     public void apply(Scene scene, Theme theme) {
         current = theme == null ? Theme.PRIMER_LIGHT : theme;
         javafx.application.Application.setUserAgentStylesheet(current.getUserAgentStylesheet());
-        scene.getStylesheets().clear();
-        scene.getStylesheets().add(stylesheet(APP_STYLESHEET));
-        scene.getStylesheets().add(stylesheet(current.isDark() ? DARK_STYLESHEET : LIGHT_STYLESHEET));
+        scene.getStylesheets().setAll(stylesheets());
+    }
+
+    /**
+     * The stylesheet list for a scene or a dialog pane: the application styles
+     * plus the token sheet of the current theme. Dialogs live in their own
+     * scene, so the About and error dialogs use this to pick up the design
+     * tokens (<code>-surface</code>, <code>-text-strong</code>, ...) as well.
+     */
+    public List<String> stylesheets() {
+        return List.of(
+                stylesheet(APP_STYLESHEET),
+                stylesheet(current.isDark() ? DARK_STYLESHEET : LIGHT_STYLESHEET));
     }
 
     /** The theme currently applied. */
