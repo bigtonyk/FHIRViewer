@@ -617,3 +617,23 @@
 .about-muted {
     -fx-text-fill: -text-muted;
 }
+
+/* ------------------------------------------------------------------ */
+/* Details view editing controls                                       */
+/* ------------------------------------------------------------------ */
+
+.details-editor {
+    -fx-spacing: 8;
+}
+
+.edit-value-field {
+    -fx-background-color: -surface-alt;
+    -fx-border-color: -border;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-padding: 4 8 4 8;
+}
+
+.edit-value-field:disabled {
+    -fx-opacity: 0.65;
+}

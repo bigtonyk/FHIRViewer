@@ -5,7 +5,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
@@ -17,7 +20,9 @@ import com.example.fhirviewer.model.ResourceFormat;
 import com.example.fhirviewer.model.ResourceNode;
 import com.example.fhirviewer.model.ValidationReport;
 import com.example.fhirviewer.service.FhirService;
+import com.example.fhirviewer.service.ResourceEditorService;
 import com.example.fhirviewer.service.ResourceLoadException;
+import com.example.fhirviewer.service.ResourceTemplateFactory;
 import com.example.fhirviewer.util.FileSupport;
 
 import javafx.application.HostServices;
@@ -26,7 +31,11 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckMenuItem;
+import javafx.scene.control.ChoiceDialog;
+import javafx.scene.control.DialogPane;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
@@ -63,6 +72,8 @@ public class MainWindow {
 
     private static final String APPLICATION_TITLE = "FHIR Resource Viewer";
     private static final String READY_STATUS = "Ready. Use File > Open to load a FHIR JSON or XML resource.";
+    /** How many edits can be undone; older snapshots are dropped. */
+    private static final int MAX_UNDO_DEPTH = 20;
 
     private final Stage stage;
     private final HostServices hostServices;
@@ -75,6 +86,19 @@ public class MainWindow {
     private final XmlView xmlView = new XmlView();
     private final StatusView statusView = new StatusView();
     private final BundleView bundleView = new BundleView();
+
+    /** Applies edits to the live FHIR model; the UI never touches HAPI FHIR directly. */
+    private final ResourceEditorService editorService = new ResourceEditorService();
+    /** Creates the empty resource behind File > New. */
+    private final ResourceTemplateFactory templateFactory = ResourceTemplateFactory.r4();
+
+    /**
+     * Snapshots of the loaded resource taken before every edit, newest first. Undo shows
+     * a snapshot again as the loaded resource, so the resource object is replaced rather
+     * than mutated back; the depth is capped so a long editing session cannot grow
+     * without bound.
+     */
+    private final Deque<IBaseResource> undoStack = new ArrayDeque<>();
 
     private final TabPane structureTabs = new TabPane();
     private final TabPane documentTabs = new TabPane();
@@ -96,6 +120,14 @@ public class MainWindow {
     private final MenuButton themeMenu = new MenuButton("Theme");
     private final ThemeManager themeManager = new ThemeManager();
 
+    // Editing actions, created up front so their enabled state can be updated at any time.
+    private final MenuItem newMenuItem = new MenuItem("New...");
+    private final MenuItem saveMenuItem = new MenuItem("Save");
+    private final MenuItem saveAsMenuItem = new MenuItem("Save As...");
+    private final MenuItem undoMenuItem = new MenuItem("Undo Change");
+    private final Button saveButton = new Button("Save");
+    private final Button undoButton = new Button("Undo");
+
     /** The resource loaded from a file or sample. */
     private LoadedResource loadedResource;
     /** The resource currently shown: the loaded resource or one of its Bundle entries. */
@@ -107,11 +139,26 @@ public class MainWindow {
     /** Last directory used by a file chooser, so dialogs reopen in the same folder. */
     private File lastDirectory;
 
+    /**
+     * True while the window is being closed by an action that has already asked about
+     * unsaved changes, so the close request handler does not ask a second time.
+     */
+    private boolean closingFromAction;
+
     public MainWindow(Stage stage, HostServices hostServices) {
         this.stage = stage;
         this.hostServices = hostServices;
         buildLayout();
         wireInteractions();
+        // Closing the window is the last chance to save an edited resource.
+        stage.setOnCloseRequest(event -> {
+            if (closingFromAction) {
+                return;
+            }
+            if (!confirmUnsavedChanges("closing the window")) {
+                event.consume();
+            }
+        });
         updateWindowTitle();
     }
 
@@ -199,7 +246,15 @@ public class MainWindow {
         validateButton.getStyleClass().add("button-ghost");
         validateButton.setOnAction(event -> validateDisplayedResource());
 
-        HBox leftActions = new HBox(8, openButton, validateButton);
+        saveButton.getStyleClass().add("button-ghost");
+        saveButton.setTooltip(new Tooltip("Write the loaded resource back to its file."));
+        saveButton.setOnAction(event -> saveResource());
+
+        undoButton.getStyleClass().add("button-ghost");
+        undoButton.setTooltip(new Tooltip("Undo the last change made to the resource."));
+        undoButton.setOnAction(event -> undoEdit());
+
+        HBox leftActions = new HBox(8, openButton, saveButton, undoButton, validateButton);
         leftActions.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
         themeMenu.getStyleClass().add("button-ghost");
@@ -217,9 +272,18 @@ public class MainWindow {
     private MenuBar buildMenuBar() {
         Menu fileMenu = new Menu("File");
 
+        newMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+N"));
+        newMenuItem.setOnAction(event -> newResource());
+
         MenuItem open = new MenuItem("Open...");
         open.setAccelerator(KeyCombination.keyCombination("Shortcut+O"));
         open.setOnAction(event -> openFile());
+
+        saveMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+S"));
+        saveMenuItem.setOnAction(event -> saveResource());
+
+        saveAsMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Shift+S"));
+        saveAsMenuItem.setOnAction(event -> saveResourceAs());
 
         MenuItem samplePatient = new MenuItem("Patient (JSON)");
         samplePatient.setOnAction(event -> openSample(FhirService.SAMPLE_PATIENT));
@@ -235,18 +299,28 @@ public class MainWindow {
         MenuItem close = new MenuItem("Close");
         close.setOnAction(event -> closeResource());
         MenuItem exit = new MenuItem("Exit");
-        exit.setOnAction(event -> stage.close());
+        exit.setOnAction(event -> closeWindow());
 
         fileMenu.getItems().addAll(
+                newMenuItem,
                 open,
-                sampleMenu,
                 new SeparatorMenuItem(),
+                saveMenuItem,
+                saveAsMenuItem,
+                new SeparatorMenuItem(),
+                sampleMenu,
                 exportJson,
                 exportXml,
                 new SeparatorMenuItem(),
                 close,
                 exit);
-        return new MenuBar(fileMenu, buildViewMenu(), buildToolsMenu(), buildHelpMenu());
+        return new MenuBar(fileMenu, buildEditMenu(), buildViewMenu(), buildToolsMenu(), buildHelpMenu());
+    }
+
+    private Menu buildEditMenu() {
+        undoMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Z"));
+        undoMenuItem.setOnAction(event -> undoEdit());
+        return new Menu("Edit", null, undoMenuItem);
     }
 
     private Menu buildViewMenu() {
@@ -318,6 +392,8 @@ public class MainWindow {
     }
 
     private void wireInteractions() {
+        detailsView.setOnValueEdited(this::applyValueEdit);
+        detailsView.setOnElementAdded(this::addElementToSelection);
         treeView.setOnNodeSelected(node -> {
             selectedNode = node;
             detailsView.show(node);
@@ -417,6 +493,9 @@ public class MainWindow {
     // ------------------------------------------------------------------
 
     private void openFile() {
+        if (!confirmUnsavedChanges("opening another resource")) {
+            return;
+        }
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Open FHIR resource");
         if (lastDirectory != null && lastDirectory.isDirectory()) {
@@ -444,6 +523,9 @@ public class MainWindow {
     }
 
     private void openSample(String classpathResource) {
+        if (!confirmUnsavedChanges("opening a sample")) {
+            return;
+        }
         runWithWaitCursor("Loading sample " + classpathResource + " ...", () -> {
             LoadedResource resource = fhirService.openSample(classpathResource);
             display(resource);
@@ -474,6 +556,8 @@ public class MainWindow {
         displayedResource = resource.getResource();
         displayedLabel = resource.getDisplayName();
         selectedNode = null;
+        // A different resource starts a new editing history.
+        undoStack.clear();
 
         displayedEntry = null;
         ResourceNode tree = fhirService.buildTree(resource, showUnpopulated.isSelected());
@@ -498,11 +582,14 @@ public class MainWindow {
         if (loadedResource == null) {
             return;
         }
+        String selectedPath = selectedNode == null ? null : selectedNode.getPath();
         if (displayedEntry == null) {
             treeView.show(fhirService.buildTree(loadedResource, showUnpopulated.isSelected()));
         } else {
             treeView.show(fhirService.buildTree(displayedEntry, showUnpopulated.isSelected()));
         }
+        // Keep the element the user was looking at selected.
+        treeView.selectPath(selectedPath);
     }
 
     /** Shows the whole Bundle, or one of its entries, in every view. */
@@ -568,6 +655,306 @@ public class MainWindow {
         return count;
     }
     // ------------------------------------------------------------------
+    // Editing
+    // ------------------------------------------------------------------
+
+    /** Creates a new, empty resource of a type chosen by the user. */
+    private void newResource() {
+        if (!confirmUnsavedChanges("starting a new resource")) {
+            return;
+        }
+        ChoiceDialog<String> dialog = new ChoiceDialog<>("Patient", templateFactory.resourceTypeNames());
+        dialog.initOwner(stage);
+        dialog.setTitle(APPLICATION_TITLE);
+        dialog.setHeaderText("Create a new FHIR resource");
+        dialog.setContentText("Resource type:");
+        applyDialogTheme(dialog.getDialogPane());
+        Optional<String> chosen = dialog.showAndWait();
+        if (chosen.isEmpty()) {
+            return;
+        }
+        try {
+            IBaseResource resource = templateFactory.createEmpty(chosen.get());
+            LoadedResource created = new LoadedResource(resource, ResourceFormat.JSON, chosen.get(), null);
+            display(created);
+            // Every element of a new resource is empty, so list them all: that is what
+            // makes the resource editable in the tree and the Details tab.
+            showUnpopulated.setSelected(true);
+            refreshTree();
+            created.markDirty();
+            updateWindowTitle();
+            setStatus("New " + chosen.get() + " created. Select an element in the tree, enter a value in the"
+                    + " Details tab and apply it, then save with File > Save As.");
+        } catch (IllegalArgumentException e) {
+            showFailure("Could not create a new " + chosen.get(), e);
+        }
+    }
+
+    /** Saves the loaded resource, asking for a file when it does not have one yet. */
+    private boolean saveResource() {
+        if (loadedResource == null) {
+            setStatus("Nothing to save. Open or create a FHIR resource first.");
+            return false;
+        }
+        Path target = loadedResource.getSourcePath();
+        if (target == null) {
+            return saveResourceAs();
+        }
+        return writeResource(target, loadedResource.getFormat());
+    }
+
+    /** Saves the loaded resource to a file chosen by the user. */
+    private boolean saveResourceAs() {
+        if (loadedResource == null) {
+            setStatus("Nothing to save. Open or create a FHIR resource first.");
+            return false;
+        }
+        ResourceFormat format = loadedResource.getFormat();
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Save resource as");
+        chooser.setInitialFileName(suggestedFileName(loadedResource.getResource(), format));
+        if (lastDirectory != null && lastDirectory.isDirectory()) {
+            chooser.setInitialDirectory(lastDirectory);
+        }
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("FHIR JSON", "*.json"),
+                new FileChooser.ExtensionFilter("FHIR XML", "*.xml"),
+                new FileChooser.ExtensionFilter("All files", "*.*"));
+        chooser.setSelectedExtensionFilter(
+                chooser.getExtensionFilters().get(format == ResourceFormat.XML ? 1 : 0));
+
+        File file = chooser.showSaveDialog(stage);
+        if (file == null) {
+            return false;
+        }
+        lastDirectory = file.getParentFile();
+        Path path = file.toPath();
+        // The chosen file name decides the format, so "Save As patient.xml" writes XML.
+        ResourceFormat written = ResourceFormat.fromFileName(file.getName()).orElse(format);
+        if (!writeResource(path, written)) {
+            return false;
+        }
+        loadedResource.setSourcePath(path);
+        loadedResource.setSourceName(FileSupport.fileName(path));
+        loadedResource.setFormat(written);
+        updateWindowTitle();
+        return true;
+    }
+
+    /**
+     * Writes the whole loaded resource (a Bundle included) to a file and marks it as
+     * saved.
+     */
+    private boolean writeResource(Path path, ResourceFormat format) {
+        try {
+            FileSupport.writeText(path, fhirService.serialize(loadedResource.getResource(), format));
+            loadedResource.markClean();
+            updateWindowTitle();
+            setStatus("Saved " + loadedResource.getDisplayName() + " to " + path);
+            return true;
+        } catch (IOException | RuntimeException e) {
+            showFailure("Could not save " + path, e);
+            return false;
+        }
+    }
+
+    /**
+     * Applies an edited value to the element selected in the tree.
+     *
+     * @param node the element that was edited
+     * @param text the text the user entered
+     */
+    private void applyValueEdit(ResourceNode node, String text) {
+        IBaseResource target = currentTarget();
+        if (node == null || target == null) {
+            setStatus("Select an element in the resource tree first.");
+            return;
+        }
+        String path = node.getElementInfo().getPath();
+        IBaseResource snapshot = pushUndoSnapshot();
+        try {
+            if (node.getElementInfo().getKind() == ElementInfo.Kind.REFERENCE) {
+                editorService.setReference(target, path, referenceValue(text));
+            } else {
+                editorService.setPrimitive(target, path, text);
+            }
+            refreshAfterEdit(path);
+            setStatus("Updated " + path + " of " + displayedLabel + ".");
+        } catch (RuntimeException e) {
+            discardUndoSnapshot(snapshot);
+            showFailure("Could not update " + path, e);
+        }
+    }
+
+    /** Adds a new entry to the repeating element selected in the tree. */
+    private void addElementToSelection(ResourceNode node) {
+        IBaseResource target = currentTarget();
+        if (node == null || target == null) {
+            setStatus("Select a repeating element in the resource tree first.");
+            return;
+        }
+        String path = node.getElementInfo().getPath();
+        IBaseResource snapshot = pushUndoSnapshot();
+        try {
+            int existing = editorService.valueCount(target, path);
+            editorService.addElement(target, path);
+            // The new entry is the last one of the repeating element, so select it: its
+            // value can then be filled in straight away.
+            refreshAfterEdit(path + "[" + existing + "]", path);
+            setStatus("Added a new " + node.getElementInfo().getName() + " entry to " + displayedLabel + ".");
+        } catch (RuntimeException e) {
+            discardUndoSnapshot(snapshot);
+            showFailure("Could not add a " + node.getElementInfo().getName() + " entry", e);
+        }
+    }
+
+    /** The resource the tree and the document tabs currently show, or {@code null}. */
+    private IBaseResource currentTarget() {
+        return loadedResource == null ? null : displayedResource;
+    }
+
+    /**
+     * The reference target inside an entered value. The tree renders a reference as
+     * <code>Type/id (display)</code>, so a trailing display is dropped before the value is
+     * written; a plain <code>Type/id</code> or an absolute URL is used as entered.
+     */
+    private static String referenceValue(String text) {
+        String value = text == null ? "" : text.trim();
+        int display = value.indexOf(" (");
+        return display > 0 ? value.substring(0, display).trim() : value;
+    }
+
+    /**
+     * Marks the resource as changed and rebuilds every view for it. The first path that
+     * still exists in the rebuilt tree is selected again, so an edit does not lose the
+     * user's place.
+     */
+    private void refreshAfterEdit(String... pathsToSelect) {
+        if (loadedResource == null) {
+            return;
+        }
+        loadedResource.markDirty();
+        treeView.show(displayedEntry == null
+                ? fhirService.buildTree(loadedResource, showUnpopulated.isSelected())
+                : fhirService.buildTree(displayedEntry, showUnpopulated.isSelected()));
+        // The documents are rebuilt before the selection is restored, because selecting
+        // a node renders the element view of that node.
+        updateDocumentViews();
+        if (displayedEntry == null) {
+            // While an entry is displayed the Bundle navigator must keep naming that entry,
+            // so it is only rebuilt when the whole Bundle is shown.
+            updateBundleView();
+        }
+        statusView.clearValidation();
+        for (String path : pathsToSelect) {
+            if (treeView.selectPath(path)) {
+                break;
+            }
+        }
+        updateWindowTitle();
+    }
+
+    /** Records the state of the resource before an edit, so the edit can be undone. */
+    private IBaseResource pushUndoSnapshot() {
+        if (loadedResource == null) {
+            return null;
+        }
+        IBaseResource snapshot = editorService.cloneResource(loadedResource.getResource());
+        undoStack.push(snapshot);
+        while (undoStack.size() > MAX_UNDO_DEPTH) {
+            undoStack.removeLast();
+        }
+        updateEditActions();
+        return snapshot;
+    }
+
+    /** Forgets a snapshot when the edit it was taken for failed. */
+    private void discardUndoSnapshot(IBaseResource snapshot) {
+        if (snapshot != null) {
+            undoStack.remove(snapshot);
+            updateEditActions();
+        }
+    }
+
+    /** Restores the resource as it was before the last edit. */
+    private void undoEdit() {
+        if (undoStack.isEmpty() || loadedResource == null) {
+            setStatus("There is nothing to undo.");
+            return;
+        }
+        Deque<IBaseResource> remaining = new ArrayDeque<>(undoStack);
+        IBaseResource snapshot = remaining.pop();
+        LoadedResource restored = new LoadedResource(
+                snapshot,
+                loadedResource.getFormat(),
+                loadedResource.getSourceName(),
+                null,
+                loadedResource.getSourcePath());
+        // Every snapshot is the state before one edit, so popping the last one restores
+        // exactly what was loaded from disk.
+        if (remaining.isEmpty()) {
+            restored.markClean();
+        } else {
+            restored.markDirty();
+        }
+        display(restored);
+        undoStack.clear();
+        undoStack.addAll(remaining);
+        updateEditActions();
+        setStatus(remaining.isEmpty()
+                ? "Undid every change; " + restored.getDisplayName() + " matches the saved resource again."
+                : "Undid the last change to " + restored.getDisplayName() + ".");
+    }
+
+    /**
+     * Asks what to do about unsaved changes before an action replaces or closes the
+     * loaded resource.
+     *
+     * @return {@code true} when the action may continue
+     */
+    private boolean confirmUnsavedChanges(String action) {
+        if (loadedResource == null || !loadedResource.isDirty()) {
+            return true;
+        }
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(stage);
+        alert.setTitle(APPLICATION_TITLE);
+        alert.setHeaderText("Unsaved changes");
+        alert.setContentText("Save the changes to " + loadedResource.getDisplayName() + " before " + action + "?");
+        applyDialogTheme(alert.getDialogPane());
+
+        ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);
+        ButtonType discard = new ButtonType("Discard", ButtonBar.ButtonData.NO);
+        ButtonType cancel = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(save, discard, cancel);
+
+        Optional<ButtonType> choice = alert.showAndWait();
+        if (choice.isEmpty() || choice.get() == cancel) {
+            return false;
+        }
+        if (choice.get() == save) {
+            // Saving can still be cancelled (Save As), so only continue when it worked.
+            return saveResource() && loadedResource != null && !loadedResource.isDirty();
+        }
+        return true;
+    }
+
+    /** Closes the window, after giving unsaved changes a chance to be saved. */
+    private void closeWindow() {
+        if (!confirmUnsavedChanges("exiting")) {
+            return;
+        }
+        closingFromAction = true;
+        stage.close();
+    }
+
+    /** Gives a dialog the same stylesheets as the main window, so it follows the theme. */
+    private void applyDialogTheme(DialogPane pane) {
+        pane.getStylesheets().addAll(themeManager.stylesheets());
+        pane.setPrefWidth(620);
+    }
+
+    // ------------------------------------------------------------------
     // Validation, export and window helpers
     // ------------------------------------------------------------------
 
@@ -593,7 +980,7 @@ public class MainWindow {
         }
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Export " + format.getDisplayName());
-        chooser.setInitialFileName(suggestedFileName(format));
+        chooser.setInitialFileName(suggestedFileName(displayedResource, format));
         if (lastDirectory != null && lastDirectory.isDirectory()) {
             chooser.setInitialDirectory(lastDirectory);
         }
@@ -613,19 +1000,23 @@ public class MainWindow {
         }
     }
 
-    private String suggestedFileName(ResourceFormat format) {
-        String type = displayedResource.fhirType();
-        IIdType idElement = displayedResource.getIdElement();
+    private String suggestedFileName(IBaseResource resource, ResourceFormat format) {
+        String type = resource.fhirType();
+        IIdType idElement = resource.getIdElement();
         String id = idElement != null && idElement.hasIdPart() ? idElement.getIdPart() : null;
         return (id == null ? type : type + "-" + id) + "." + format.getExtension();
     }
 
     private void closeResource() {
+        if (!confirmUnsavedChanges("closing the resource")) {
+            return;
+        }
         loadedResource = null;
         displayedResource = null;
         displayedEntry = null;
         displayedLabel = "";
         selectedNode = null;
+        undoStack.clear();
         treeView.show(null);
         prettyView.showNothing();
         jsonView.showNothing();
@@ -733,9 +1124,25 @@ public class MainWindow {
     }
 
     private void updateWindowTitle() {
-        stage.setTitle(displayedResource == null
-                ? APPLICATION_TITLE
-                : APPLICATION_TITLE + " - " + displayedLabel);
+        if (displayedResource == null) {
+            stage.setTitle(APPLICATION_TITLE);
+        } else {
+            // The asterisk is the usual "there are unsaved changes" marker.
+            boolean dirty = loadedResource != null && loadedResource.isDirty();
+            stage.setTitle(APPLICATION_TITLE + " - " + displayedLabel + (dirty ? " *" : ""));
+        }
+        updateEditActions();
+    }
+
+    /** Enables Save and Undo only when there is something for them to act on. */
+    private void updateEditActions() {
+        boolean loaded = loadedResource != null;
+        boolean canUndo = !undoStack.isEmpty();
+        saveMenuItem.setDisable(!loaded);
+        saveAsMenuItem.setDisable(!loaded);
+        saveButton.setDisable(!loaded);
+        undoMenuItem.setDisable(!canUndo);
+        undoButton.setDisable(!canUndo);
     }
 
     private void showFailure(String message, Throwable failure) {

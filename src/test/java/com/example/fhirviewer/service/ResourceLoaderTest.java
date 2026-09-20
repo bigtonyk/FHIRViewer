@@ -1,10 +1,13 @@
 package com.example.fhirviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -95,5 +98,29 @@ class ResourceLoaderTest {
 
         assertTrue(loaded.isBundle());
         assertEquals("Bundle", loaded.getResourceType());
+    }
+
+    @Test
+    @DisplayName("A resource loaded from a file remembers the file it came from")
+    void remembersTheSourceFile() throws IOException {
+        Path file = Files.createTempFile("fhir-viewer-patient", ".json");
+        try {
+            FileSupport.writeText(file, FileSupport.readClasspathText("/fhir/patient.json"));
+
+            LoadedResource loaded = service.openFile(file);
+
+            assertEquals(file, loaded.getSourcePath());
+            assertEquals("Patient/example-1", loaded.getDisplayName());
+            assertFalse(loaded.isDirty(), "loading a resource does not count as a change");
+        } finally {
+            Files.deleteIfExists(file);
+        }
+    }
+
+    @Test
+    @DisplayName("A sample or a pasted resource has no file to save back to")
+    void resourcesWithoutAFileHaveNoSourcePath() {
+        assertNull(service.openSample("/fhir/patient.json").getSourcePath());
+        assertNull(service.openText("{\"resourceType\":\"Patient\"}", "pasted.json").getSourcePath());
     }
 }

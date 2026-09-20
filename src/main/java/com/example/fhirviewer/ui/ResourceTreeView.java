@@ -21,14 +21,17 @@ public class ResourceTreeView extends TreeView<ResourceNode> {
     private Consumer<ResourceNode> referenceHandler = node -> { };
     /** The full tree currently loaded, kept so the search filter can rebuild from it. */
     private ResourceNode rootNode;
+    /** The filter currently applied to the tree; an empty string shows every element. */
+    private String filterQuery = "";
 
     public ResourceTreeView() {
         setShowRoot(true);
         setCellFactory(view -> new ResourceNodeCell());
         getSelectionModel().selectedItemProperty().addListener((observable, previous, selected) -> {
-            if (selected != null) {
-                selectionHandler.accept(selected.getValue());
-            }
+            // A cleared selection is reported as null: rebuilding the tree after an edit
+            // clears it, and the details panel should then show its empty state until the
+            // edited element has been selected again.
+            selectionHandler.accept(selected == null ? null : selected.getValue());
         });
         setOnMouseClicked(event -> {
             if (event.getClickCount() == 2) {
@@ -40,7 +43,7 @@ public class ResourceTreeView extends TreeView<ResourceNode> {
         });
     }
 
-    /** Sets the handler called when a tree element is selected. */
+    /** Sets the handler called when a tree element is selected, or with null when none is. */
     public void setOnNodeSelected(Consumer<ResourceNode> handler) {
         this.selectionHandler = handler == null ? node -> { } : handler;
     }
@@ -64,9 +67,14 @@ public class ResourceTreeView extends TreeView<ResourceNode> {
             setRoot(null);
             return;
         }
-        TreeItem<ResourceNode> rootItem = toTreeItem(root, null);
+        // The search filter is kept: an edit rebuilds the tree and the user should keep
+        // looking at the same subset of the resource.
+        TreeItem<ResourceNode> rootItem = toTreeItem(root, filterQuery.isEmpty() ? null : filterQuery);
         setRoot(rootItem);
         rootItem.setExpanded(true);
+        if (!filterQuery.isEmpty()) {
+            expandMatching(rootItem);
+        }
     }
 
     /**
@@ -75,16 +83,62 @@ public class ResourceTreeView extends TreeView<ResourceNode> {
      * reachable. An empty query restores the full tree.
      */
     public void applyFilter(String query) {
+        filterQuery = query == null ? "" : query.trim().toLowerCase();
         if (rootNode == null) {
             return;
         }
-        String needle = query == null ? "" : query.trim().toLowerCase();
-        TreeItem<ResourceNode> rootItem = toTreeItem(rootNode, needle.isEmpty() ? null : needle);
+        TreeItem<ResourceNode> rootItem = toTreeItem(rootNode, filterQuery.isEmpty() ? null : filterQuery);
         setRoot(rootItem);
         rootItem.setExpanded(true);
-        if (!needle.isEmpty()) {
+        if (!filterQuery.isEmpty()) {
             expandMatching(rootItem);
         }
+    }
+
+    /**
+     * Selects the node with the given element path and scrolls it into view, expanding
+     * its ancestors. Used after an edit so the tree keeps showing the element that was
+     * being worked on.
+     *
+     * @param path an element path produced by the tree builder, for example
+     *             {@code Patient.name[0].family}
+     * @return {@code true} when a node with that path was found and selected
+     */
+    public boolean selectPath(String path) {
+        if (path == null || path.isBlank()) {
+            return false;
+        }
+        TreeItem<ResourceNode> item = findByPath(getRoot(), path);
+        if (item == null) {
+            return false;
+        }
+        for (TreeItem<ResourceNode> parent = item.getParent(); parent != null; parent = parent.getParent()) {
+            parent.setExpanded(true);
+        }
+        getSelectionModel().select(item);
+        int row = getRow(item);
+        if (row >= 0) {
+            scrollTo(row);
+        }
+        return true;
+    }
+
+    /** Depth first search for the first node with the given element path. */
+    private static TreeItem<ResourceNode> findByPath(TreeItem<ResourceNode> item, String path) {
+        if (item == null) {
+            return null;
+        }
+        ResourceNode node = item.getValue();
+        if (node != null && path.equals(node.getPath())) {
+            return item;
+        }
+        for (TreeItem<ResourceNode> child : item.getChildren()) {
+            TreeItem<ResourceNode> found = findByPath(child, path);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
     }
 
     private void expandMatching(TreeItem<ResourceNode> item) {

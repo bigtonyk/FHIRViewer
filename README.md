@@ -20,6 +20,7 @@ what does the specification say about it?*
 | 6 | Bundles: entry navigation, contained resources | Done |
 | 7 | Packaging for Windows/macOS/Linux | Documented, see [Packaging](#packaging-phase-7) |
 | 8 | Pretty View: human friendly resource rendering (Pretty View plan) | Done |
+| Future list | Resource editing, creation and saving changes | Done |
 
 ## Requirements
 
@@ -70,6 +71,20 @@ missing"*). `mvn javafx:run` uses the module path and therefore `Main`.
   - contained resources and Bundle entry resources as nested resources
 - **Details panel** for the selected element: element name, full path, datatype,
   cardinality (for example `0..*`), kind, value and the specification definition.
+  The value row doubles as the editor: type a new value and press *Apply* (or `Enter`).
+- **Edits values and adds entries.** Select an element in the tree, change its value in
+  the Details tab and apply it; *Add entry* adds a new `[n]` entry to the repeating
+  element that is selected. References are written as `Type/id` (an absolute URL also
+  works) and the entered text is converted to the element's FHIR datatype, so an invalid
+  date is reported instead of being stored.
+- **Creates resources** (*File > New*, `Ctrl+N`): choose a type and start from an empty
+  resource; all of its elements are listed so values can be filled in.
+- **Saves changes** (`Ctrl+S`) back to the file the resource came from, or with
+  *Save As* (`Ctrl+Shift+S`) to a new file (the file extension picks JSON or XML). The
+  title bar shows `*` while there are unsaved changes and the window asks before they are
+  discarded.
+- **Undo** (`Ctrl+Z`) reverts the last edit; when the last change is undone the resource
+  matches the saved file again.
 - **Pretty View tab** (the default view) renders the resource the way a human would
   read it â€” see [The Pretty View](#the-pretty-view).
 - **JSON and XML tabs** render the parsed resource pretty printed.
@@ -79,7 +94,8 @@ missing"*). `mvn javafx:run` uses the module path and therefore `Main`.
 - **Export** the currently displayed resource as JSON or XML (File menu).
 - **Sample resources** under *File > Open Sample*.
 
-Keyboard shortcuts: `Ctrl+O` open, `Ctrl+T` validate.
+Keyboard shortcuts: `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as,
+`Ctrl+Z` undo, `Ctrl+T` validate.
 
 ## Architecture
 
@@ -94,7 +110,7 @@ com.example.fhirviewer
 +-- ui/ ....................... JavaFX only: no FHIR logic
 |   +-- MainWindow ............ menus, toolbar, layout, wiring
 |   +-- ResourceTreeView ...... TreeView + cells + selection
-|   +-- DetailsView ........... element metadata panel
+|   +-- DetailsView ........... element metadata + value editing controls
 |   +-- JsonView / XmlView .... read-only text views
 |   +-- BundleView ............ Bundle entry navigation
 |   +-- StatusView ............ status bar + validation messages
@@ -102,6 +118,8 @@ com.example.fhirviewer
 +-- service/ .................. application/service layer
 |   +-- FhirService ........... single entry point used by the UI
 |   +-- ResourceLoader ........ file / classpath / text loading, format fallback
+|   +-- ResourceEditorService . edits the live model (values, entries, references)
+|   +-- ResourceTemplateFactory  empty resources for File > New
 |   +-- ValidationService ..... HAPI validation, lazily built and cached
 |
 +-- fhir/ ..................... FHIR layer
@@ -155,9 +173,12 @@ hard-coded**.
 | `ResourceSerializerTest` | pretty printed JSON/XML, JSON to XML round trips, Bundle round trip |
 | `DataTypeFormatterTest` | Pretty View datatype renderings: Quantity, Coding, CodeableConcept, HumanName, Address, ContactPoint, Reference, Period, dateTime, extensions |
 | `PrettyModelBuilderTest` | Pretty View document structure: header rows, sections, repeating groups, backbone elements, contained resources, Bundle entries, minimal resources |
-| `ResourceLoaderTest` | classpath/file/text loading, format fallback, BOM, missing files, malformed content |
+| `ResourceLoaderTest` | classpath/file/text loading, format fallback, BOM, missing files, malformed content, source file remembered after loading from a file |
 | `ValidationServiceTest` | valid resource, missing required elements, never throwing |
 | `FhirServiceTest` | end to end: tree + JSON + XML for a loaded resource, Bundle entry listing, entry trees, samples |
+| `ResourceEditorServiceTest` | primitive edits (including single indexed entries), created-on-demand elements, new repeating entries, references, cloning; every primitive path the tree shows is editable |
+| `ResourceTemplateFactoryTest` | empty resources for File > New, unknown types, the sorted type list |
+| `LoadedResourceTest` | dirty/clean change tracking, Save As rebasing, new-resource labels |
 
 Representative test resources live in `src/test/resources/fhir/` (Patient JSON and XML,
 Observation with choice types, Observation with missing required elements, Bundle,
@@ -243,8 +264,8 @@ operating system to produce a native bundle.
 
 ## Roadmap (from the plan's future enhancements)
 
-Drag and drop, FHIR server connectivity, FHIRPath evaluation, resource editing,
-resource comparison, search within a resource, StructureDefinition browsing,
+Drag and drop, FHIR server connectivity, FHIRPath evaluation, resource comparison,
+search within a resource, StructureDefinition browsing,
 terminology lookup, multiple FHIR versions, themes and recent files.
 
 ## License

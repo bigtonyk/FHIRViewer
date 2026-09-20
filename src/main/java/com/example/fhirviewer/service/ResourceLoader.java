@@ -35,7 +35,7 @@ public class ResourceLoader {
         } catch (IOException e) {
             throw new ResourceLoadException("Could not read " + path + ": " + e.getMessage(), e);
         }
-        return loadText(text, FileSupport.fileName(path));
+        return loadText(text, FileSupport.fileName(path), path);
     }
 
     /** Loads a resource that is bundled with the application. */
@@ -56,6 +56,14 @@ public class ResourceLoader {
      * @param sourceName a name describing the origin, used for display and errors
      */
     public LoadedResource loadText(String text, String sourceName) {
+        return loadText(text, sourceName, null);
+    }
+
+    /**
+     * Loads a resource from text and remembers the file it came from, so that saving
+     * can write the resource back to the same place.
+     */
+    private LoadedResource loadText(String text, String sourceName, Path sourcePath) {
         String content = FileSupport.stripByteOrderMark(text);
         Optional<ResourceFormat> detected = ResourceFormat.detect(content, sourceName);
         ResourceFormat format = detected.orElse(ResourceFormat.JSON);
@@ -72,6 +80,6 @@ public class ResourceLoader {
                 throw new ResourceLoadException(firstFailure.getMessage(), firstFailure);
             }
         }
-        return new LoadedResource(resource, format, sourceName, content);
+        return new LoadedResource(resource, format, sourceName, content, sourcePath);
     }
 }
