@@ -23,6 +23,9 @@ import com.example.fhirviewer.service.FhirService;
 import com.example.fhirviewer.service.ResourceEditorService;
 import com.example.fhirviewer.service.ResourceLoadException;
 import com.example.fhirviewer.service.ResourceTemplateFactory;
+import com.example.fhirviewer.server.FhirServerManager;
+import com.example.fhirviewer.server.FhirServerService;
+import com.example.fhirviewer.server.ServerDefinition;
 import com.example.fhirviewer.util.FileSupport;
 
 import javafx.application.HostServices;
@@ -91,6 +94,11 @@ public class MainWindow {
     private final ResourceEditorService editorService = new ResourceEditorService();
     /** Creates the empty resource behind File > New. */
     private final ResourceTemplateFactory templateFactory = ResourceTemplateFactory.r4();
+
+    /** Talks to FHIR servers through plugins; the UI never sees HTTP or URLs. */
+    private final FhirServerService serverService = new FhirServerService();
+    /** The servers configured in this session and the active one. */
+    private final FhirServerManager serverManager = new FhirServerManager();
 
     /**
      * Snapshots of the loaded resource taken before every edit, newest first. Undo shows
@@ -370,7 +378,15 @@ public class MainWindow {
         MenuItem validate = new MenuItem("Validate Resource");
         validate.setAccelerator(KeyCombination.keyCombination("Shortcut+T"));
         validate.setOnAction(event -> validateDisplayedResource());
-        return new Menu("Tools", null, validate);
+
+        MenuItem searchServer = new MenuItem("Search FHIR Server...");
+        searchServer.setAccelerator(KeyCombination.keyCombination("Shortcut+K"));
+        searchServer.setOnAction(event -> searchServer());
+
+        MenuItem manageServers = new MenuItem("FHIR Servers...");
+        manageServers.setOnAction(event -> manageServers());
+
+        return new Menu("Tools", null, validate, new SeparatorMenuItem(), searchServer, manageServers);
     }
 
     private Menu buildHelpMenu() {
@@ -952,6 +968,44 @@ public class MainWindow {
     private void applyDialogTheme(DialogPane pane) {
         pane.getStylesheets().addAll(themeManager.stylesheets());
         pane.setPrefWidth(620);
+    }
+
+    // ------------------------------------------------------------------
+    // FHIR server connectivity
+    // ------------------------------------------------------------------
+
+    /** Adds a FHIR server through the server dialog and keeps it for this session. */
+    private void manageServers() {
+        ServerDialog dialog = new ServerDialog(serverService, themeManager);
+        dialog.initOwner(stage);
+        dialog.showAndWait().ifPresent(definition -> {
+            boolean stored = serverManager.add(definition);
+            setStatus(stored
+                    ? "Server " + definition.name() + " (" + definition.baseUrl() + ") added; use Tools >"
+                            + " Search FHIR Server to search it."
+                    : "A server named " + definition.name() + " is already configured.");
+        });
+    }
+
+    /** Searches a configured FHIR server and shows the picked resource in the viewer. */
+    private void searchServer() {
+        if (serverManager.servers().isEmpty()) {
+            // Nothing configured yet: the natural next step is adding one.
+            manageServers();
+        }
+        if (serverManager.servers().isEmpty()) {
+            setStatus("No FHIR server is configured. Use Tools > FHIR Servers... to add one.");
+            return;
+        }
+        ServerSearchDialog dialog = new ServerSearchDialog(serverService, serverManager, fhirService, themeManager);
+        dialog.initOwner(stage);
+        dialog.showAndWait().ifPresent(resource -> {
+            if (!confirmUnsavedChanges("displaying a resource from a server")) {
+                return;
+            }
+            display(resource);
+            setStatus("Showing " + resource.getDisplayName() + " (" + resource.getSourceName() + ").");
+        });
     }
 
     // ------------------------------------------------------------------

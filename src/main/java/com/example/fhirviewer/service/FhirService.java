@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.instance.model.api.IIdType;
 
 import com.example.fhirviewer.fhir.FhirContextFactory;
 import com.example.fhirviewer.fhir.FhirModelAdapter;
@@ -124,6 +125,37 @@ public class FhirService {
     /** Renders a resource as pretty printed JSON. */
     public String toJson(IBaseResource resource) {
         return serializer.toJson(resource);
+    }
+
+    /**
+     * Builds the resource tree for a bare resource. Used by the FHIR server layer for
+     * resources that were fetched from a server and are not {@link LoadedResource}s yet.
+     */
+    public ResourceNode buildTree(IBaseResource resource, boolean includeUnpopulated) {
+        IIdType id = resource.getIdElement();
+        String idPart = id == null || !id.hasIdPart() ? null : id.getIdPart();
+        return treeBuilder.build(resource, resource.fhirType(), idPart, includeUnpopulated);
+    }
+
+    /**
+     * A short, generic one line summary of a resource for result lists, for example
+     * <code>active: true, gender: male, birthDate: 1974-12-25</code>. It is built from
+     * the same tree the viewer shows, so no resource type is hard-coded anywhere.
+     */
+    public String summaryText(IBaseResource resource) {
+        if (resource == null) {
+            return "";
+        }
+        List<String> values = new java.util.ArrayList<>();
+        for (ResourceNode child : buildTree(resource, false).getChildren()) {
+            if (child.getValueText() != null && !child.getValueText().isBlank()) {
+                values.add(child.getDisplayText());
+            }
+            if (values.size() == 4) {
+                break;
+            }
+        }
+        return String.join(", ", values);
     }
 
     /** Renders a resource as pretty printed XML. */
