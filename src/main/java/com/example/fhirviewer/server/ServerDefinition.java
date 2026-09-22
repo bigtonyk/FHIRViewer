@@ -62,10 +62,19 @@ public final class ServerDefinition implements FhirServerConfiguration {
         return name + " (" + baseUrl + ")";
     }
 
-    /** Starts a definition with the only two fields every server needs. */
+        /** Starts a definition with the only two fields every server needs. */
     public static Builder named(String name, String baseUrl) {
         return new Builder(name, baseUrl);
     }
+
+    /**
+     * Starts a definition pre-configured with the Smile CDR plugin id,
+     * so users can point FHIRViewer at Smile CDR without picking from a list.
+     */
+    public static Builder forSmileCdr(String name, String baseUrl) {
+        return new Builder(name, baseUrl).pluginId(SmileCdrPlugin.PLUGIN_ID);
+    }
+
 
     /** Builds immutable {@link ServerDefinition} instances with validation. */
     public static final class Builder {

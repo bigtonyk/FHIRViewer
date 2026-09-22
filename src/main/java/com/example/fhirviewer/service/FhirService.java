@@ -40,6 +40,7 @@ public class FhirService {
     private final ResourceTreeBuilder treeBuilder;
     private final PrettyModelBuilder prettyBuilder;
     private final ValidationService validationService;
+    private final FHIRPathService fhirPathService;
 
     /** Creates a service for the default (R4) FHIR version. */
     public FhirService() {
@@ -57,6 +58,7 @@ public class FhirService {
         this.treeBuilder = new ResourceTreeBuilder(modelAdapter);
         this.prettyBuilder = new PrettyModelBuilder(modelAdapter);
         this.validationService = new ValidationService(context);
+        this.fhirPathService = new FHIRPathService(context);
     }
 
     /** Opens a resource file from disk. */
@@ -171,6 +173,14 @@ public class FhirService {
     /** Validates a resource and returns the issues found (never throws). */
     public ValidationReport validate(IBaseResource resource) {
         return validationService.validate(resource);
+    }
+
+    /**
+     * Evaluates a FHIRPath expression against a resource and reports the outcome:
+     * a value, no value or a broken expression (never throws).
+     */
+    public FHIRPathService.Result evaluateFHIRPath(IBaseResource resource, String expression) {
+        return fhirPathService.evaluate(resource, expression);
     }
 
     /** Returns the entries of a Bundle, or an empty list for other resources. */

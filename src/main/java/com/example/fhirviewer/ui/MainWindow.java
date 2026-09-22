@@ -10,9 +10,13 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
 
+import org.hl7.fhir.instance.model.api.IBase;
+import org.hl7.fhir.instance.model.api.IBaseReference;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
+import org.hl7.fhir.instance.model.api.IPrimitiveType;
 
+import com.example.fhirviewer.fhir.ElementProperty;
 import com.example.fhirviewer.model.BundleEntryInfo;
 import com.example.fhirviewer.model.ElementInfo;
 import com.example.fhirviewer.model.LoadedResource;
@@ -52,6 +56,7 @@ import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TextInputDialog;
 import javafx.scene.control.ToolBar;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCombination;
@@ -89,6 +94,7 @@ public class MainWindow {
     private final XmlView xmlView = new XmlView();
     private final StatusView statusView = new StatusView();
     private final BundleView bundleView = new BundleView();
+    private final FhirPathView fhirPathView = new FhirPathView();
 
     /** Applies edits to the live FHIR model; the UI never touches HAPI FHIR directly. */
     private final ResourceEditorService editorService = new ResourceEditorService();
@@ -117,6 +123,7 @@ public class MainWindow {
     private final Tab detailsTab = new Tab("Details");
     private final Tab jsonTab = new Tab("JSON");
     private final Tab xmlTab = new Tab("XML");
+    private final Tab fhirPathTab = new Tab("FHIRPath");
 
     private final CheckMenuItem showUnpopulated =
             new CheckMenuItem("Show elements that are not populated");
@@ -133,6 +140,8 @@ public class MainWindow {
     private final MenuItem saveMenuItem = new MenuItem("Save");
     private final MenuItem saveAsMenuItem = new MenuItem("Save As...");
     private final MenuItem undoMenuItem = new MenuItem("Undo Change");
+    private final MenuItem addChildMenuItem = new MenuItem("Add Child Element...");
+    private final MenuItem deleteMenuItem = new MenuItem("Delete Element");
     private final Button saveButton = new Button("Save");
     private final Button undoButton = new Button("Undo");
 
@@ -190,7 +199,9 @@ public class MainWindow {
         jsonTab.setClosable(false);
         xmlTab.setContent(xmlView);
         xmlTab.setClosable(false);
-        documentTabs.getTabs().addAll(prettyTab, detailsTab, jsonTab, xmlTab);
+        fhirPathTab.setContent(fhirPathView);
+        fhirPathTab.setClosable(false);
+        documentTabs.getTabs().addAll(prettyTab, detailsTab, jsonTab, xmlTab, fhirPathTab);
         documentTabs.getSelectionModel().select(prettyTab);
         // Hidden tabs are not laid out, so a scroll performed while a tab is hidden
         // would be lost; sync the views again whenever a tab is selected.
@@ -328,7 +339,14 @@ public class MainWindow {
     private Menu buildEditMenu() {
         undoMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Z"));
         undoMenuItem.setOnAction(event -> undoEdit());
-        return new Menu("Edit", null, undoMenuItem);
+
+        addChildMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Shift+A"));
+        addChildMenuItem.setOnAction(event -> addChildToSelection(selectedNode));
+
+        deleteMenuItem.setAccelerator(KeyCombination.keyCombination("Delete"));
+        deleteMenuItem.setOnAction(event -> deleteSelectedNode());
+
+        return new Menu("Edit", null, undoMenuItem, new SeparatorMenuItem(), addChildMenuItem, deleteMenuItem);
     }
 
     private Menu buildViewMenu() {
@@ -346,6 +364,8 @@ public class MainWindow {
         showJson.setOnAction(event -> documentTabs.getSelectionModel().select(jsonTab));
         MenuItem showXml = new MenuItem("XML");
         showXml.setOnAction(event -> documentTabs.getSelectionModel().select(xmlTab));
+        MenuItem showFhirPath = new MenuItem("FHIRPath");
+        showFhirPath.setOnAction(event -> documentTabs.getSelectionModel().select(fhirPathTab));
 
         MenuItem expandAll = new MenuItem("Expand All");
         expandAll.setOnAction(event -> treeView.expandAll());
@@ -365,6 +385,7 @@ public class MainWindow {
                 showDetails,
                 showJson,
                 showXml,
+                showFhirPath,
                 new SeparatorMenuItem(),
                 expandAll,
                 collapseAll,
@@ -410,9 +431,14 @@ public class MainWindow {
     private void wireInteractions() {
         detailsView.setOnValueEdited(this::applyValueEdit);
         detailsView.setOnElementAdded(this::addElementToSelection);
+        detailsView.setOnChildAddRequested(this::addChildToSelection);
+        detailsView.setOnElementDeleted(node -> deleteNode(node, true));
+        fhirPathView.setExpressionEvaluator(
+                expression -> fhirService.evaluateFHIRPath(currentTarget(), expression));
         treeView.setOnNodeSelected(node -> {
             selectedNode = node;
             detailsView.show(node);
+            updateEditActions();
             // Show the pretty detail of the selected element, the same way
             // selecting a Bundle entry shows the detail of that entry.
             if (node != null && displayedResource != null) {
@@ -654,6 +680,7 @@ public class MainWindow {
             prettyView.showNothing();
             jsonView.showNothing();
             xmlView.showNothing();
+            fhirPathView.recalculate();
             return;
         }
         prettyView.show(displayedEntry == null
@@ -661,6 +688,9 @@ public class MainWindow {
                 : fhirService.buildPrettyView(displayedEntry));
         jsonView.show(fhirService.toJson(displayedResource));
         xmlView.show(fhirService.toXml(displayedResource));
+        // The FHIRPath entries are evaluated against the resource that just changed,
+        // so their results stay in step with the tree, the Pretty View and JSON/XML.
+        fhirPathView.recalculate();
     }
 
     private int countNodes(ResourceNode node) {
@@ -822,6 +852,181 @@ public class MainWindow {
             discardUndoSnapshot(snapshot);
             showFailure("Could not add a " + node.getElementInfo().getName() + " entry", e);
         }
+    }
+
+    /**
+     * Opens the dialog that lists the child elements the FHIR resource definition
+     * allows under the element selected in the tree, then adds the picked element.
+     * A primitive element is asked for an initial value right after it is added.
+     */
+    private void addChildToSelection(ResourceNode node) {
+        IBaseResource target = currentTarget();
+        if (node == null || target == null) {
+            setStatus("Select an element in the resource tree first.");
+            return;
+        }
+        String parentPath = addableParentPath(node);
+        List<ElementProperty> children;
+        try {
+            children = editorService.childElements(target, parentPath);
+        } catch (RuntimeException e) {
+            showFailure("Could not list the child elements of " + parentPath, e);
+            return;
+        }
+        if (children.isEmpty()) {
+            setStatus("The FHIR definition has no child element that can be added to " + parentPath + ".");
+            return;
+        }
+        AddChildDialog dialog = new AddChildDialog(parentPath, children);
+        dialog.initOwner(stage);
+        applyDialogTheme(dialog.getDialogPane());
+        Optional<ElementProperty> picked = dialog.showAndWait();
+        if (picked.isEmpty()) {
+            return;
+        }
+        addChildElement(target, parentPath, picked.get());
+    }
+
+    /**
+     * The path the Add child dialog works on. A repeating element without an entry
+     * yet, such as {@code Patient.telecom} with no values, receives its first entry
+     * first, so the dialog lists the children the new entry can take. A repeating
+     * element with entries works on the last entry, matching the way the tree
+     * groups the entries of a repeating element.
+     */
+    private String addableParentPath(ResourceNode node) {
+        String path = node.getElementInfo().getPath();
+        IBaseResource target = currentTarget();
+        if (target == null) {
+            return path;
+        }
+        boolean repeatingGroup = node.getElementInfo().getKind() == ElementInfo.Kind.COMPLEX
+                && node.getElementInfo().isRepeating()
+                && !path.endsWith("]");
+        if (!repeatingGroup) {
+            return path;
+        }
+        int entries = editorService.valueCount(target, path);
+        if (entries > 0) {
+            return path + "[" + (entries - 1) + "]";
+        }
+        IBaseResource snapshot = pushUndoSnapshot();
+        try {
+            editorService.addElement(target, path);
+            refreshAfterEdit(path + "[0]", path);
+            return path + "[0]";
+        } catch (RuntimeException e) {
+            discardUndoSnapshot(snapshot);
+            return path;
+        }
+    }
+
+    /** Adds the child element the user picked in the Add child dialog. */
+    private void addChildElement(IBaseResource target, String parentPath, ElementProperty child) {
+        String childPath = parentPath + "." + child.name();
+        IBaseResource snapshot = pushUndoSnapshot();
+        try {
+            editorService.addNode(target, parentPath, child.name());
+            // A new entry of a repeating element is addressed with its index, exactly
+            // the way the tree names it, so the value can be filled in straight away.
+            String newPath = child.isRepeating()
+                    ? childPath + "[" + (editorService.valueCount(target, childPath) - 1) + "]"
+                    : childPath;
+            promptForInitialValue(target, newPath, child);
+            refreshAfterEdit(newPath, childPath, parentPath);
+            setStatus("Added " + newPath + " to " + displayedLabel + ".");
+        } catch (RuntimeException e) {
+            discardUndoSnapshot(snapshot);
+            showFailure("Could not add " + childPath, e);
+        }
+    }
+
+    /**
+     * Asks for an initial value right after a primitive or reference element was
+     * added, so the new element is not left empty. An empty answer keeps the
+     * element as it is; complex elements continue in the tree instead.
+     */
+    private void promptForInitialValue(IBaseResource target, String newPath, ElementProperty child) {
+        IBase added = editorService.resolveElement(target, newPath);
+        boolean reference = added instanceof IBaseReference;
+        if (!reference && !(added instanceof IPrimitiveType<?>)) {
+            return;
+        }
+        TextInputDialog dialog = new TextInputDialog();
+        dialog.initOwner(stage);
+        dialog.setTitle(APPLICATION_TITLE);
+        dialog.setHeaderText((reference ? "Reference target for " : "Initial value for ") + newPath);
+        dialog.setContentText(reference
+                ? "Target, for example Practitioner/123 (empty keeps the element without a target):"
+                : "Value (empty keeps the element without a value):");
+        applyDialogTheme(dialog.getDialogPane());
+        Optional<String> value = dialog.showAndWait();
+        if (value.isEmpty() || value.get().isBlank()) {
+            return;
+        }
+        try {
+            if (reference) {
+                editorService.setReference(target, newPath, referenceValue(value.get()));
+            } else {
+                editorService.setPrimitive(target, newPath, value.get());
+            }
+        } catch (RuntimeException e) {
+            showFailure("Could not set the value of " + newPath, e);
+        }
+    }
+
+    /** Deletes the element selected in the tree, asking for confirmation first. */
+    private void deleteSelectedNode() {
+        deleteNode(selectedNode, true);
+    }
+
+    /**
+     * Deletes the given element from the displayed resource.
+     *
+     * @param confirm when {@code true} a confirmation is shown for elements that
+     *                remove more than a single value
+     */
+    private void deleteNode(ResourceNode node, boolean confirm) {
+        IBaseResource target = currentTarget();
+        if (node == null || target == null) {
+            setStatus("Select an element in the resource tree first.");
+            return;
+        }
+        if (node.getParent() == null) {
+            setStatus("The resource itself cannot be deleted; use File > Close instead.");
+            return;
+        }
+        String path = node.getElementInfo().getPath();
+        if (confirm && !confirmRemoval(node, path)) {
+            return;
+        }
+        IBaseResource snapshot = pushUndoSnapshot();
+        try {
+            editorService.deleteNode(target, path);
+            String parentPath = node.getParent().getElementInfo().getPath();
+            refreshAfterEdit(parentPath, path);
+            setStatus("Deleted " + path + " from " + displayedLabel + ".");
+        } catch (RuntimeException e) {
+            discardUndoSnapshot(snapshot);
+            showFailure("Could not delete " + path, e);
+        }
+    }
+
+    /** Asks before deleting an element that removes a whole subtree of values. */
+    private boolean confirmRemoval(ResourceNode node, String path) {
+        if (node.getChildren().isEmpty()) {
+            return true;
+        }
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(stage);
+        alert.setTitle(APPLICATION_TITLE);
+        alert.setHeaderText("Delete " + path + "?");
+        alert.setContentText("This removes the element with its "
+                + (countNodes(node) - 1) + " child elements from " + displayedLabel
+                + ". The change can be undone.");
+        applyDialogTheme(alert.getDialogPane());
+        Optional<ButtonType> answer = alert.showAndWait();
+        return answer.isPresent() && answer.get() == ButtonType.OK;
     }
 
     /** The resource the tree and the document tabs currently show, or {@code null}. */
@@ -1075,6 +1280,7 @@ public class MainWindow {
         prettyView.showNothing();
         jsonView.showNothing();
         xmlView.showNothing();
+        fhirPathView.recalculate();
         detailsView.showNothingSelected();
         statusView.clearValidation();
         bundleView.clear();
@@ -1192,11 +1398,15 @@ public class MainWindow {
     private void updateEditActions() {
         boolean loaded = loadedResource != null;
         boolean canUndo = !undoStack.isEmpty();
+        boolean hasSelection = loaded && selectedNode != null;
         saveMenuItem.setDisable(!loaded);
         saveAsMenuItem.setDisable(!loaded);
         saveButton.setDisable(!loaded);
         undoMenuItem.setDisable(!canUndo);
         undoButton.setDisable(!canUndo);
+        addChildMenuItem.setDisable(!hasSelection);
+        // The resource itself cannot be deleted, only the elements inside it.
+        deleteMenuItem.setDisable(!hasSelection || selectedNode.getParent() == null);
     }
 
     private void showFailure(String message, Throwable failure) {

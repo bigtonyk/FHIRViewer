@@ -637,3 +637,40 @@
 .edit-value-field:disabled {
     -fx-opacity: 0.65;
 }
+
+/* ------------------------------------------------------------------ */
+/* FHIRPath view                                                       */
+/* ------------------------------------------------------------------ */
+
+.fhirpath-view {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+}
+
+.fhirpath-toolbar {
+    -fx-padding: 0 0 4 0;
+}
+
+.fhirpath-expression {
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-strong;
+}
+
+.fhirpath-result {
+    -fx-text-fill: -text-muted;
+}
+
+/* The three outcomes of an expression: a value, a broken expression, no value. */
+.fhirpath-status-valid {
+    -fx-text-fill: -success;
+}
+
+.fhirpath-status-invalid {
+    -fx-text-fill: -danger;
+}
+
+.fhirpath-status-empty {
+    -fx-text-fill: -text-muted;
+}

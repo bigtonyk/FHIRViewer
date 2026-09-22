@@ -1,6 +1,8 @@
 package com.example.fhirviewer.fhir;
 
 import ca.uhn.fhir.context.FhirContext;
+import ca.uhn.fhir.fhirpath.IFhirPath;
+import org.hl7.fhir.r4.hapi.fluentpath.FhirPathR4;
 
 /**
  * Provides the shared, cached HAPI FHIR context used by the application.
@@ -23,6 +25,15 @@ public final class FhirContextFactory {
     /** The shared R4 context. */
     public static FhirContext r4() {
         return R4_CONTEXT;
+    }
+
+    /**
+     * The FHIRPath engine that matches {@link #r4()}. Built on the HAPI FHIRPath
+     * wrapper so the service layer only sees the version neutral
+     * <code>IFhirPath</code> interface.
+     */
+    public static IFhirPath r4FhirPath() {
+        return new FhirPathR4(R4_CONTEXT);
     }
 
     /** The model adapter that matches {@link #r4()}. */

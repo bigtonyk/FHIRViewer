@@ -10,7 +10,7 @@ import java.util.Objects;
  * resource types it supports and the search parameters it advertises. Raw HAPI
  * CapabilityStatement handling stays inside the plugins; callers use this instead.</p>
  */
-public final class ServerCapabilities {
+public class ServerCapabilities {
 
     private final String fhirVersion;
     private final List<String> resourceTypes;

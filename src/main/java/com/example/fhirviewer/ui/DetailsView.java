@@ -36,6 +36,10 @@ public class DetailsView extends VBox {
             "Write the entered value to the element selected in the resource tree.";
     private static final String ADD_TOOLTIP =
             "Add a new entry to the repeating element selected in the resource tree.";
+    private static final String ADD_CHILD_TOOLTIP =
+            "Add a child element to the selected element, choosing from the FHIR resource definition.";
+    private static final String DELETE_TOOLTIP =
+            "Delete the element selected in the resource tree from the resource.";
 
     private final Label nameValue = newValueLabel();
     private final Label pathValue = newValueLabel();
@@ -47,9 +51,13 @@ public class DetailsView extends VBox {
     private final TextField valueField = new TextField();
     private final Button applyButton = new Button("Apply");
     private final Button addButton = new Button("Add entry");
+    private final Button addChildButton = new Button("Add child...");
+    private final Button deleteButton = new Button("Delete element");
 
     private BiConsumer<ResourceNode, String> editHandler = (node, text) -> { };
     private Consumer<ResourceNode> addHandler = node -> { };
+    private Consumer<ResourceNode> addChildHandler = node -> { };
+    private Consumer<ResourceNode> deleteHandler = node -> { };
 
     /** The element currently shown, or {@code null} when nothing is selected. */
     private ResourceNode current;
@@ -82,10 +90,21 @@ public class DetailsView extends VBox {
         addButton.setTooltip(new Tooltip(ADD_TOOLTIP));
         addButton.setOnAction(event -> addEntry());
 
+        addChildButton.getStyleClass().add("button-ghost");
+        addChildButton.setTooltip(new Tooltip(ADD_CHILD_TOOLTIP));
+        addChildButton.setOnAction(event -> requestAddChild());
+
+        deleteButton.getStyleClass().add("button-ghost");
+        deleteButton.setTooltip(new Tooltip(DELETE_TOOLTIP));
+        deleteButton.setOnAction(event -> requestDelete());
+
         HBox valueEditor = new HBox(8, valueField, applyButton, addButton);
         valueEditor.getStyleClass().add("details-editor");
         HBox.setHgrow(valueField, Priority.ALWAYS);
         valueField.setMaxWidth(Double.MAX_VALUE);
+
+        HBox structureActions = new HBox(8, addChildButton, deleteButton);
+        structureActions.getStyleClass().add("details-editor");
 
         int row = 0;
         addRow(grid, row++, "Element", nameValue);
@@ -93,6 +112,7 @@ public class DetailsView extends VBox {
         addRow(grid, row++, "Type", typeValue);
         addRow(grid, row++, "Cardinality", cardinalityValue);
         addRow(grid, row++, "Kind", kindValue);
+        addRow(grid, row++, "Structure", structureActions);
         addRow(grid, row++, "Value", valueEditor);
         addRow(grid, row++, "Definition", definitionValue);
 
@@ -108,6 +128,16 @@ public class DetailsView extends VBox {
     /** Sets the handler called when the user asks for a new entry of a repeating element. */
     public void setOnElementAdded(Consumer<ResourceNode> handler) {
         this.addHandler = handler == null ? node -> { } : handler;
+    }
+
+    /** Sets the handler called when the user asks to add a child element. */
+    public void setOnChildAddRequested(Consumer<ResourceNode> handler) {
+        this.addChildHandler = handler == null ? node -> { } : handler;
+    }
+
+    /** Sets the handler called when the user asks to delete the selected element. */
+    public void setOnElementDeleted(Consumer<ResourceNode> handler) {
+        this.deleteHandler = handler == null ? node -> { } : handler;
     }
 
     /** Displays the details of the selected element and configures the editing controls. */
@@ -130,6 +160,11 @@ public class DetailsView extends VBox {
         valueField.setDisable(!editable);
         applyButton.setDisable(!editable);
         addButton.setDisable(!info.isRepeating());
+        // Every composite element can receive a child element; the resource itself can
+        // receive top level elements, so the root is included.
+        addChildButton.setDisable(info.getKind() == ElementInfo.Kind.PRIMITIVE);
+        // The resource itself is not deletable; only elements inside it are.
+        deleteButton.setDisable(node.getParent() == null);
     }
 
     /** Resets the panel to its empty state. */
@@ -145,6 +180,8 @@ public class DetailsView extends VBox {
         valueField.setDisable(true);
         applyButton.setDisable(true);
         addButton.setDisable(true);
+        addChildButton.setDisable(true);
+        deleteButton.setDisable(true);
     }
 
     private void applyValue() {
@@ -156,6 +193,18 @@ public class DetailsView extends VBox {
     private void addEntry() {
         if (current != null) {
             addHandler.accept(current);
+        }
+    }
+
+    private void requestAddChild() {
+        if (current != null) {
+            addChildHandler.accept(current);
+        }
+    }
+
+    private void requestDelete() {
+        if (current != null) {
+            deleteHandler.accept(current);
         }
     }
 

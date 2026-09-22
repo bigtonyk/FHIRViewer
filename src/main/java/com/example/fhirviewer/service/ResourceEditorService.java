@@ -1,5 +1,6 @@
 package com.example.fhirviewer.service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -8,8 +9,14 @@ import org.hl7.fhir.instance.model.api.IBaseReference;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IPrimitiveType;
 
+import com.example.fhirviewer.fhir.ElementProperty;
 import com.example.fhirviewer.fhir.FhirContextFactory;
+import com.example.fhirviewer.fhir.FhirModelAdapter;
 
+import ca.uhn.fhir.context.BaseRuntimeChildDefinition;
+import ca.uhn.fhir.context.BaseRuntimeDeclaredChildDefinition;
+import ca.uhn.fhir.context.BaseRuntimeElementCompositeDefinition;
+import ca.uhn.fhir.context.BaseRuntimeElementDefinition;
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.util.FhirTerser;
 
@@ -34,16 +41,27 @@ import ca.uhn.fhir.util.FhirTerser;
 public final class ResourceEditorService {
 
     private final FhirContext context;
+    private final FhirModelAdapter modelAdapter;
     private final FhirTerser terser;
 
     /** Creates an editor for the default R4 FHIR version. */
     public ResourceEditorService() {
-        this(FhirContextFactory.r4());
+        this(FhirContextFactory.r4(), FhirContextFactory.r4ModelAdapter());
     }
 
     /** Creates an editor for a specific FHIR context. */
     public ResourceEditorService(FhirContext context) {
+        this(context, FhirContextFactory.r4ModelAdapter());
+    }
+
+    /**
+     * Creates an editor for a specific FHIR context and model adapter. The adapter
+     * carries out the model level changes, such as deleting values, that the terser
+     * alone cannot express.
+     */
+    public ResourceEditorService(FhirContext context, FhirModelAdapter modelAdapter) {
         this.context = Objects.requireNonNull(context, "context");
+        this.modelAdapter = Objects.requireNonNull(modelAdapter, "modelAdapter");
         this.terser = context.newTerser();
     }
 
@@ -112,11 +130,74 @@ public final class ResourceEditorService {
                     + " because that names a single entry; add to the repeating element instead.");
         }
         try {
-            IBase added = terser.addElement(resolve(resource, parts.parentPath()), parts.name());
+            IBase owner = resolve(resource, parts.parentPath());
+            BaseRuntimeElementCompositeDefinition<?> ownerDefinition = compositeDefinitionOf(owner);
+            if (ownerDefinition != null) {
+                BaseRuntimeChildDefinition childDefinition = ownerDefinition.getChildByName(parts.name());
+                if (childDefinition != null && childDefinition.getMax() == 1
+                        && !terser.getValues(owner, parts.name()).isEmpty()) {
+                    throw new IllegalArgumentException("The element " + parts.path() + " already has a value and"
+                            + " may not repeat; edit the value instead of adding another one.");
+                }
+            }
+            IBase added = terser.addElement(owner, parts.name());
             if (added == null) {
                 throw new IllegalArgumentException("No element could be added at " + parts.path() + ".");
             }
             return added;
+        } catch (RuntimeException e) {
+            throw editFailure(parts.path(), e);
+        }
+    }
+
+    /**
+     * Adds a new, empty child element under the parent element that a tree path
+     * names, for example a {@code family} element under {@code Patient.name[0]} or a
+     * new {@code name} entry under {@code Patient}. The new element is returned so
+     * the caller can select it and fill in its values.
+     *
+     * @param parentPath the absolute path of the element that receives the child
+     * @param childName  the child element name, exactly as the tree renders it; for
+     *                   choice elements the concrete name, for example
+     *                   {@code deceasedBoolean}
+     * @return the added element
+     * @throws IllegalArgumentException when the parent path is blank or unknown, the
+     *                                  child name is blank or unknown, or the child
+     *                                  already carries a value and may not repeat
+     */
+    public IBase addNode(IBaseResource resource, String parentPath, String childName) {
+        Objects.requireNonNull(resource, "resource");
+        if (childName == null || childName.isBlank()) {
+            throw new IllegalArgumentException(
+                    "A blank child element name is not accepted under " + parentPath + ".");
+        }
+        String parent = parentPath == null ? "" : parentPath.trim();
+        if (parent.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "A blank parent path is not accepted for a new " + childName.trim() + ".");
+        }
+        return addElement(resource, parent + "." + childName.trim());
+    }
+
+    /**
+     * Deletes the element that a tree path names: one entry of a repeating element
+     * (for example {@code Patient.name[1]}), every value of an element (for example
+     * {@code Patient.name[0].given}) or a single non repeating element (for example
+     * {@code Patient.name[0].family}).
+     *
+     * @throws IllegalArgumentException when the path is blank or unknown, when it
+     *                                  names the resource itself, or when the element
+     *                                  has nothing to delete
+     */
+    public void deleteNode(IBaseResource resource, String fhirPath) {
+        Objects.requireNonNull(resource, "resource");
+        PathParts parts = split(fhirPath);
+        if (parts.parentPath().isBlank()) {
+            throw new IllegalArgumentException(
+                    "The resource itself (" + parts.path() + ") cannot be deleted; close it instead.");
+        }
+        try {
+            modelAdapter.removeValues(resolve(resource, parts.parentPath()), parts.name(), parts.index());
         } catch (RuntimeException e) {
             throw editFailure(parts.path(), e);
         }
@@ -172,6 +253,81 @@ public final class ResourceEditorService {
         }
     }
 
+    /**
+     * The child elements that the FHIR resource definition allows under the element
+     * a tree path names, each with its datatype, cardinality and specification
+     * documentation. Choice elements are listed under their concrete names (for
+     * example {@code deceasedBoolean}), and elements that already carry their single
+     * value are left out, because nothing can be added to them.
+     *
+     * @param parentPath the absolute path of the element to inspect
+     * @return the allowed child elements in specification order; never {@code null}
+     * @throws IllegalArgumentException when the path is blank, unknown, or names an
+     *                                  element that cannot hold child elements
+     */
+        public List<ElementProperty> childElements(IBaseResource resource, String parentPath) {
+        Objects.requireNonNull(resource, "resource");
+        if (parentPath == null || parentPath.isBlank()) {
+            throw new IllegalArgumentException("A blank parent path has no child elements.");
+        }
+        try {
+            IBase owner = resolve(resource, parentPath);
+            BaseRuntimeElementCompositeDefinition<?> definition = compositeDefinitionOf(owner);
+            if (definition == null) {
+                throw new IllegalArgumentException("The element " + parentPath + " has no child elements.");
+            }
+            List<ElementProperty> children = new ArrayList<>();
+            for (BaseRuntimeChildDefinition child : definition.getChildren()) {
+                for (String name : namesOf(child)) {
+                    BaseRuntimeElementDefinition<?> typeDefinition;
+                    try {
+                        typeDefinition = child.getChildByName(name);
+                    } catch (RuntimeException | AssertionError e) {
+                        // HAPI's RuntimeChildExtension.getChildByName translates the name
+                        // "extension" to the internal "extensionExtension" and throws when
+                        // that choice is not resolvable. Such internal names are not
+                        // editable from the UI, so skip them.
+                        continue;
+                    }
+                    if (typeDefinition == null) {
+                        continue;
+                    }
+                    if (child.getMax() == 1 && !terser.getValues(owner, name).isEmpty()) {
+                        // The element already carries its single value, so nothing can be added.
+                        continue;
+                    }
+                    children.add(new ElementProperty(
+                            name,
+                            typeDefinition.getName(),
+                            definitionTextOf(child),
+                            child.getMin(),
+                            child.getMax(),
+                            List.of()));
+                }
+            }
+            return children;
+        } catch (RuntimeException e) {
+            throw editFailure(parentPath, e);
+        }
+    }
+
+    /**
+     * The element a tree path names, so callers can inspect what an edit would
+     * change without duplicating the path walking rules.
+     *
+     * @throws IllegalArgumentException when the path is blank or does not name an
+     *                                  existing element
+     */
+    public IBase resolveElement(IBaseResource resource, String fhirPath) {
+        Objects.requireNonNull(resource, "resource");
+        PathParts parts = split(fhirPath);
+        try {
+            return resolve(resource, parts.path());
+        } catch (RuntimeException e) {
+            throw editFailure(parts.path(), e);
+        }
+    }
+
     /** Copies a resource, so the UI can keep a snapshot before editing it. */
     public IBaseResource cloneResource(IBaseResource original) {
         if (original == null) {
@@ -182,6 +338,45 @@ public final class ResourceEditorService {
         } catch (RuntimeException e) {
             throw new IllegalArgumentException("Could not copy the resource: " + messageOf(e), e);
         }
+    }
+
+    /**
+     * The child element names a model child definition accepts. Real choice elements
+     * are already reported under their concrete names by HAPI's
+     * {@link BaseRuntimeChildDefinition#getValidChildNames} (for example
+     * {@code deceasedBoolean} rather than {@code value[x]}), extension definitions
+     * report a single name, and the internal {@code <name>Resource} alias HAPI
+     * registers for reference elements is skipped.
+      */
+    private static List<String> namesOf(BaseRuntimeChildDefinition child) {
+        List<String> names = new ArrayList<>();
+        for (String name : child.getValidChildNames()) {
+            if (!name.endsWith("[x]") && !name.equals(child.getElementName() + "Resource")) {
+                names.add(name);
+            }
+        }
+        return names;
+    }
+
+    /** The specification documentation of a model child definition, when available. */
+    private static String definitionTextOf(BaseRuntimeChildDefinition child) {
+        if (child instanceof BaseRuntimeDeclaredChildDefinition declared) {
+            return declared.getShortDefinition();
+        }
+        return null;
+    }
+
+    /** The composite definition of an element, or {@code null} for primitives. */
+    private BaseRuntimeElementCompositeDefinition<?> compositeDefinitionOf(IBase element) {
+        try {
+            if (context.getElementDefinition(element.getClass())
+                    instanceof BaseRuntimeElementCompositeDefinition<?> composite) {
+                return composite;
+            }
+        } catch (RuntimeException e) {
+            // An unknown element class is reported when a change is attempted.
+        }
+        return null;
     }
 
     /**

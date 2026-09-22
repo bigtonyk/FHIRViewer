@@ -1,0 +1,5 @@
+When searching a large codebase or processing many candidate files/results,
+consider using the classifier MCP tool to identify relevant items before
+reading their full contents into context. Prefer classification when it can
+reduce unnecessary context, but do not use it for small searches where the
+overhead is greater than the likely savings.
