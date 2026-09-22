@@ -1,27 +1,43 @@
 package com.example.fhirviewer.ui;
 
+import java.util.function.Consumer;
+
 import javafx.application.Platform;
+import javafx.scene.control.Button;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
+import javafx.scene.control.Tooltip;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
 import com.example.fhirviewer.model.ResourceNode;
 
 /**
- * Read-only view that shows the resource rendered as FHIR XML.
+ * Editable view that shows the resource rendered as FHIR XML.
+ *
+ * <p>The text can be edited directly; nothing is parsed while typing. The window
+ * installs an apply handler which parses, validates and replaces the current
+ * resource, after which every view is refreshed from the new resource.</p>
  */
 public class XmlView extends VBox implements ElementNavigationTarget {
 
     private final TextArea area = new TextArea();
+    private final Button applyButton = new Button("Apply Changes");
     private final ScrollPane scrollPane = new ScrollPane();
+
+    /** Called with the edited text when the user applies the changes. */
+    private Consumer<String> applyHandler = text -> { };
 
     public XmlView() {
         getStyleClass().addAll("card", "mono-text", "fhir-xml-view");
         setFillWidth(true);  // Fill the available width in the tab
         setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);  // Allow the VBox to grow
         
-        area.setEditable(false);
+        // Editable source: parse only on explicit apply, never while typing.
+        area.setEditable(true);
         area.setWrapText(false);
         area.getStyleClass().addAll("mono-text", "code-area");
         
@@ -36,13 +52,39 @@ public class XmlView extends VBox implements ElementNavigationTarget {
         VBox.setVgrow(scrollPane, Priority.ALWAYS);
         scrollPane.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);  // Allow ScrollPane to grow
         
-        getChildren().add(scrollPane);
+        applyButton.getStyleClass().add("button-primary");
+        applyButton.setTooltip(new Tooltip(
+                "Parse and validate the edited XML, then replace the current resource with it."));
+        applyButton.setOnAction(event -> applyHandler.accept(area.getText()));
+        // Ctrl+Enter (Cmd+Enter on macOS) applies as well; the filter runs before the
+        // editor handles the key, so no newline is inserted.
+        area.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            if (event.isShortcutDown() && event.getCode() == KeyCode.ENTER) {
+                applyHandler.accept(area.getText());
+                event.consume();
+            }
+        });
+
+        HBox toolbar = new HBox(applyButton);
+        toolbar.getStyleClass().add("code-toolbar");
+
+        getChildren().addAll(toolbar, scrollPane);
     }
 
     /** Displays the supplied XML text. */
     public void show(String xml) {
         setText(xml == null ? "" : xml);
         area.positionCaret(0);
+    }
+
+    /** The text currently in the editor, including any unapplied edits. */
+    public String getText() {
+        return area.getText();
+    }
+
+    /** Installs the handler that applies the edited text to the current resource. */
+    public void setOnApplyRequested(Consumer<String> handler) {
+        this.applyHandler = handler == null ? text -> { } : handler;
     }
 
     /** Clears the view. */

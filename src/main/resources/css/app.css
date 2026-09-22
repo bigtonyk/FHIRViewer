@@ -131,6 +131,13 @@
     -fx-background-color: transparent;
 }
 
+/* "Apply Changes" in a code toolbar: emphasised, but compact enough for a toolbar. */
+.code-toolbar > .button-primary {
+    -fx-padding: 4 12 4 12;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+}
+
 .code-area, .text-area {
     -fx-background-color: -surface;
     -fx-border-width: 0;

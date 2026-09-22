@@ -27,6 +27,7 @@ import com.example.fhirviewer.service.FhirService;
 import com.example.fhirviewer.service.ResourceEditorService;
 import com.example.fhirviewer.service.ResourceLoadException;
 import com.example.fhirviewer.service.ResourceTemplateFactory;
+import com.example.fhirviewer.service.SourceEditorService;
 import com.example.fhirviewer.server.FhirServerManager;
 import com.example.fhirviewer.server.FhirServerService;
 import com.example.fhirviewer.server.ServerDefinition;
@@ -98,6 +99,8 @@ public class MainWindow {
 
     /** Applies edits to the live FHIR model; the UI never touches HAPI FHIR directly. */
     private final ResourceEditorService editorService = new ResourceEditorService();
+    /** Applies edited JSON/XML source text after parsing and validation. */
+    private final SourceEditorService sourceEditorService = new SourceEditorService();
     /** Creates the empty resource behind File > New. */
     private final ResourceTemplateFactory templateFactory = ResourceTemplateFactory.r4();
 
@@ -433,6 +436,8 @@ public class MainWindow {
         detailsView.setOnElementAdded(this::addElementToSelection);
         detailsView.setOnChildAddRequested(this::addChildToSelection);
         detailsView.setOnElementDeleted(node -> deleteNode(node, true));
+        jsonView.setOnApplyRequested(this::applyJsonSource);
+        xmlView.setOnApplyRequested(this::applyXmlSource);
         fhirPathView.setExpressionEvaluator(
                 expression -> fhirService.evaluateFHIRPath(currentTarget(), expression));
         treeView.setOnNodeSelected(node -> {
@@ -1259,6 +1264,74 @@ public class MainWindow {
         }
     }
 
+    /** Applies the text of the JSON editor to the current resource. */
+    private void applyJsonSource(String text) {
+        applySourceText(text, ResourceFormat.JSON);
+    }
+
+    /** Applies the text of the XML editor to the current resource. */
+    private void applyXmlSource(String text) {
+        applySourceText(text, ResourceFormat.XML);
+    }
+
+    /**
+     * Parses and validates edited source text, then replaces the current resource.
+     *
+     * <p>On failure nothing is replaced: the error is shown, the edited text is left
+     * intact for correction, and the tree, Pretty View, FHIRPath results and
+     * serialized views keep showing the current resource.</p>
+     */
+    private void applySourceText(String text, ResourceFormat format) {
+        if (loadedResource == null || currentTarget() == null) {
+            setStatus("Nothing to apply. Open a FHIR resource first.");
+            return;
+        }
+        // Recorded before the parse so a successful replacement can be undone.
+        IBaseResource snapshot = pushUndoSnapshot();
+        Deque<IBaseResource> history = new ArrayDeque<>(undoStack);
+        try {
+            String sourceName = loadedResource.getSourceName() == null
+                    ? displayedLabel + "." + format.getExtension()
+                    : loadedResource.getSourceName();
+            SourceEditorService.AppliedSource applied = sourceEditorService.apply(text, format, sourceName);
+            replaceCurrentResource(applied, format);
+            restoreUndoHistory(history);
+        } catch (RuntimeException e) {
+            restoreUndoHistory(history);
+            discardUndoSnapshot(snapshot);
+            showFailure("Could not apply the edited " + format.getDisplayName(), e);
+        }
+    }
+
+    /**
+     * Swaps the loaded resource for a parsed replacement and refreshes every view
+     * from it. The caller keeps the editing history, so applying source text can be
+     * undone like any other edit.
+     */
+    private void replaceCurrentResource(SourceEditorService.AppliedSource applied, ResourceFormat editedFormat) {
+        IBaseResource replacement = applied.resource();
+        LoadedResource next = new LoadedResource(
+                replacement,
+                applied.format(),
+                loadedResource.getSourceName(),
+                sourceEditorService.serialize(replacement, applied.format()),
+                loadedResource.getSourcePath());
+        next.markDirty();
+        // display() rebuilds the tree, the Pretty View, the serialized views, the
+        // Bundle navigator and the title from the replacement resource.
+        display(next);
+        setStatus("Applied the edited " + editedFormat.getDisplayName() + " to "
+                + next.getDisplayName() + " (" + applied.report().getSummary() + ").");
+    }
+
+    /** Puts back the editing history that {@link #display} resets when it reloads a view. */
+    private void restoreUndoHistory(Deque<IBaseResource> history) {
+        undoStack.clear();
+        undoStack.addAll(history);
+        updateEditActions();
+    }
+
+    /** The default file name for an export, for example <code>Patient-123.json</code>. */
     private String suggestedFileName(IBaseResource resource, ResourceFormat format) {
         String type = resource.fhirType();
         IIdType idElement = resource.getIdElement();
