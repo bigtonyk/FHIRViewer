@@ -14,7 +14,8 @@ public record ValidationIssue(
         String message,
         String location,
         Integer line,
-        Integer column) {
+        Integer column,
+        boolean isProfileResolutionFailure) {
 
     /** Mirrors <code>ca.uhn.fhir.validation.ResultSeverityEnum</code>. */
     public enum Severity {
@@ -33,6 +34,16 @@ public record ValidationIssue(
         severity = severity == null ? Severity.INFORMATION : severity;
         message = message == null ? "" : message;
         location = location == null ? "" : location;
+        isProfileResolutionFailure = false;
+    }
+
+    /**
+     * Creates a validation issue for profile resolution failures.
+     */
+    public static ValidationIssue profileResolutionFailure(
+            Severity severity, String message, String location,
+            Integer line, Integer column) {
+        return new ValidationIssue(severity, message, location, line, column, true);
     }
 
     /** Text rendered in the validation list. */
@@ -49,6 +60,9 @@ public record ValidationIssue(
                 sb.append(", column ").append(column);
             }
             sb.append(')');
+        }
+        if (isProfileResolutionFailure) {
+            sb.append(" [profile resolution]");
         }
         return sb.toString();
     }

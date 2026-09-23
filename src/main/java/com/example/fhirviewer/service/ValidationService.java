@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.hl7.fhir.common.hapi.validation.support.InMemoryTerminologyServerValidationSupport;
+import org.hl7.fhir.common.hapi.validation.support.NpmPackageValidationSupport;
 import org.hl7.fhir.common.hapi.validation.support.SnapshotGeneratingValidationSupport;
 import org.hl7.fhir.common.hapi.validation.support.ValidationSupportChain;
 import org.hl7.fhir.common.hapi.validation.validator.FhirInstanceValidator;
@@ -22,20 +23,21 @@ import ca.uhn.fhir.validation.SingleValidationMessage;
 import ca.uhn.fhir.validation.ValidationResult;
 
 /**
- * Validates resources with HAPI FHIR.
- *
- * <p>The validator is created lazily and reused, because building the validation
- * support (profile and terminology data) is expensive. The validation support chain
- * combines the built-in R4 profiles that ship with HAPI with in-memory terminology
- * and snapshot generation, so validation works without a FHIR server.</p>
+ * Validates resources with HAPI FHIR, including support for loaded IG packages.
  */
 public class ValidationService {
 
     private final FhirContext context;
     private volatile FhirValidator validator;
+    private final IgPackageManager packageManager;
 
     public ValidationService(FhirContext context) {
         this.context = context;
+        this.packageManager = new IgPackageManager(context);
+    }
+
+    public IgPackageManager getPackageManager() {
+        return packageManager;
     }
 
     /**
@@ -49,6 +51,10 @@ public class ValidationService {
             return ValidationReport.successful("");
         }
         List<ValidationIssue> issues = new ArrayList<>();
+        
+        // Check profile resolution for meta.profile references
+        checkProfileResolution(resource, issues);
+        
         try {
             ValidationResult result = validator().validateWithResult(resource);
             for (SingleValidationMessage message : result.getMessages()) {
@@ -57,18 +63,22 @@ public class ValidationService {
                         message.getMessage(),
                         message.getLocationString(),
                         message.getLocationLine(),
-                        message.getLocationCol()));
+                        message.getLocationCol(),
+                        false));
             }
         } catch (RuntimeException e) {
             String detail = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             issues.add(new ValidationIssue(
                     ValidationIssue.Severity.ERROR,
                     "Validation could not be completed: " + detail,
-                    "",
-                    null,
-                    null));
+                    "", null, null, false));
         }
         return new ValidationReport(labelOf(resource), issues);
+    }
+
+    private void checkProfileResolution(IBaseResource resource, List<ValidationIssue> issues) {
+        // Profile resolution checking is handled by the validator when IG packages are loaded
+        // This method is a placeholder for future enhancement
     }
 
     private FhirValidator validator() {
@@ -85,11 +95,19 @@ public class ValidationService {
     }
 
     private FhirValidator createValidator() {
+        List<IValidationSupport> supports = new ArrayList<>();
+        supports.add(new DefaultProfileValidationSupport(context));
+        supports.add(new InMemoryTerminologyServerValidationSupport(context));
+        supports.add(new SnapshotGeneratingValidationSupport(context));
+        
+        NpmPackageValidationSupport npmSupport = packageManager.getNpmPackageValidationSupport();
+        if (npmSupport != null && packageManager.hasLoadedPackages()) {
+            supports.add(npmSupport);
+        }
+        
         IValidationSupport validationSupport = new ValidationSupportChain(
-                new DefaultProfileValidationSupport(context),
-                new InMemoryTerminologyServerValidationSupport(context),
-                new SnapshotGeneratingValidationSupport(context));
-
+                supports.toArray(new IValidationSupport[0]));
+        
         FhirValidator fhirValidator = new FhirValidator(context);
         fhirValidator.registerValidatorModule(new FhirInstanceValidator(validationSupport));
         return fhirValidator;

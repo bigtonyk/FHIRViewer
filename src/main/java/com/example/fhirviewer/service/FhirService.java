@@ -197,4 +197,9 @@ public class FhirService {
     public String fhirVersion() {
         return modelAdapter.fhirVersionName();
     }
+
+    /** Returns the validation service for IG package management. */
+    public ValidationService validationService() {
+        return validationService;
+    }
 }

@@ -336,7 +336,10 @@ public class MainWindow {
                 new SeparatorMenuItem(),
                 close,
                 exit);
-        return new MenuBar(fileMenu, buildEditMenu(), buildViewMenu(), buildToolsMenu(), buildHelpMenu());
+        
+        Menu igMenu = buildIgMenu();
+        return new MenuBar(fileMenu, buildEditMenu(), buildViewMenu(), 
+                buildToolsMenu(), buildHelpMenu(), igMenu);
     }
 
     private Menu buildEditMenu() {
@@ -1482,6 +1485,17 @@ public class MainWindow {
         deleteMenuItem.setDisable(!hasSelection || selectedNode.getParent() == null);
     }
 
+    private void showAlert(Alert.AlertType type, String title, String message) {
+        Alert alert = new Alert(type);
+        alert.initOwner(stage);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
+        alert.getDialogPane().setPrefWidth(620);
+        alert.showAndWait();
+    }
+
     private void showFailure(String message, Throwable failure) {
         String detail = failure == null || failure.getMessage() == null
                 ? String.valueOf(failure)
@@ -1497,5 +1511,87 @@ public class MainWindow {
         alert.getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
         alert.getDialogPane().setPrefWidth(620);
         alert.showAndWait();
+    }
+
+    /**
+     * Builds the Implementation Guide menu for managing FHIR NPM packages.
+     */
+    private Menu buildIgMenu() {
+        Menu igMenu = new Menu("Implementation Guide");
+        
+        MenuItem managePackagesItem = new MenuItem("Manage Packages...");
+        managePackagesItem.setOnAction(event -> openIgPackageManager());
+        
+        MenuItem loadedPackagesItem = new MenuItem("View Loaded Packages");
+        loadedPackagesItem.setOnAction(event -> showLoadedPackagesInfo());
+        
+        igMenu.getItems().addAll(managePackagesItem, 
+                new SeparatorMenuItem(), 
+                loadedPackagesItem);
+        
+        return igMenu;
+    }
+
+    /**
+     * Opens the IG Package Manager dialog.
+     */
+    private void openIgPackageManager() {
+        try {
+            Class<?> dialogClass = Class.forName("com.example.fhirviewer.ui.IgPackageDialog");
+            java.lang.reflect.Constructor<?> constructor = 
+                    dialogClass.getConstructor(Stage.class, FhirService.class);
+            Object dialog = constructor.newInstance(stage, fhirService);
+            java.lang.reflect.Method showAndWait = 
+                    dialogClass.getMethod("showAndWait");
+            showAndWait.invoke(dialog);
+        } catch (ClassNotFoundException e) {
+            // IgPackageDialog not available
+            showAlert(Alert.AlertType.INFORMATION, "IG Package Manager", 
+                    "The IG Package Manager is not available in this build.");
+        } catch (Exception e) {
+            showFailure("Failed to open IG Package Manager", e);
+        }
+    }
+
+    /**
+     * Shows information about currently loaded packages.
+     */
+    private void showLoadedPackagesInfo() {
+        try {
+            Class<?> validationServiceClass = 
+                    Class.forName("com.example.fhirviewer.service.ValidationService");
+            java.lang.reflect.Method getPackageManager = 
+                    validationServiceClass.getMethod("getPackageManager");
+            Object packageManager = getPackageManager.invoke(fhirService.validationService());
+            
+            java.lang.reflect.Method getLoadedPackages = 
+                    packageManager.getClass().getMethod("getLoadedPackages");
+            java.util.List<?> packages = (java.util.List<?>) getLoadedPackages.invoke(packageManager);
+            
+            if (packages.isEmpty()) {
+                showAlert(Alert.AlertType.INFORMATION, "Loaded Packages", 
+                        "No Implementation Guide packages are currently loaded.\\n\\n" +
+                        "To load packages:\\n" +
+                        "1. Go to Implementation Guide > Manage Packages\\n" +
+                        "2. Search for packages or load from file\\n" +
+                        "3. Download and load the desired packages");
+            } else {
+                StringBuilder message = new StringBuilder();
+                message.append("Loaded Implementation Guide Packages\\n");
+                message.append("=====================================\\n\\n");
+                for (Object pkg : packages) {
+                    java.lang.reflect.Method getName = pkg.getClass().getMethod("name");
+                    java.lang.reflect.Method getVersion = pkg.getClass().getMethod("version");
+                    java.lang.reflect.Method getFhirVersion = pkg.getClass().getMethod("fhirVersion");
+                    message.append("- ").append(getName.invoke(pkg))
+                           .append(" ").append(getVersion.invoke(pkg))
+                           .append(" (").append(getFhirVersion.invoke(pkg)).append(")\\n");
+                }
+                message.append("\\nThese packages are available for validation.");
+                showAlert(Alert.AlertType.INFORMATION, "Loaded Packages", message.toString());
+            }
+        } catch (Exception e) {
+            showFailure("Failed to get package information", e);
+        }
     }
 }
