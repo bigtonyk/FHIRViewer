@@ -29,6 +29,8 @@ public class ValidationService {
 
     private final FhirContext context;
     private volatile FhirValidator validator;
+    /** Package count the cached validator was built with; -1 before the first build. */
+    private volatile int validatorPackageCount = -1;
     private final IgPackageManager packageManager;
 
     public ValidationService(FhirContext context) {
@@ -82,13 +84,15 @@ public class ValidationService {
     }
 
     private FhirValidator validator() {
+        int packageCount = packageManager.getLoadedPackageCount();
         FhirValidator existing = validator;
-        if (existing != null) {
+        if (existing != null && validatorPackageCount == packageCount) {
             return existing;
         }
         synchronized (this) {
-            if (validator == null) {
+            if (validator == null || validatorPackageCount != packageCount) {
                 validator = createValidator();
+                validatorPackageCount = packageCount;
             }
             return validator;
         }

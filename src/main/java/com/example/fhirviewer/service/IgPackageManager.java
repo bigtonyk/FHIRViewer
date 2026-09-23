@@ -3,9 +3,11 @@ package com.example.fhirviewer.service;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.logging.Logger;
@@ -107,6 +109,37 @@ public class IgPackageManager {
     public void clearAllPackages() {
         loadedPackages.clear();
         npmPackageValidationSupport = null;
+    }
+
+    /**
+     * Loads every .tgz file in the given directory (non-recursive, in file-name
+     * order). Files that fail to load are skipped and logged; a missing
+     * directory is not an error and loads nothing.
+     *
+     * @return the number of packages loaded
+     */
+    public int loadAllFrom(Path directory) {
+        if (directory == null || !Files.isDirectory(directory)) {
+            return 0;
+        }
+        List<Path> tgzFiles = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, "*.tgz")) {
+            stream.forEach(tgzFiles::add);
+        } catch (IOException e) {
+            logger.warning("Cannot list package directory " + directory + ": " + e.getMessage());
+            return 0;
+        }
+        tgzFiles.sort(Comparator.comparing(Path::getFileName));
+        int loaded = 0;
+        for (Path file : tgzFiles) {
+            try {
+                loadPackageFromFile(file);
+                loaded++;
+            } catch (IOException | RuntimeException e) {
+                logger.warning("Skipping package " + file + ": " + e.getMessage());
+            }
+        }
+        return loaded;
     }
 
     /** Parses all conformance resources in the package's "package" folder. */

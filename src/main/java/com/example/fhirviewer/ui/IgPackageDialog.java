@@ -3,6 +3,7 @@ package com.example.fhirviewer.ui;
 import com.example.fhirviewer.model.IgPackageInfo;
 import com.example.fhirviewer.service.IgPackageManager;
 import com.example.fhirviewer.service.PackageRegistryService;
+import com.example.fhirviewer.service.PackageStorage;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -22,7 +23,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.logging.Logger;
-import java.util.prefs.Preferences;
 
 /**
  * Dialog for managing FHIR Implementation Guide packages.
@@ -31,11 +31,9 @@ import java.util.prefs.Preferences;
  */
 public class IgPackageDialog extends Dialog<String> {
     private static final Logger logger = Logger.getLogger(IgPackageDialog.class.getName());
-    private static final String DEFAULT_STORAGE_DIR = System.getProperty("user.home") + "/.fhirviewer/packages";
 
     private final IgPackageManager packageManager;
     private final PackageRegistryService registryService;
-    private final Preferences prefs;
 
     private TextField searchField;
     private Button searchButton;
@@ -57,7 +55,6 @@ public class IgPackageDialog extends Dialog<String> {
                           PackageRegistryService rs) {
         this.packageManager = pm;
         this.registryService = rs;
-        this.prefs = Preferences.userNodeForPackage(getClass());
 
         setTitle("IG Package Manager");
         setHeaderText("Manage FHIR Implementation Guide Packages");
@@ -76,8 +73,7 @@ public class IgPackageDialog extends Dialog<String> {
             return null;
         });
 
-        String storedDir = prefs.get("storageDirectory", DEFAULT_STORAGE_DIR);
-        storageDirField.setText(storedDir);
+        storageDirField.setText(PackageStorage.getStorageDirectory().toString());
 
         refreshLoadedPackages();
         initOwner(parentWindow);
@@ -329,11 +325,7 @@ public class IgPackageDialog extends Dialog<String> {
         fileChooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("All Files", "*"));
 
-        String storedDir = prefs.get("storageDirectory", DEFAULT_STORAGE_DIR);
-        File initDir = new File(storedDir);
-        if (!initDir.exists()) {
-            initDir = new File(System.getProperty("user.home"));
-        }
+        File initDir = PackageStorage.getStorageDirectory().toFile();
         if (initDir.isDirectory()) {
             fileChooser.setInitialDirectory(initDir);
         }
@@ -391,8 +383,7 @@ public class IgPackageDialog extends Dialog<String> {
     private void browseForStorageDir() {
         DirectoryChooser dirChooser = new DirectoryChooser();
         dirChooser.setTitle("Select Package Storage Directory");
-        String storedDir = prefs.get("storageDirectory", DEFAULT_STORAGE_DIR);
-        File initDir = new File(storedDir);
+        File initDir = PackageStorage.getStorageDirectory().toFile();
         if (initDir.isDirectory()) {
             dirChooser.setInitialDirectory(initDir);
         } else {
@@ -400,10 +391,9 @@ public class IgPackageDialog extends Dialog<String> {
         }
         File selectedDir = dirChooser.showDialog(getOwner());
         if (selectedDir != null) {
-            String dirPath = selectedDir.getAbsolutePath();
-            storageDirField.setText(dirPath);
-            prefs.put("storageDirectory", dirPath);
-            statusLabel.setText("Storage directory set to: " + dirPath);
+            storageDirField.setText(selectedDir.getAbsolutePath());
+            PackageStorage.setStorageDirectory(selectedDir.toPath());
+            statusLabel.setText("Storage directory set to: " + selectedDir.getAbsolutePath());
         }
     }
 
@@ -413,10 +403,7 @@ public class IgPackageDialog extends Dialog<String> {
 
     private Path getStoragePath() {
         String dir = storageDirField.getText().trim();
-        if (dir.isEmpty()) {
-            dir = DEFAULT_STORAGE_DIR;
-        }
-        return Paths.get(dir);
+        return dir.isEmpty() ? PackageStorage.getStorageDirectory() : Paths.get(dir);
     }
 
     private void showAlert(Alert.AlertType type, String message) {

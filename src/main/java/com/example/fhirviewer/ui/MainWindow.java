@@ -9,6 +9,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
+import java.util.logging.Logger;
 
 import org.hl7.fhir.instance.model.api.IBase;
 import org.hl7.fhir.instance.model.api.IBaseReference;
@@ -24,6 +25,7 @@ import com.example.fhirviewer.model.ResourceFormat;
 import com.example.fhirviewer.model.ResourceNode;
 import com.example.fhirviewer.model.ValidationReport;
 import com.example.fhirviewer.service.FhirService;
+import com.example.fhirviewer.service.PackageStorage;
 import com.example.fhirviewer.service.ResourceEditorService;
 import com.example.fhirviewer.service.ResourceLoadException;
 import com.example.fhirviewer.service.ResourceTemplateFactory;
@@ -79,6 +81,7 @@ import javafx.stage.Stage;
  */
 public class MainWindow {
 
+    private static final Logger logger = Logger.getLogger(MainWindow.class.getName());
     private static final String APPLICATION_TITLE = "FHIR Resource Viewer";
     private static final String READY_STATUS = "Ready. Use File > Open to load a FHIR JSON or XML resource.";
     /** How many edits can be undone; older snapshots are dropped. */
@@ -170,6 +173,7 @@ public class MainWindow {
         this.hostServices = hostServices;
         buildLayout();
         wireInteractions();
+        startIgPackageAutoLoad();
         // Closing the window is the last chance to save an edited resource.
         stage.setOnCloseRequest(event -> {
             if (closingFromAction) {
@@ -185,6 +189,29 @@ public class MainWindow {
     /** The root node of the window, for use in a {@link javafx.scene.Scene}. */
     public Parent getRoot() {
         return root;
+    }
+
+    /**
+     * Loads IG packages downloaded in an earlier session, so validation can use
+     * them without re-loading each file. Runs on a background thread to keep
+     * startup responsive; the validator is rebuilt whenever the loaded set
+     * changes (see ValidationService), so validation before the load finishes
+     * is corrected by the next validation.
+     */
+    private void startIgPackageAutoLoad() {
+        Thread loader = new Thread(() -> {
+            try {
+                int loaded = fhirService.validationService().getPackageManager()
+                        .loadAllFrom(PackageStorage.getStorageDirectory());
+                if (loaded > 0) {
+                    logger.info("Auto-loaded " + loaded + " IG package(s) from storage");
+                }
+            } catch (RuntimeException e) {
+                logger.warning("IG package auto-load failed: " + e.getMessage());
+            }
+        }, "ig-package-auto-load");
+        loader.setDaemon(true);
+        loader.start();
     }
 
     private void buildLayout() {
