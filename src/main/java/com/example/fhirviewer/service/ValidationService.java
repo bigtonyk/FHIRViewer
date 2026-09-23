@@ -18,7 +18,6 @@ import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.support.DefaultProfileValidationSupport;
 import ca.uhn.fhir.context.support.IValidationSupport;
 import ca.uhn.fhir.validation.FhirValidator;
-import ca.uhn.fhir.validation.ResultSeverityEnum;
 import ca.uhn.fhir.validation.SingleValidationMessage;
 import ca.uhn.fhir.validation.ValidationResult;
 
@@ -29,8 +28,10 @@ public class ValidationService {
 
     private final FhirContext context;
     private volatile FhirValidator validator;
-    /** Package count the cached validator was built with; -1 before the first build. */
-    private volatile int validatorPackageCount = -1;
+    /** Validation support chain the cached validator was built with; null before the first build. */
+    private volatile IValidationSupport validationSupport;
+    /** Package revision the cached validator was built with; -1 before the first build. */
+    private volatile long validatorRevision = -1;
     private final IgPackageManager packageManager;
 
     public ValidationService(FhirContext context) {
@@ -54,45 +55,40 @@ public class ValidationService {
         }
         List<ValidationIssue> issues = new ArrayList<>();
         
-        // Check profile resolution for meta.profile references
-        checkProfileResolution(resource, issues);
+        // Profile and terminology resolution checks run before the validator so
+        // missing artifacts are distinguished from real validation failures.
         
         try {
-            ValidationResult result = validator().validateWithResult(resource);
+            FhirValidator current = validator();
+            ValidationIssueAnalyzer analyzer = new ValidationIssueAnalyzer(validationSupport);
+            analyzer.checkProfileBindings(resource, issues);
+
+            ValidationResult result = current.validateWithResult(resource);
             for (SingleValidationMessage message : result.getMessages()) {
-                issues.add(new ValidationIssue(
-                        toSeverity(message.getSeverity()),
-                        message.getMessage(),
-                        message.getLocationString(),
-                        message.getLocationLine(),
-                        message.getLocationCol(),
-                        false));
+                issues.add(analyzer.classify(message));
             }
         } catch (RuntimeException e) {
             String detail = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             issues.add(new ValidationIssue(
                     ValidationIssue.Severity.ERROR,
                     "Validation could not be completed: " + detail,
-                    "", null, null, false));
+                    "", null, null));
         }
         return new ValidationReport(labelOf(resource), issues);
     }
 
-    private void checkProfileResolution(IBaseResource resource, List<ValidationIssue> issues) {
-        // Profile resolution checking is handled by the validator when IG packages are loaded
-        // This method is a placeholder for future enhancement
-    }
+
 
     private FhirValidator validator() {
-        int packageCount = packageManager.getLoadedPackageCount();
+        long revision = packageManager.getRevision();
         FhirValidator existing = validator;
-        if (existing != null && validatorPackageCount == packageCount) {
+        if (existing != null && validatorRevision == revision) {
             return existing;
         }
         synchronized (this) {
-            if (validator == null || validatorPackageCount != packageCount) {
+            if (validator == null || validatorRevision != revision) {
                 validator = createValidator();
-                validatorPackageCount = packageCount;
+                validatorRevision = revision;
             }
             return validator;
         }
@@ -109,25 +105,16 @@ public class ValidationService {
             supports.add(npmSupport);
         }
         
-        IValidationSupport validationSupport = new ValidationSupportChain(
+        IValidationSupport chain = new ValidationSupportChain(
                 supports.toArray(new IValidationSupport[0]));
+        validationSupport = chain;
         
         FhirValidator fhirValidator = new FhirValidator(context);
-        fhirValidator.registerValidatorModule(new FhirInstanceValidator(validationSupport));
+        fhirValidator.registerValidatorModule(new FhirInstanceValidator(chain));
         return fhirValidator;
     }
 
-    private static ValidationIssue.Severity toSeverity(ResultSeverityEnum severity) {
-        if (severity == null) {
-            return ValidationIssue.Severity.INFORMATION;
-        }
-        return switch (severity) {
-            case FATAL -> ValidationIssue.Severity.FATAL;
-            case ERROR -> ValidationIssue.Severity.ERROR;
-            case WARNING -> ValidationIssue.Severity.WARNING;
-            case INFORMATION -> ValidationIssue.Severity.INFORMATION;
-        };
-    }
+
 
     private static String labelOf(IBaseResource resource) {
         String type = resource.fhirType();

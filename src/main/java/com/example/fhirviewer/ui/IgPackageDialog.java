@@ -351,11 +351,16 @@ public class IgPackageDialog extends Dialog<String> {
     private void refreshLoadedPackages() {
         var packages = packageManager.getLoadedPackages();
         loadedPackagesList.getItems().setAll(packages);
+        String base;
         if (packages.isEmpty()) {
-            statusLabel.setText("No packages loaded");
+            base = "No packages loaded";
         } else {
-            statusLabel.setText(packages.size() + " packages loaded");
+            base = packages.size() + " packages loaded";
         }
+        var unmet = packageManager.getUnmetDependencies();
+        statusLabel.setText(unmet.isEmpty()
+                ? base
+                : base + " — unmet dependencies: " + String.join(", ", unmet));
     }
 
     private void unloadSelectedPackage() {
