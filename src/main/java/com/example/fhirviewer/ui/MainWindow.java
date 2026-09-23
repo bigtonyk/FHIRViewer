@@ -23,6 +23,7 @@ import com.example.fhirviewer.model.ElementInfo;
 import com.example.fhirviewer.model.LoadedResource;
 import com.example.fhirviewer.model.ResourceFormat;
 import com.example.fhirviewer.model.ResourceNode;
+import com.example.fhirviewer.model.ValidationIssue;
 import com.example.fhirviewer.model.ValidationReport;
 import com.example.fhirviewer.service.FhirService;
 import com.example.fhirviewer.service.PackageStorage;
@@ -30,6 +31,7 @@ import com.example.fhirviewer.service.ResourceEditorService;
 import com.example.fhirviewer.service.ResourceLoadException;
 import com.example.fhirviewer.service.ResourceTemplateFactory;
 import com.example.fhirviewer.service.SourceEditorService;
+import com.example.fhirviewer.service.ValidationService;
 import com.example.fhirviewer.server.FhirServerManager;
 import com.example.fhirviewer.server.FhirServerService;
 import com.example.fhirviewer.server.ServerDefinition;
@@ -45,6 +47,7 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckMenuItem;
 import javafx.scene.control.ChoiceDialog;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.DialogPane;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
@@ -150,6 +153,22 @@ public class MainWindow {
     private final MenuItem deleteMenuItem = new MenuItem("Delete Element");
     private final Button saveButton = new Button("Save");
     private final Button undoButton = new Button("Undo");
+
+    /**
+     * Which profile validation runs against: automatic (the resource's own
+     * {@code meta.profile}), the base FHIR R4 definition, or an installed IG
+     * profile chosen by the user (Updates 11 and 12).
+     */
+    private final ComboBox<ProfileChoice> profileChoice = new ComboBox<>();
+
+    /** One entry of the profile picker. */
+    private record ProfileChoice(String label, String canonical) {
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
 
     /** The resource loaded from a file or sample. */
     private LoadedResource loadedResource;
@@ -306,11 +325,19 @@ public class MainWindow {
         HBox leftActions = new HBox(8, openButton, saveButton, undoButton, validateButton);
         leftActions.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
+        profileChoice.getStyleClass().add("button-ghost");
+        profileChoice.setTooltip(new Tooltip("Choose the profile to validate against. "
+                + "\"Automatic\" uses the resource's meta.profile; an installed IG profile "
+                + "can be selected even when the resource has no meta.profile."));
+        profileChoice.setPrefWidth(260);
+        profileChoice.setMaxWidth(260);
+        refreshProfileChoices();
+
         themeMenu.getStyleClass().add("button-ghost");
         themeMenu.setTooltip(new Tooltip("Pick one of the available application themes."));
         themeMenu.getItems().setAll(themeMenuItems());
 
-        HBox header = new HBox(14, logo, appTitle, leftActions, treeSearchField, themeMenu);
+        HBox header = new HBox(14, logo, appTitle, leftActions, profileChoice, treeSearchField, themeMenu);
         header.getStyleClass().add("header-bar");
         header.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
         HBox.setHgrow(treeSearchField, Priority.ALWAYS);
@@ -485,6 +512,8 @@ public class MainWindow {
         });
         treeView.setOnReferenceActivated(this::navigateToReference);
         bundleView.setOnEntrySelected(this::displayBundleEntry);
+        // Selecting a validation message highlights the element it refers to.
+        statusView.setOnIssueSelected(this::locateIssueInTree);
     }
 
     /**
@@ -651,6 +680,7 @@ public class MainWindow {
                 + " - " + resource.getDisplayName()
                 + " (" + resource.getFormat().getDisplayName()
                 + ", " + countNodes(tree) + " elements shown)");
+        refreshProfileChoices();
         updateWindowTitle();
     }
 
@@ -683,6 +713,7 @@ public class MainWindow {
             updateDocumentViews();
             detailsView.showNothingSelected();
             setStatus("Showing the Bundle resource itself: " + displayedLabel);
+            refreshProfileChoices();
             updateWindowTitle();
             return;
         }
@@ -698,6 +729,7 @@ public class MainWindow {
         detailsView.showNothingSelected();
         documentTabs.getSelectionModel().select(prettyTab);
         setStatus("Showing Bundle entry [" + entry.index() + "] " + entry.displayName());
+        refreshProfileChoices();
         updateWindowTitle();
     }
 
@@ -1257,14 +1289,88 @@ public class MainWindow {
             setStatus("Nothing to validate. Open a FHIR resource first.");
             return;
         }
-        setStatus("Validating " + displayedLabel + " ...");
+        ProfileChoice choice = profileChoice.getValue();
+        String canonical = choice == null ? null : choice.canonical();
+        String against = choice == null || choice.canonical().isEmpty()
+                ? ""
+                : " against " + choice.label();
+        setStatus("Validating " + displayedLabel + against + " ...");
         setBusy(true);
         try {
-            ValidationReport report = fhirService.validate(displayedResource);
+            ValidationReport report = fhirService.validate(displayedResource, canonical);
             statusView.showValidation(report);
         } finally {
             setBusy(false);
         }
+    }
+
+    /**
+     * Rebuilds the profile picker for the displayed resource: automatic,
+     * base FHIR R4, and every installed profile that applies to the resource
+     * type (Update 12).
+     */
+    private void refreshProfileChoices() {
+        ProfileChoice previous = profileChoice.getValue();
+        List<ProfileChoice> choices = new java.util.ArrayList<>();
+        choices.add(new ProfileChoice("Automatic (meta.profile)", ""));
+        String resourceType = displayedResource == null ? null : displayedResource.fhirType();
+        if (resourceType != null && !resourceType.isEmpty()) {
+            choices.add(new ProfileChoice("FHIR R4 " + resourceType,
+                    ValidationService.BASE_DEFINITION_ONLY));
+            for (var profile : fhirService.validationService().getPackageManager()
+                    .profilesFor(resourceType)) {
+                choices.add(new ProfileChoice(profile.label(), profile.canonical()));
+            }
+        }
+        profileChoice.getItems().setAll(choices);
+        for (ProfileChoice candidate : choices) {
+            if (previous != null && candidate.label().equals(previous.label())) {
+                profileChoice.getSelectionModel().select(candidate);
+                return;
+            }
+        }
+        profileChoice.getSelectionModel().select(0);
+    }
+
+    /**
+     * Selects the element a validation message points at in the resource tree,
+     * so a problem can be inspected in place (Update 13).
+     */
+    private void locateIssueInTree(ValidationIssue issue) {
+        for (String path : candidatePaths(issue.location())) {
+            if (treeView.selectPath(path)) {
+                setStatus("Selected " + path + " in the resource tree.");
+                return;
+            }
+        }
+    }
+
+    /**
+     * Possible tree paths for a validation location. The validator reports
+     * locations such as {@code Patient.name[0].family} or
+     * {@code Patient/123: Patient.name}; the tree uses element paths without
+     * the resource type prefix.
+     */
+    private static List<String> candidatePaths(String location) {
+        if (location == null || location.isBlank()) {
+            return List.of();
+        }
+        String path = location.trim();
+        int colon = path.lastIndexOf(": ");
+        if (colon >= 0) {
+            path = path.substring(colon + 2).trim();
+        }
+        List<String> candidates = new java.util.ArrayList<>();
+        candidates.add(path);
+        int dot = path.indexOf('.');
+        if (dot > 0 && !path.substring(0, dot).contains("[")) {
+            candidates.add(path.substring(dot + 1));
+        }
+        int slash = path.indexOf('/');
+        if (slash > 0) {
+            candidates.add(path.substring(slash + 1));
+        }
+        return candidates.stream().filter(value -> !value.isBlank()).toList();
     }
 
     private void export(ResourceFormat format) {
@@ -1568,6 +1674,8 @@ public class MainWindow {
                     fhirService.validationService().getPackageManager(),
                     new com.example.fhirviewer.service.PackageRegistryService());
             dialog.showAndWait();
+            // Packages may have been installed or activated: update the profile picker.
+            refreshProfileChoices();
         } catch (Exception e) {
             showFailure("Failed to open IG Package Manager", e);
         }

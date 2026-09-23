@@ -1,5 +1,7 @@
 package com.example.fhirviewer.ui;
 
+import java.util.function.Consumer;
+
 import javafx.geometry.Insets;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -48,6 +50,20 @@ public class StatusView extends VBox {
         issuesPane.setText("Validation messages (" + report.getIssues().size() + ")");
         issuesPane.setExpanded(report.hasIssues());
         setStatus(report.getSummary());
+    }
+
+    /**
+     * Registers the handler invoked when the user selects a validation
+     * message, so the matching element can be highlighted in the resource tree
+     * (Update 13).
+     */
+    public void setOnIssueSelected(Consumer<ValidationIssue> handler) {
+        issueList.getSelectionModel().selectedItemProperty().addListener(
+                (observable, previous, issue) -> {
+                    if (issue != null && handler != null) {
+                        handler.accept(issue);
+                    }
+                });
     }
 
     /** Removes the currently displayed validation messages. */

@@ -12,6 +12,7 @@ import org.hl7.fhir.r4.model.ElementDefinition;
 import org.hl7.fhir.r4.model.StructureDefinition;
 
 import com.example.fhirviewer.model.ValidationIssue;
+import com.example.fhirviewer.model.ValidationProfile;
 
 import ca.uhn.fhir.context.support.IValidationSupport;
 import ca.uhn.fhir.validation.ResultSeverityEnum;
@@ -167,6 +168,23 @@ final class ValidationIssueAnalyzer {
         }
     }
 
+    /**
+     * Describes a resolvable profile for the results list. The package that
+     * provides it is not known here; {@link ValidationService} prefers the
+     * package-aware description from the resource index.
+     */
+    ValidationProfile describe(String canonical) {
+        if (support != null) {
+            IBaseResource definition = support.fetchStructureDefinition(canonical);
+            if (definition instanceof StructureDefinition sd) {
+                String title = sd.hasTitle() ? sd.getTitle()
+                        : (sd.hasName() ? sd.getName() : "");
+                return new ValidationProfile(canonical, title, "", "");
+            }
+        }
+        return new ValidationProfile(canonical, "", "", "");
+    }
+
     /** Converts one validator message into a classified issue. */
     ValidationIssue classify(SingleValidationMessage message) {
         boolean terminologyResolutionFailure =
@@ -178,7 +196,9 @@ final class ValidationIssueAnalyzer {
                 message.getLocationLine(),
                 message.getLocationCol(),
                 false,
-                terminologyResolutionFailure);
+                terminologyResolutionFailure,
+                com.example.fhirviewer.model.ValidationLevel.R4_BASE,
+                null);
     }
 
     /**

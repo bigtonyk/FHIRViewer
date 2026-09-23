@@ -176,6 +176,14 @@ public class FhirService {
     }
 
     /**
+     * Validates a resource against a selected profile (Update 11/12). A blank
+     * profile means "use the resource's own meta.profile".
+     */
+    public ValidationReport validate(IBaseResource resource, String profileCanonical) {
+        return validationService.validate(resource, profileCanonical);
+    }
+
+    /**
      * Evaluates a FHIRPath expression against a resource and reports the outcome:
      * a value, no value or a broken expression (never throws).
      */

@@ -1,7 +1,9 @@
 package com.example.fhirviewer.ui;
 
 import com.example.fhirviewer.model.IgPackageInfo;
+import com.example.fhirviewer.service.IgPackageException;
 import com.example.fhirviewer.service.IgPackageManager;
+import com.example.fhirviewer.service.PackageInstaller;
 import com.example.fhirviewer.service.PackageRegistryService;
 import com.example.fhirviewer.service.PackageStorage;
 import javafx.geometry.Insets;
@@ -37,12 +39,15 @@ public class IgPackageDialog extends Dialog<String> {
 
     private TextField searchField;
     private Button searchButton;
+    private Button refreshCatalogButton;
     private ListView<PackageRegistryService.PackageInfo> searchResultsList;
     private Button viewDetailsButton;
     private Button downloadLoadButton;
 
     private ListView<IgPackageInfo> loadedPackagesList;
     private Button unloadButton;
+    private Button activateButton;
+    private Button deactivateButton;
     private Button refreshButton;
 
     private TextField storageDirField;
@@ -105,13 +110,18 @@ public class IgPackageDialog extends Dialog<String> {
         titleLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
 
         searchField = new TextField();
-        searchField.setPromptText("Package id, e.g. hl7.fhir.us.core (optional #version)");
+        searchField.setPromptText("Package id or keywords, e.g. hl7.fhir.us.core or us core");
 
         searchButton = new Button("Search");
         searchButton.setDefaultButton(true);
         searchButton.setPrefWidth(100);
         searchButton.setOnAction(e -> searchRegistry());
         searchField.setOnAction(e -> searchRegistry());
+
+        refreshCatalogButton = new Button("Refresh Catalog");
+        refreshCatalogButton.setTooltip(new Tooltip(
+                "Forget cached registry metadata and re-read available versions."));
+        refreshCatalogButton.setOnAction(e -> refreshPackageCatalog());
 
         searchResultsList = new ListView<>();
         searchResultsList.setPrefHeight(200);
@@ -129,9 +139,11 @@ public class IgPackageDialog extends Dialog<String> {
         viewDetailsButton.setDisable(true);
         viewDetailsButton.setOnAction(e -> viewPackageDetails());
 
-        downloadLoadButton = new Button("Download & Load");
+        downloadLoadButton = new Button("Install...");
+        downloadLoadButton.setTooltip(new Tooltip(
+                "Download this version and its dependencies, then activate them for validation."));
         downloadLoadButton.setDisable(true);
-        downloadLoadButton.setOnAction(e -> downloadAndLoadPackage());
+        downloadLoadButton.setOnAction(e -> installSelectedPackage());
 
         searchResultsList.getSelectionModel().selectedItemProperty().addListener(
                 (obs, oldVal, newVal) -> {
@@ -139,7 +151,7 @@ public class IgPackageDialog extends Dialog<String> {
                     downloadLoadButton.setDisable(newVal == null);
                 });
 
-        HBox searchButtonRow = new HBox(10, searchButton);
+        HBox searchButtonRow = new HBox(10, searchButton, refreshCatalogButton);
         HBox buttonRow = new HBox(10, viewDetailsButton, downloadLoadButton);
         buttonRow.setAlignment(Pos.CENTER_LEFT);
 
@@ -153,12 +165,16 @@ public class IgPackageDialog extends Dialog<String> {
         panel.setPadding(new Insets(15));
         panel.setStyle("-fx-background-color: #f0f7ff; -fx-border-color: #b3d9ff; -fx-border-width: 1px;");
 
-        Label titleLabel = new Label("Loaded Packages");
+        Label titleLabel = new Label("Installed Packages");
         titleLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
+
+        Label hint = new Label("Installed packages can be active or inactive.\n"
+                + "Only active packages are used for automatic profile validation.");
+        hint.setStyle("-fx-font-size: 11px; -fx-text-fill: #555;");
 
         loadedPackagesList = new ListView<>();
         loadedPackagesList.setPrefHeight(200);
-        loadedPackagesList.setPlaceholder(new Label("No packages loaded"));
+        loadedPackagesList.setPlaceholder(new Label("No packages installed"));
         loadedPackagesList.setCellFactory(new Callback<ListView<IgPackageInfo>, ListCell<IgPackageInfo>>() {
             @Override
             public ListCell<IgPackageInfo> call(ListView<IgPackageInfo> list) {
@@ -166,20 +182,32 @@ public class IgPackageDialog extends Dialog<String> {
             }
         });
 
-        unloadButton = new Button("Unload Selected");
+        unloadButton = new Button("Uninstall");
         unloadButton.setDisable(true);
         unloadButton.setOnAction(e -> unloadSelectedPackage());
+
+        activateButton = new Button("Activate");
+        activateButton.setDisable(true);
+        activateButton.setOnAction(e -> setSelectedActive(true));
+
+        deactivateButton = new Button("Deactivate");
+        deactivateButton.setDisable(true);
+        deactivateButton.setOnAction(e -> setSelectedActive(false));
 
         refreshButton = new Button("Refresh List");
         refreshButton.setOnAction(e -> refreshLoadedPackages());
 
-        HBox buttonRow = new HBox(10, unloadButton, refreshButton);
+        HBox buttonRow = new HBox(10, activateButton, deactivateButton, unloadButton, refreshButton);
         buttonRow.setAlignment(Pos.CENTER_LEFT);
 
         loadedPackagesList.getSelectionModel().selectedItemProperty().addListener(
-                (obs, oldVal, newVal) -> unloadButton.setDisable(newVal == null));
+                (obs, oldVal, newVal) -> {
+                    unloadButton.setDisable(newVal == null);
+                    activateButton.setDisable(newVal == null || packageManager.isActive(newVal.name()));
+                    deactivateButton.setDisable(newVal == null || !packageManager.isActive(newVal.name()));
+                });
 
-        panel.getChildren().addAll(titleLabel, loadedPackagesList, buttonRow);
+        panel.getChildren().addAll(titleLabel, hint, loadedPackagesList, buttonRow);
         return panel;
     }
 
@@ -226,9 +254,10 @@ public class IgPackageDialog extends Dialog<String> {
                     searchButton.setDisable(false);
                     if (results.isEmpty()) {
                         showAlert(Alert.AlertType.INFORMATION,
-                                "No package named '" + query + "' was found in the registry.\n"
-                                + "Lookups require the exact package id, e.g. hl7.fhir.us.core"
-                                + " (optionally #version, e.g. hl7.fhir.us.core#6.1.0).");
+                                "No package matched '" + query + "'.\n"
+                                + "Try a package id such as hl7.fhir.us.core, or keywords such as"
+                                + " \"us core\", optionally with a version, e.g."
+                                + " hl7.fhir.us.core#6.1.0.");
                     }
                 });
             } catch (Exception e) {
@@ -243,15 +272,20 @@ public class IgPackageDialog extends Dialog<String> {
         }).start();
     }
 
-    private void downloadAndLoadPackage() {
+    /**
+     * Installs the selected package: resolves its full dependency closure,
+     * shows what will be installed, then downloads and activates everything
+     * (Update 5).
+     */
+    private void installSelectedPackage() {
         PackageRegistryService.PackageInfo packageInfo =
                 searchResultsList.getSelectionModel().getSelectedItem();
         if (packageInfo == null) {
-            showAlert(Alert.AlertType.WARNING, "Please select a package to download.");
+            showAlert(Alert.AlertType.WARNING, "Please select a package to install.");
             return;
         }
 
-        Path storageDir = getStoragePath();
+        final Path storageDir = getStoragePath();
         try {
             Files.createDirectories(storageDir);
         } catch (IOException e) {
@@ -260,46 +294,93 @@ public class IgPackageDialog extends Dialog<String> {
             return;
         }
 
-        statusLabel.setText("Downloading " + packageInfo.getPackageId() + "...");
-
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                "Download and load package: " + packageInfo.getPackageId()
-                        + " v" + packageInfo.getVersion(),
-                ButtonType.YES, ButtonType.NO);
-        confirm.showAndWait().ifPresent(response -> {
-            if (response == ButtonType.YES) {
-                new Thread(() -> {
-                    try {
-                        Path packageFile =
-                                registryService.downloadPackage(packageInfo, storageDir);
-                        if (packageFile != null) {
-                            javafx.application.Platform.runLater(() ->
-                                    statusLabel.setText("Downloaded. Loading package..."));
-                            IgPackageInfo loaded =
-                                    packageManager.loadPackageFromFile(packageFile);
-                            javafx.application.Platform.runLater(() -> {
-                                statusLabel.setText("Package loaded: " + loaded.name()
-                                        + " " + loaded.version());
-                                refreshLoadedPackages();
-                                searchResultsList.getSelectionModel().clearSelection();
-                            });
-                        } else {
-                            javafx.application.Platform.runLater(() -> {
-                                statusLabel.setText("Download failed");
-                                showAlert(Alert.AlertType.ERROR, "Download returned null");
-                            });
-                        }
-                    } catch (Exception e) {
-                        logger.severe("Download error: " + e.getMessage());
-                        javafx.application.Platform.runLater(() -> {
-                            statusLabel.setText("Download error");
-                            showAlert(Alert.AlertType.ERROR,
-                                    "Download error: " + e.getMessage());
-                        });
-                    }
-                }).start();
+        downloadLoadButton.setDisable(true);
+        statusLabel.setText("Resolving dependencies for " + packageInfo.getPackageId() + "...");
+        Thread planner = new Thread(() -> {
+            try {
+                PackageInstaller installer = PackageInstaller.usingRegistry(
+                        registryService, packageManager, storageDir);
+                PackageInstaller.InstallPlan plan = installer.plan(
+                        packageInfo.getPackageId(), packageInfo.getVersion());
+                javafx.application.Platform.runLater(() -> confirmAndInstall(installer, plan));
+            } catch (Exception e) {
+                logger.warning("Install planning failed: " + e.getMessage());
+                javafx.application.Platform.runLater(() -> {
+                    downloadLoadButton.setDisable(false);
+                    statusLabel.setText("Installation could not be planned");
+                    showAlert(Alert.AlertType.ERROR, describeFailure(e), "Installation failed");
+                });
             }
-        });
+        }, "ig-package-plan");
+        planner.setDaemon(true);
+        planner.start();
+    }
+
+    /** Shows the installation summary and installs once the user confirms it. */
+    private void confirmAndInstall(PackageInstaller installer, PackageInstaller.InstallPlan plan) {
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION, plan.describe(),
+                ButtonType.OK, ButtonType.CANCEL);
+        confirm.initOwner(getOwner());
+        confirm.setTitle("Install packages");
+        confirm.setHeaderText("Install " + plan.rootPackageId() + " "
+                + plan.rootVersion() + "?");
+        Optional<ButtonType> answer = confirm.showAndWait();
+        if (answer.isEmpty() || answer.get() != ButtonType.OK) {
+            downloadLoadButton.setDisable(false);
+            statusLabel.setText("Installation cancelled");
+            return;
+        }
+
+        statusLabel.setText("Installing " + plan.toInstall().size() + " package(s)...");
+        Thread worker = new Thread(() -> {
+            PackageInstaller.InstallResult result = installer.install(plan);
+            javafx.application.Platform.runLater(() -> {
+                downloadLoadButton.setDisable(false);
+                refreshLoadedPackages();
+                searchResultsList.refresh();
+                statusLabel.setText(result.describe());
+                showAlert(result.isSuccess() ? Alert.AlertType.INFORMATION : Alert.AlertType.WARNING,
+                        result.describe(),
+                        result.isSuccess() ? "Installation complete" : "Installation problems");
+            });
+        }, "ig-package-install");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /** Activates or deactivates the selected installed package (Update 7). */
+    private void setSelectedActive(boolean active) {
+        IgPackageInfo selected = loadedPackagesList.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            return;
+        }
+        boolean changed = packageManager.setActive(selected.name(), active);
+        statusLabel.setText(changed
+                ? selected.label() + (active
+                        ? " is now active for validation"
+                        : " is now inactive; it no longer resolves profiles")
+                : "No change for " + selected.label());
+        refreshLoadedPackages();
+        searchResultsList.refresh();
+    }
+
+    /** Forgets cached registry metadata so versions are re-read (Update 19). */
+    private void refreshPackageCatalog() {
+        registryService.clearCache();
+        searchResultsList.getItems().clear();
+        statusLabel.setText("Package catalog refreshed; cached metadata cleared.");
+    }
+
+    /** Turns a failure into a message a user can act on (Update 18). */
+    private static String describeFailure(Throwable e) {
+        if (e instanceof IgPackageException packageFailure) {
+            return packageFailure.getUserMessage();
+        }
+        if (e instanceof PackageRegistryService.PackageRegistryException registryFailure) {
+            return registryFailure.getMessage();
+        }
+        String message = e.getMessage();
+        return message == null || message.isBlank() ? e.getClass().getSimpleName() : message;
     }
 
     private void viewPackageDetails() {
@@ -310,11 +391,27 @@ public class IgPackageDialog extends Dialog<String> {
         }
         String details = "Package ID: " + packageInfo.getPackageId() + "\n"
                 + "Name: " + packageInfo.getName() + "\n"
+                + "Title: " + packageInfo.getTitle() + "\n"
                 + "Version: " + packageInfo.getVersion() + "\n"
                 + "FHIR Version: " + packageInfo.getFhirVersion() + "\n"
                 + "Canonical: " + packageInfo.getCanonicalUrl() + "\n"
+                + "Download: " + packageInfo.getDownloadUrl() + "\n"
+                + "Installed: " + installedStateOf(packageInfo) + "\n"
                 + "Description: " + packageInfo.getDescription();
         showAlert(Alert.AlertType.INFORMATION, details, "Package Details");
+    }
+
+    /** Tells the user whether this exact package version is already installed. */
+    private String installedStateOf(PackageRegistryService.PackageInfo packageInfo) {
+        IgPackageInfo installed = packageManager.getPackage(packageInfo.getPackageId());
+        if (installed == null) {
+            return "no";
+        }
+        if (installed.version().equals(packageInfo.getVersion())) {
+            return "yes (" + (packageManager.isActive(packageInfo.getPackageId())
+                    ? "active for validation" : "inactive") + ")";
+        }
+        return "no (version " + installed.version() + " is installed)";
     }
 
     private void loadPackageFromFile() {
@@ -339,12 +436,13 @@ public class IgPackageDialog extends Dialog<String> {
         statusLabel.setText("Loading " + selectedFile.getName() + "...");
         try {
             IgPackageInfo loaded = packageManager.loadPackageFromFile(packagePath);
-            statusLabel.setText("Package loaded: " + loaded.name() + " " + loaded.version());
+            statusLabel.setText("Package installed and active: " + loaded.label());
             refreshLoadedPackages();
+            searchResultsList.refresh();
         } catch (Exception e) {
-            logger.severe("Error loading package: " + e.getMessage());
+            logger.warning("Error loading package: " + e.getMessage());
             statusLabel.setText("Error loading package");
-            showAlert(Alert.AlertType.ERROR, "Error loading package: " + e.getMessage());
+            showAlert(Alert.AlertType.ERROR, describeFailure(e), "Installation failed");
         }
     }
 
@@ -353,14 +451,20 @@ public class IgPackageDialog extends Dialog<String> {
         loadedPackagesList.getItems().setAll(packages);
         String base;
         if (packages.isEmpty()) {
-            base = "No packages loaded";
+            base = "No packages installed";
         } else {
-            base = packages.size() + " packages loaded";
+            base = packages.size() + " installed (" + packageManager.getActivePackages().size()
+                    + " active), " + PackageStorage.listStored(getStoragePath()).size()
+                    + " file(s) in storage";
         }
         var unmet = packageManager.getUnmetDependencies();
         statusLabel.setText(unmet.isEmpty()
                 ? base
-                : base + " — unmet dependencies: " + String.join(", ", unmet));
+                : base + " - unmet dependencies: " + String.join(", ", unmet));
+        loadedPackagesList.refresh();
+        unloadButton.setDisable(packages.isEmpty());
+        activateButton.setDisable(packages.isEmpty());
+        deactivateButton.setDisable(packages.isEmpty());
     }
 
     private void unloadSelectedPackage() {
@@ -369,19 +473,23 @@ public class IgPackageDialog extends Dialog<String> {
             return;
         }
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                "Unload package: " + selected.name() + " " + selected.version() + "?",
+                "Uninstall " + selected.label() + "?\n\n"
+                + "It stops being used for validation. The downloaded file stays in the "
+                + "package storage directory and is installed again on the next start unless "
+                + "you deactivate it or delete the file.",
                 ButtonType.YES, ButtonType.NO);
-        confirm.setHeaderText("Confirm Unload");
+        confirm.setHeaderText("Confirm Uninstall");
         Optional<ButtonType> result = confirm.showAndWait();
         if (result.isPresent() && result.get() == ButtonType.YES) {
             boolean unloaded = packageManager.unloadPackage(
                     selected.name() + "#" + selected.version());
             if (unloaded) {
-                statusLabel.setText("Package unloaded: " + selected.name());
+                statusLabel.setText("Package uninstalled: " + selected.name());
             } else {
-                showAlert(Alert.AlertType.WARNING, "Package could not be unloaded.");
+                showAlert(Alert.AlertType.WARNING, "Package could not be uninstalled.");
             }
             refreshLoadedPackages();
+            searchResultsList.refresh();
         }
     }
 
@@ -424,7 +532,7 @@ public class IgPackageDialog extends Dialog<String> {
     }
 
     /** Custom list cell for registry search results. */
-    private static class PackageListCell
+    private class PackageListCell
             extends ListCell<PackageRegistryService.PackageInfo> {
         @Override
         protected void updateItem(PackageRegistryService.PackageInfo info, boolean empty) {
@@ -432,25 +540,38 @@ public class IgPackageDialog extends Dialog<String> {
             if (empty || info == null) {
                 setText(null);
                 setGraphic(null);
-            } else {
-                setText(info.getDisplayText());
-                setWrapText(true);
+                return;
             }
+            IgPackageInfo installed = packageManager.getPackage(info.getPackageId());
+            String state = "";
+            if (installed != null && installed.version().equals(info.getVersion())) {
+                state = "\n(installed"
+                        + (packageManager.isActive(info.getPackageId())
+                                ? ", active for validation)" : ", inactive)");
+            } else if (installed != null) {
+                state = "\n(other version installed: " + installed.version() + ")";
+            }
+            setText(info.getDisplayText() + state);
+            setWrapText(true);
         }
     }
 
-    /** Custom list cell for loaded packages. */
-    private static class LoadedPackageListCell extends ListCell<IgPackageInfo> {
+    /** Custom list cell for installed packages, showing whether each is active. */
+    private class LoadedPackageListCell extends ListCell<IgPackageInfo> {
         @Override
         protected void updateItem(IgPackageInfo info, boolean empty) {
             super.updateItem(info, empty);
             if (empty || info == null) {
                 setText(null);
                 setGraphic(null);
-            } else {
-                setText(info.name() + " " + info.version()
-                        + (info.fhirVersion().isEmpty() ? "" : " (FHIR " + info.fhirVersion() + ")"));
+                return;
             }
+            boolean active = packageManager.isActive(info.name());
+            setText((active ? "[active]   " : "[inactive] ")
+                    + info.name() + " " + info.version()
+                    + (info.fhirVersion().isEmpty() ? "" : "  (FHIR " + info.fhirVersion() + ")")
+                    + (active ? "" : "\nnot used for automatic profile validation"));
+            setWrapText(true);
         }
     }
 }

@@ -10,10 +10,18 @@ public final class ValidationReport {
 
     private final List<ValidationIssue> issues;
     private final String resourceName;
+    private final List<ValidationProfile> validatedProfiles;
 
     public ValidationReport(String resourceName, List<ValidationIssue> issues) {
+        this(resourceName, issues, List.of());
+    }
+
+    public ValidationReport(String resourceName, List<ValidationIssue> issues,
+            List<ValidationProfile> validatedProfiles) {
         this.resourceName = resourceName == null ? "" : resourceName;
         this.issues = List.copyOf(Objects.requireNonNull(issues, "issues"));
+        this.validatedProfiles = List.copyOf(
+                Objects.requireNonNullElse(validatedProfiles, List.of()));
     }
 
     public static ValidationReport successful(String resourceName) {
@@ -22,6 +30,11 @@ public final class ValidationReport {
 
     public List<ValidationIssue> getIssues() {
         return issues;
+    }
+
+    /** The IG profiles validation was actually performed against. */
+    public List<ValidationProfile> getValidatedProfiles() {
+        return validatedProfiles;
     }
 
     public String getResourceName() {
@@ -59,6 +72,15 @@ public final class ValidationReport {
         }
         if (information > 0) {
             sb.append(", ").append(information).append(" information");
+        }
+        if (!validatedProfiles.isEmpty()) {
+            String labels = validatedProfiles.stream()
+                    .map(ValidationProfile::label)
+                    .filter(label -> !label.isEmpty())
+                    .collect(java.util.stream.Collectors.joining(", "));
+            if (!labels.isEmpty()) {
+                sb.append(" against ").append(labels);
+            }
         }
         return sb.toString();
     }
