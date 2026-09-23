@@ -121,6 +121,120 @@ class ValidationServiceTerminologyTest {
                 describe(report));
     }
 
+    @Test
+    @DisplayName("Dependency ValueSets resolve for validation")
+    void dependencyValueSetResolvesForValidation(@TempDir Path dir) throws IOException {
+        // Flip the fixtures: ValueSet lives in dep.ig, CodeSystem in test.ig.
+        // A valid code still validates only when BOTH packages feed the chain.
+        String vsInDep = "{\"resourceType\": \"ValueSet\", \"id\": \"blood\","
+                + " \"url\": \"" + VS_URL + "\", \"version\": \"1.0.0\","
+                + " \"name\": \"BloodVS\", \"status\": \"active\","
+                + " \"compose\": {\"include\": [{\"system\": \"" + CS_URL + "\"}]}}";
+        String csInMain = BLOOD_CODE_SYSTEM;
+        String depJson = "{\"name\": \"dep.ig\", \"version\": \"1.0.0\","
+                + "\"fhirVersions\": [\"4.0.1\"],"
+                + "\"canonical\": \"http://example.org/dep\","
+                + "\"description\": \"Holds the blood ValueSet\"}";
+        String mainJson = "{\"name\": \"test.ig\", \"version\": \"1.0.0\","
+                + "\"fhirVersions\": [\"4.0.1\"],"
+                + "\"canonical\": \"http://example.org/ig\","
+                + "\"dependencies\": {\"dep.ig#1.0.0\": \"1.0.0\"},"
+                + "\"description\": \"Profiles bound to the blood ValueSet\"}";
+        TgzFixtures.writeTgz(dir.resolve("dep.ig-1.0.0.tgz"), Map.of(
+                "package/package.json", depJson,
+                "package/ValueSet-blood.json", vsInDep));
+        TgzFixtures.writeTgz(dir.resolve("test.ig-1.0.0.tgz"), Map.of(
+                "package/package.json", mainJson,
+                "package/CodeSystem-blood.json", csInMain,
+                "package/StructureDefinition-bloodpatient.json",
+                profileJson("bloodpatient", PROFILE_OK, VS_URL)));
+
+        FhirService service = new FhirService();
+        service.validationService().getPackageManager()
+                .loadPackageFromFile(dir.resolve("test.ig-1.0.0.tgz"));
+        ValidationReport report =
+                service.validationService().validate(parse(patient(PROFILE_OK, "A")));
+
+        assertTrue(report.getIssues().stream()
+                        .noneMatch(ValidationIssue::isTerminologyResolutionFailure),
+                describe(report));
+        assertTrue(report.isValid(), describe(report));
+    }
+
+    @Test
+    @DisplayName("Contained ValueSet references are not resolution failures")
+    void containedValueSetIsNotATerminologyResolutionFailure() {
+        String localVs = "#local-blood";
+        String profileJson = profileJson("bloodpatient", PROFILE_OK, localVs);
+        IBaseResource profile = CTX.newJsonParser().parseResource(profileJson);
+        FhirService service = new FhirService();
+        service.validationService().getPackageManager();
+        // Register the profile directly is not possible; instead validate a
+        // patient carrying a contained ValueSet whose canonical matches the
+        // binding target shape — the pre-check must not flag "#..." locals.
+        String patient = "{\"resourceType\": \"Patient\", \"id\": \"p1\","
+                + "\"meta\": {\"profile\": [\"" + PROFILE_OK + "\"]},"
+                + "\"contained\": [{\"resourceType\": \"ValueSet\", \"id\": \"local-blood\","
+                + " \"url\": \"" + localVs + "\", \"status\": \"active\"}],"
+                + "\"name\": [{\"family\": \"Doe\", \"given\": [\"John\"]}]}";
+        assertTrue(profile != null, "fixture profile must parse");
+        ValidationReport report =
+                service.validationService().validate(parse(patient));
+        assertTrue(report.getIssues().stream()
+                        .filter(ValidationIssue::isTerminologyResolutionFailure)
+                        .noneMatch(issue -> issue.message().contains(localVs)),
+                describe(report));
+    }
+
+    @Test
+    @DisplayName("CodeSystem missing from a ValueSet compose is a terminology resolution failure")
+    void valueSetWithMissingCodeSystemIsFlaggedAsTerminologyResolutionFailure(@TempDir Path dir)
+            throws IOException {
+        String profile = "http://example.org/ig/StructureDefinition/brokenpatient";
+        String brokenVs = "http://example.org/ig/ValueSet/broken";
+        String missingCs = "http://example.org/ig/CodeSystem/missing";
+        String brokenVsJson = "{\"resourceType\": \"ValueSet\", \"id\": \"broken\","
+                + " \"url\": \"" + brokenVs + "\", \"version\": \"1.0.0\","
+                + " \"name\": \"BrokenVS\", \"status\": \"active\","
+                + " \"compose\": {\"include\": [{\"system\": \"" + missingCs + "\"}]}}";
+        String brokenProfileJson = "{\"resourceType\": \"StructureDefinition\", \"id\": \"brokenpatient\","
+                + " \"url\": \"" + profile + "\", \"version\": \"1.0.0\","
+                + " \"name\": \"BrokenPatient\", \"status\": \"active\", \"kind\": \"resource\","
+                + " \"type\": \"Patient\", \"derivation\": \"constraint\","
+                + " \"baseDefinition\": \"http://hl7.org/fhir/StructureDefinition/Patient\","
+                + " \"differential\": {\"element\": ["
+                + "{\"id\": \"Patient\", \"path\": \"Patient\"},"
+                + "{\"id\": \"Patient.maritalStatus\", \"path\": \"Patient.maritalStatus\","
+                + " \"binding\": {\"strength\": \"required\", \"valueSet\": \"" + brokenVs + "\"}}]}}";
+        TgzFixtures.writeTgz(dir.resolve("broken.ig-1.0.0.tgz"), Map.of(
+                "package/package.json",
+                "{\"name\": \"broken.ig\", \"version\": \"1.0.0\","
+                        + "\"fhirVersions\": [\"4.0.1\"],"
+                        + "\"canonical\": \"http://example.org/broken\","
+                        + "\"description\": \"ValueSet bound to a missing CodeSystem\"}",
+                "package/ValueSet-broken.json", brokenVsJson,
+                "package/StructureDefinition-brokenpatient.json", brokenProfileJson));
+
+        FhirService service = new FhirService();
+        service.validationService().getPackageManager()
+                .loadPackageFromFile(dir.resolve("broken.ig-1.0.0.tgz"));
+
+        String patient = "{\"resourceType\": \"Patient\", \"id\": \"p1\","
+                + "\"meta\": {\"profile\": [\"" + profile + "\"],"
+                + " \"security\": [{\"system\": \"" + missingCs + "\", \"code\": \"whatever\"}]},"
+                + "\"name\": [{\"family\": \"Doe\", \"given\": [\"John\"]}]}";
+        ValidationReport report =
+                service.validationService().validate(parse(patient));
+
+        assertTrue(report.getIssues().stream()
+                        .anyMatch(issue -> issue.isTerminologyResolutionFailure()
+                                && issue.message().contains(missingCs)),
+                describe(report));
+        assertTrue(report.getIssues().stream()
+                        .noneMatch(ValidationIssue::isProfileResolutionFailure),
+                describe(report));
+    }
+
     /** Writes both fixture packages and loads {@code test.ig} (dep.ig follows). */
     private static FhirService loadFixtures(Path dir) throws IOException {
         TgzFixtures.writeTgz(dir.resolve("dep.ig-1.0.0.tgz"), Map.of(

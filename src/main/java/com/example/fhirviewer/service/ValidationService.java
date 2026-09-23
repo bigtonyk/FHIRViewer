@@ -95,15 +95,19 @@ public class ValidationService {
     }
 
     private FhirValidator createValidator() {
+        // Chain order mirrors HAPI's own examples: profiles, packages,
+        // snapshots, then terminology. NPM support must come before the
+        // snapshot generator so package profiles resolve, and package
+        // ValueSets/CodeSystems must be visible to the in-memory
+        // terminology server that expands bindings.
         List<IValidationSupport> supports = new ArrayList<>();
         supports.add(new DefaultProfileValidationSupport(context));
-        supports.add(new InMemoryTerminologyServerValidationSupport(context));
-        supports.add(new SnapshotGeneratingValidationSupport(context));
-        
         NpmPackageValidationSupport npmSupport = packageManager.getNpmPackageValidationSupport();
         if (npmSupport != null && packageManager.hasLoadedPackages()) {
             supports.add(npmSupport);
         }
+        supports.add(new SnapshotGeneratingValidationSupport(context));
+        supports.add(new InMemoryTerminologyServerValidationSupport(context));
         
         IValidationSupport chain = new ValidationSupportChain(
                 supports.toArray(new IValidationSupport[0]));

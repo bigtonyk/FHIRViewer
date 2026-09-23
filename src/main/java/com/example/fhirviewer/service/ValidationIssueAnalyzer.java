@@ -1,6 +1,9 @@
 package com.example.fhirviewer.service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -44,14 +47,41 @@ final class ValidationIssueAnalyzer {
 
     /**
      * For each resolvable profile in {@code meta.profile}, reports profiles
-     * that cannot be fetched (profile resolution) and required/extensible
-     * bindings whose ValueSet cannot be fetched (terminology resolution).
+     * that cannot be fetched (profile resolution), required/extensible
+     * bindings whose ValueSet cannot be fetched or whose referenced
+     * CodeSystems cannot be fetched (terminology resolution).
      */
     void checkProfileBindings(IBaseResource resource, List<ValidationIssue> issues) {
-        if (!(resource instanceof org.hl7.fhir.r4.model.Resource r4) || !r4.hasMeta()) {
+        // Contained ValueSets/CodeSystems are local definitions, not usages:
+        // collect their canonicals first so references to them are not
+        // misreported as unresolvable, then check the outer resource's
+        // profile bindings against chain + contained set.
+        java.util.Set<String> local = new java.util.LinkedHashSet<>();
+        if (resource instanceof org.hl7.fhir.r4.model.DomainResource domain) {
+            for (org.hl7.fhir.r4.model.Resource contained : domain.getContained()) {
+                if (contained instanceof org.hl7.fhir.r4.model.ValueSet vs && vs.hasUrl()) {
+                    local.add(stripVersion(vs.getUrl()));
+                } else if (contained instanceof org.hl7.fhir.r4.model.CodeSystem cs
+                        && cs.hasUrl()) {
+                    local.add(stripVersion(cs.getUrl()));
+                }
+            }
+        }
+        if (resource instanceof org.hl7.fhir.r4.model.Resource r4) {
+            checkResourceBindings(r4, issues, local);
+        }
+    }
+
+    /**
+     * @param self the resource whose {@code meta.profile} claims are checked
+     * @param local canonicals of contained ValueSets/CodeSystems: resolvable locally
+     */
+    private void checkResourceBindings(org.hl7.fhir.r4.model.Resource self,
+            List<ValidationIssue> issues, java.util.Set<String> local) {
+        if (!self.hasMeta()) {
             return;
         }
-        for (org.hl7.fhir.r4.model.CanonicalType profile : r4.getMeta().getProfile()) {
+        for (org.hl7.fhir.r4.model.CanonicalType profile : self.getMeta().getProfile()) {
             String profileUrl = stripVersion(profile.getValue());
             if (profileUrl.isEmpty()) {
                 continue;
@@ -78,16 +108,62 @@ final class ValidationIssueAnalyzer {
                     continue;
                 }
                 String valueSetUrl = stripVersion(binding.getValueSet());
-                if (valueSetUrl.isEmpty() || support.fetchValueSet(valueSetUrl) != null) {
+                if (valueSetUrl.isEmpty() || local.contains(valueSetUrl)) {
+                    // A "#"-local reference always resolves inside the resource.
                     continue;
                 }
-                issues.add(ValidationIssue.terminologyResolutionFailure(
-                        ValidationIssue.Severity.WARNING,
-                        "ValueSet '" + valueSetUrl + "' (binding at '" + element.getPath()
-                                + "' in profile '" + profileUrl
-                                + "') could not be found; codes there cannot be checked.",
-                        element.getPath(), null, null));
+                IBaseResource valueSet = support.fetchValueSet(valueSetUrl);
+                if (valueSet == null) {
+                    issues.add(ValidationIssue.terminologyResolutionFailure(
+                            ValidationIssue.Severity.WARNING,
+                            "ValueSet '" + valueSetUrl + "' (binding at '" + element.getPath()
+                                    + "' in profile '" + profileUrl
+                                    + "') could not be found; codes there cannot be checked.",
+                            element.getPath(), null, null));
+                    continue;
+                }
+                // The ValueSet itself resolved: every CodeSystem its compose
+                // references must resolve too, otherwise expansion (and hence
+                // any membership check) cannot be performed. Local contained
+                // CodeSystems count as resolved.
+                checkValueSetCompose(valueSet, valueSetUrl, element.getPath(), profileUrl, issues,
+                        local);
             }
+        }
+    }
+
+    /**
+     * Reports each CodeSystem referenced by a resolved ValueSet's compose
+     * that cannot itself be resolved. A {@code system} with inline
+     * {@code concept} entries expands without the CodeSystem, so only
+     * concept-less references are checked.
+     */
+    private void checkValueSetCompose(IBaseResource resolved, String valueSetUrl,
+            String path, String profileUrl, List<ValidationIssue> issues,
+            java.util.Set<String> local) {
+        if (!(resolved instanceof org.hl7.fhir.r4.model.ValueSet valueSet)
+                || !valueSet.hasCompose()) {
+            return;
+        }
+        List<org.hl7.fhir.r4.model.ValueSet.ConceptSetComponent> sets =
+                new ArrayList<>(valueSet.getCompose().getInclude());
+        sets.addAll(valueSet.getCompose().getExclude());
+        Set<String> reported = new LinkedHashSet<>();
+        for (var set : sets) {
+            if (!set.hasSystem() || set.hasConcept()) {
+                continue;
+            }
+            String system = stripVersion(set.getSystem());
+            if (system.isEmpty() || !reported.add(system) || local.contains(system)
+                    || support.fetchCodeSystem(system) != null) {
+                continue;
+            }
+            issues.add(ValidationIssue.terminologyResolutionFailure(
+                    ValidationIssue.Severity.WARNING,
+                    "CodeSystem '" + system + "' (compose of ValueSet '" + valueSetUrl
+                            + "', binding at '" + path + "' in profile '" + profileUrl
+                            + "') could not be found; codes from that system cannot be checked.",
+                    path, null, null));
         }
     }
 
@@ -127,25 +203,53 @@ final class ValidationIssueAnalyzer {
             return false;
         }
 
-        boolean valueSetMentioned = false;
-        java.util.List<String> valueSetUrls = new java.util.ArrayList<>();
+        // Collect the URLs by kind first. HAPI's combined membership message
+        // ("The Coding provided (system#code) was not found in the value set
+        // 'Name' (vs-url)") names both a resolvable ValueSet and a CodeSystem
+        // coding at once, so the check below must see the ValueSet first: a
+        // resolved ValueSet means the code was checked and found absent, which
+        // is a genuine failure — no matter what the coding lookup would say.
+        List<String> valueSetUrls = new ArrayList<>();
+        List<String> codeSystemUrls = new ArrayList<>();
         Matcher matcher = URL_PATTERN.matcher(text);
         while (matcher.find()) {
             String url = matcher.group();
             String before = lower.substring(Math.max(0, matcher.start() - CONTEXT), matcher.start());
-            String path = lower.substring(matcher.start(), Math.min(lower.length(), matcher.end()));
-            boolean valueSet = path.contains("/valueset")
-                    || before.contains("valueset") || before.contains("value set");
-            boolean codeSystem = path.contains("/codesystem")
-                    || before.contains("codesystem") || before.contains("code system");
+            String own = lower.substring(matcher.start(),
+                    Math.min(lower.length(), matcher.end()));
+            boolean valueSet;
+            boolean codeSystem;
+            if (own.contains("/valueset") || own.contains("/codesystem")) {
+                valueSet = own.contains("/valueset") && !own.contains("/codesystem");
+                codeSystem = own.contains("/codesystem") && !own.contains("/valueset");
+            } else {
+                valueSet = before.contains("valueset") || before.contains("value set");
+                codeSystem = !valueSet
+                        && (before.contains("codesystem") || before.contains("code system"));
+            }
             if (valueSet) {
-                valueSetMentioned = true;
                 valueSetUrls.add(url);
-                if (support.fetchValueSet(stripVersion(url)) == null) {
-                    return true; // "ValueSet not found"
+            } else if (codeSystem) {
+                codeSystemUrls.add(url);
+            }
+        }
+
+        // "ValueSet not found": a named ValueSet that cannot be fetched.
+        for (String url : valueSetUrls) {
+            if (support.fetchValueSet(stripVersion(url)) == null) {
+                return true;
+            }
+        }
+        // "CodeSystem not found": a named CodeSystem that cannot be fetched —
+        // but only when the message names NO resolvable ValueSet. Inside the
+        // combined membership message the coding's system URL is expected to
+        // be unresolvable as a CodeSystem resource, yet the ValueSet resolved
+        // and the code was genuinely checked and found absent.
+        if (valueSetUrls.isEmpty()) {
+            for (String url : codeSystemUrls) {
+                if (support.fetchCodeSystem(stripVersion(url)) == null) {
+                    return true;
                 }
-            } else if (codeSystem && support.fetchCodeSystem(stripVersion(url)) == null) {
-                return true; // CodeSystem named by the message is unknown
             }
         }
 
@@ -154,7 +258,7 @@ final class ValidationIssueAnalyzer {
         boolean expandFailure = lower.contains("unable to expand")
                 || lower.contains("could not be expanded")
                 || lower.contains("no matches for code");
-        if (valueSetMentioned && expandFailure) {
+        if (!valueSetUrls.isEmpty() && expandFailure) {
             for (String url : valueSetUrls) {
                 if (composeRefersToMissingCodeSystem(url)) {
                     return true;
