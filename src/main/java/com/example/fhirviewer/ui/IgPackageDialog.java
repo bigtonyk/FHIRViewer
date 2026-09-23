@@ -109,7 +109,7 @@ public class IgPackageDialog extends Dialog<String> {
         titleLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
 
         searchField = new TextField();
-        searchField.setPromptText("Enter package name (e.g., us-core, cpg)");
+        searchField.setPromptText("Package id, e.g. hl7.fhir.us.core (optional #version)");
 
         searchButton = new Button("Search");
         searchButton.setDefaultButton(true);
@@ -230,7 +230,9 @@ public class IgPackageDialog extends Dialog<String> {
                     searchButton.setDisable(false);
                     if (results.isEmpty()) {
                         showAlert(Alert.AlertType.INFORMATION,
-                                "No packages found matching '" + query + "'");
+                                "No package named '" + query + "' was found in the registry.\n"
+                                + "Lookups require the exact package id, e.g. hl7.fhir.us.core"
+                                + " (optionally #version, e.g. hl7.fhir.us.core#6.1.0).");
                     }
                 });
             } catch (Exception e) {

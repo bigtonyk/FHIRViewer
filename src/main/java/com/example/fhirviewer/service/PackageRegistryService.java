@@ -5,8 +5,10 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -18,41 +20,110 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public final class PackageRegistryService {
 
     private static final String FHIR_PACKAGE_REGISTRY_URL = "https://packages.fhir.org";
-    private static final String REGISTRY_API_PATH = "/api/packages";
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
     public PackageRegistryService() {
-        this.httpClient = HttpClient.newHttpClient();
+        this.httpClient = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
         this.objectMapper = new ObjectMapper();
     }
 
+    /**
+     * Looks up a package by exact id on the FHIR package registry. The registry is
+     * npm-style: it serves one packument per package id containing every published
+     * version, so an optional "#version" suffix can be used to pin a single version.
+     * Returns an empty list when the package id is unknown to the registry.
+     */
     public List<PackageInfo> searchPackages(String packageName) {
         List<PackageInfo> results = new ArrayList<>();
+        String query = packageName == null ? "" : packageName.trim();
+        if (query.isEmpty()) {
+            return results;
+        }
+
+        String name = query;
+        String versionFilter = null;
+        int hash = query.indexOf('#');
+        if (hash >= 0) {
+            name = query.substring(0, hash).trim();
+            versionFilter = query.substring(hash + 1).trim();
+        }
+        if (name.isEmpty()) {
+            return results;
+        }
+
         try {
-            String searchUrl = FHIR_PACKAGE_REGISTRY_URL + REGISTRY_API_PATH + "?name=" + 
-                    java.net.URLEncoder.encode(packageName, "UTF-8");
-            
+            String lookupUrl = FHIR_PACKAGE_REGISTRY_URL + "/"
+                    + java.net.URLEncoder.encode(name, StandardCharsets.UTF_8);
+
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(searchUrl))
+                    .uri(URI.create(lookupUrl))
                     .header("Accept", "application/json")
                     .GET()
                     .build();
-            
-            HttpResponse<String> response = httpClient.send(request, 
+
+            HttpResponse<String> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofString());
-            
-            if (response.statusCode() == 200) {
-                JsonNode json = objectMapper.readTree(response.body());
-                if (json.isArray()) {
-                    for (JsonNode node : json) {
-                        results.add(parsePackageInfo(node));
-                    }
-                }
+
+            if (response.statusCode() == 404) {
+                return results;
             }
+            if (response.statusCode() != 200) {
+                throw new PackageRegistryException(
+                        "Registry lookup failed with HTTP " + response.statusCode(), null);
+            }
+            results.addAll(parsePackument(response.body(), versionFilter));
         } catch (IOException | InterruptedException e) {
             throw new PackageRegistryException("Search failed", e);
+        }
+        return results;
+    }
+
+    /**
+     * Parses an npm-style packument into one result per published version,
+     * newest version first. Package-private for unit testing.
+     */
+    List<PackageInfo> parsePackument(String packumentJson, String versionFilter) throws IOException {
+        List<PackageInfo> results = new ArrayList<>();
+        JsonNode root = objectMapper.readTree(packumentJson);
+        JsonNode versions = root.get("versions");
+        if (versions == null || !versions.isObject()) {
+            return results;
+        }
+
+        List<String> versionIds = new ArrayList<>();
+        versions.fieldNames().forEachRemaining(versionIds::add);
+        Collections.reverse(versionIds); // registries list oldest first
+
+        String rootName = getString(root, "name");
+        String rootDescription = getString(root, "description");
+
+        for (String versionId : versionIds) {
+            if (versionFilter != null && !versionFilter.isEmpty()
+                    && !versionFilter.equals(versionId)) {
+                continue;
+            }
+            JsonNode version = versions.get(versionId);
+            String name = getString(version, "name");
+            if (name.isEmpty()) {
+                name = rootName;
+            }
+            String description = getString(version, "description");
+            if (description.isEmpty() || "None.".equals(description)) {
+                description = rootDescription;
+            }
+            results.add(new PackageInfo(
+                    name,
+                    versionId,
+                    name, // title: packuments carry no separate title
+                    description,
+                    getString(version, "fhirVersion"),
+                    "", // canonical is not published in the packument
+                    version.path("dist").path("tarball").asText(""),
+                    name));
         }
         return results;
     }
@@ -99,19 +170,6 @@ public final class PackageRegistryService {
             throw new PackageRegistryException("Failed to download package: " + 
                     packageInfo.getName(), e);
         }
-    }
-
-    private PackageInfo parsePackageInfo(JsonNode node) {
-        return new PackageInfo(
-            getString(node, "name"),
-            getString(node, "version"),
-            getString(node, "title"),
-            getString(node, "description"),
-            getString(node, "fhirVersion"),
-            getString(node, "canonical"),
-            getString(node, "downloadUrl"),
-            getString(node, "packageId")
-        );
     }
 
     private String getString(JsonNode node, String field) {
