@@ -63,8 +63,42 @@ public final class PackageRegistryService {
     }
 
     public Path downloadPackage(PackageInfo packageInfo, Path destination) {
-        // Implementation would download the package
-        return null;
+        if (packageInfo == null || packageInfo.getDownloadUrl() == null || packageInfo.getDownloadUrl().isBlank()) {
+            throw new PackageRegistryException("No download URL available for package: " + 
+                    (packageInfo != null ? packageInfo.getName() : "null"), null);
+        }
+        
+        try {
+            // Ensure destination directory exists
+            java.nio.file.Files.createDirectories(destination);
+            
+            String downloadUrl = packageInfo.getDownloadUrl();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(downloadUrl))
+                    .header("Accept", "application/octet-stream")
+                    .GET()
+                    .build();
+            
+            // Create file name from package name and version
+            String fileName = packageInfo.getName() + "-" + packageInfo.getVersion() + ".tgz";
+            Path targetPath = destination.resolve(fileName);
+            
+            HttpResponse<Path> response = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofFile(targetPath));
+            
+            if (response.statusCode() == 200) {
+                return targetPath;
+            } else {
+                // Clean up partial download
+                java.nio.file.Files.deleteIfExists(targetPath);
+                throw new PackageRegistryException(
+                        "Download failed with status " + response.statusCode() + 
+                        " for package " + packageInfo.getName(), null);
+            }
+        } catch (IOException | InterruptedException e) {
+            throw new PackageRegistryException("Failed to download package: " + 
+                    packageInfo.getName(), e);
+        }
     }
 
     private PackageInfo parsePackageInfo(JsonNode node) {

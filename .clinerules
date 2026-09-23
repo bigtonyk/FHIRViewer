@@ -3,3 +3,28 @@ consider using the classifier MCP tool to identify relevant items before
 reading their full contents into context. Prefer classification when it can
 reduce unnecessary context, but do not use it for small searches where the
 overhead is greater than the likely savings.
+
+## Large File Editing
+
+When creating or substantially rewriting a file:
+
+- If the resulting content is likely to exceed 5,000 characters, DO NOT attempt to write the entire file in one editor operation.
+- Create/write the file in multiple smaller chunks.
+- Keep each individual edit comfortably below 5,000 characters.
+- Prefer logical boundaries such as classes, methods, interfaces, or sections.
+- After all chunks are written, read the complete file and verify that:
+  - no content is missing
+  - imports are correct
+  - braces/tags are balanced
+  - the file compiles
+- For very large existing files, modify only the necessary sections rather than replacing the entire file.
+
+## Prefer Small Source Files
+
+Avoid creating unnecessarily large source files.
+
+When implementing new functionality:
+- Prefer multiple focused classes over one large class.
+- Keep UI, validation, FHIR processing, plugin interfaces, and utilities separated.
+- Create interfaces and implementations in separate files where appropriate.
+- Do not combine unrelated functionality into a single file merely to reduce file count.

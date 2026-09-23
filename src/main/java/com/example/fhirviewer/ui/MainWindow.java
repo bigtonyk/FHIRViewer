@@ -1537,17 +1537,10 @@ public class MainWindow {
      */
     private void openIgPackageManager() {
         try {
-            Class<?> dialogClass = Class.forName("com.example.fhirviewer.ui.IgPackageDialog");
-            java.lang.reflect.Constructor<?> constructor = 
-                    dialogClass.getConstructor(Stage.class, FhirService.class);
-            Object dialog = constructor.newInstance(stage, fhirService);
-            java.lang.reflect.Method showAndWait = 
-                    dialogClass.getMethod("showAndWait");
-            showAndWait.invoke(dialog);
-        } catch (ClassNotFoundException e) {
-            // IgPackageDialog not available
-            showAlert(Alert.AlertType.INFORMATION, "IG Package Manager", 
-                    "The IG Package Manager is not available in this build.");
+            IgPackageDialog dialog = new IgPackageDialog(stage,
+                    fhirService.validationService().getPackageManager(),
+                    new com.example.fhirviewer.service.PackageRegistryService());
+            dialog.showAndWait();
         } catch (Exception e) {
             showFailure("Failed to open IG Package Manager", e);
         }
