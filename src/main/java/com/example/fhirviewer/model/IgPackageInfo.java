@@ -25,6 +25,11 @@ public final class IgPackageInfo {
     public String canonicalUrl() { return canonicalUrl; }
     public String description() { return description; }
 
+    /** A short package label for package lists and status messages. */
+    public String label() {
+        return version.isEmpty() ? name : name + " " + version;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();

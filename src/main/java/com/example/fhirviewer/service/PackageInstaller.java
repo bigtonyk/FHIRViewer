@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 
+import com.example.fhirviewer.model.IgPackageInfo;
 import com.example.fhirviewer.service.PackageRegistryService.PackageInfo;
 
 /**
@@ -204,7 +205,7 @@ public class PackageInstaller {
                         "", Status.CORE_PROVIDED, requiredBy, null));
                 continue;
             }
-            if (packageManager != null && packageManager.getPackage(id) != null) {
+            if (packageManager != null && isInstalledVersion(packageManager.getPackage(id), version)) {
                 var installed = packageManager.getPackage(id);
                 planned.put(id, new PlannedPackage(id, installed.version(),
                         installed.fhirVersion(), Status.ALREADY_INSTALLED, requiredBy, null));
@@ -240,6 +241,15 @@ public class PackageInstaller {
             logger.warning("Cannot read dependencies of " + packageFile + ": " + e.getMessage());
             return List.of();
         }
+    }
+
+    /** True when the installed package satisfies the requested version. */
+    private static boolean isInstalledVersion(IgPackageInfo installed, String requestedVersion) {
+        if (installed == null) {
+            return false;
+        }
+        return requestedVersion == null || requestedVersion.isBlank()
+                || requestedVersion.trim().equals(installed.version());
     }
 
     // ------------------------------------------------------------------

@@ -100,7 +100,12 @@ public final class NpmPackageReader {
         }
         List<String> keys = new ArrayList<>();
         for (JsonProperty property : packageJson.getJsonObject("dependencies").getProperties()) {
-            keys.add(property.getName());
+            String version = property.getValue() == null
+                    ? null
+                    : property.getValue().asString();
+            keys.add(version == null || version.isBlank()
+                    ? property.getName()
+                    : property.getName() + "#" + version.trim());
         }
         return keys;
     }
