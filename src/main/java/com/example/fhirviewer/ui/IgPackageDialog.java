@@ -11,6 +11,7 @@ import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
@@ -33,6 +34,11 @@ import java.util.logging.Logger;
  */
 public class IgPackageDialog extends Dialog<String> {
     private static final Logger logger = Logger.getLogger(IgPackageDialog.class.getName());
+
+    /** Wide enough that the three columns and the button rows are never clipped. */
+    private static final double MIN_WIDTH = 1180;
+    private static final double PREF_WIDTH = 1340;
+    private static final double MIN_HEIGHT = 620;
 
     private final IgPackageManager packageManager;
     private final PackageRegistryService registryService;
@@ -98,6 +104,13 @@ public class IgPackageDialog extends Dialog<String> {
         statusLabel.setStyle("-fx-background-color: #f0f0f0; -fx-padding: 5px;");
         statusLabel.setPadding(new Insets(5));
         mainPane.setBottom(statusLabel);
+
+        // Let the user enlarge the dialog: the three columns and the action
+        // rows below the lists need room to stay readable.
+        setResizable(true);
+        getDialogPane().setMinWidth(MIN_WIDTH);
+        getDialogPane().setPrefWidth(PREF_WIDTH);
+        getDialogPane().setMinHeight(MIN_HEIGHT);
         return mainPane;
     }
 
@@ -154,6 +167,7 @@ public class IgPackageDialog extends Dialog<String> {
         HBox searchButtonRow = new HBox(10, searchButton, refreshCatalogButton);
         HBox buttonRow = new HBox(10, viewDetailsButton, downloadLoadButton);
         buttonRow.setAlignment(Pos.CENTER_LEFT);
+        keepLabelsVisible(searchButton, refreshCatalogButton, viewDetailsButton, downloadLoadButton);
 
         panel.getChildren().addAll(titleLabel, new Label("Package Name:"), searchField,
                 searchButtonRow, new Label("Search Results:"), searchResultsList, buttonRow);
@@ -173,7 +187,8 @@ public class IgPackageDialog extends Dialog<String> {
         hint.setStyle("-fx-font-size: 11px; -fx-text-fill: #555;");
 
         loadedPackagesList = new ListView<>();
-        loadedPackagesList.setPrefHeight(200);
+        loadedPackagesList.setPrefHeight(320);
+        loadedPackagesList.setMinWidth(520);
         loadedPackagesList.setPlaceholder(new Label("No packages installed"));
         loadedPackagesList.setCellFactory(new Callback<ListView<IgPackageInfo>, ListCell<IgPackageInfo>>() {
             @Override
@@ -199,6 +214,7 @@ public class IgPackageDialog extends Dialog<String> {
 
         HBox buttonRow = new HBox(10, activateButton, deactivateButton, unloadButton, refreshButton);
         buttonRow.setAlignment(Pos.CENTER_LEFT);
+        keepLabelsVisible(activateButton, deactivateButton, unloadButton, refreshButton);
 
         loadedPackagesList.getSelectionModel().selectedItemProperty().addListener(
                 (obs, oldVal, newVal) -> {
@@ -209,6 +225,17 @@ public class IgPackageDialog extends Dialog<String> {
 
         panel.getChildren().addAll(titleLabel, hint, loadedPackagesList, buttonRow);
         return panel;
+    }
+
+    /**
+     * Stops buttons from shrinking below their label. By default an HBox may
+     * compress a button until only "..." is visible; pinning the minimum width
+     * to the preferred width keeps the full text readable.
+     */
+    private static void keepLabelsVisible(Button... buttons) {
+        for (Button button : buttons) {
+            button.setMinWidth(Region.USE_PREF_SIZE);
+        }
     }
 
     private VBox createStoragePanel() {
