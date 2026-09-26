@@ -198,6 +198,12 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
                 client.registerInterceptor(new StaticHeaderInterceptor(header.getKey(), header.getValue()));
             }
         }
+        // Credentials come from the session, never from the configuration, so persisting
+        // a server definition can never persist a secret.
+        ServerAuthentication authentication = session.authentication();
+        if (authentication instanceof BasicServerAuthentication basic) {
+            client.registerInterceptor(new StaticHeaderInterceptor("Authorization", basic.authorizationHeaderValue()));
+        }
         return client;
     }
 
@@ -275,9 +281,18 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
         if (session == null || session.server() == null) {
             throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST, "A server is required.");
         }
-        if (session.authentication() != null && !session.authentication().isAnonymous()) {
+        if (session.authentication() == null) {
             throw new ServerOperationException(ServerOperationException.Kind.UNAUTHORIZED,
-                    "The standard REST plugin currently supports anonymous access only.");
+                    "This operation needs an authentication method.");
+        }
+        // Only anonymous and basic are implemented. Anything else is a newer mechanism this
+        // build has no interceptor for, so say so plainly rather than silently sending
+        // an unauthenticated request.
+        if (!session.authentication().isAnonymous()
+                && !(session.authentication() instanceof BasicServerAuthentication)) {
+            throw new ServerOperationException(ServerOperationException.Kind.UNAUTHORIZED,
+                    "This build supports anonymous and basic authentication only, not '"
+                            + session.authentication().type() + "'.");
         }
     }
 

@@ -34,6 +34,8 @@ import com.example.fhirviewer.service.SourceEditorService;
 import com.example.fhirviewer.service.ValidationService;
 import com.example.fhirviewer.server.FhirServerManager;
 import com.example.fhirviewer.server.FhirServerService;
+import com.example.fhirviewer.server.PluginConfig;
+import com.example.fhirviewer.server.PluginSettingsStore;
 import com.example.fhirviewer.server.ServerDefinition;
 import com.example.fhirviewer.util.FileSupport;
 
@@ -467,7 +469,11 @@ public class MainWindow {
         MenuItem manageServers = new MenuItem("FHIR Servers...");
         manageServers.setOnAction(event -> manageServers());
 
-        return new Menu("Tools", null, validate, new SeparatorMenuItem(), searchServer, manageServers);
+        MenuItem managePlugins = new MenuItem("Server Plugins...");
+        managePlugins.setOnAction(event -> managePlugins());
+
+        return new Menu("Tools", null, validate, new SeparatorMenuItem(), searchServer, manageServers,
+                managePlugins);
     }
 
     private Menu buildHelpMenu() {
@@ -1257,6 +1263,22 @@ public class MainWindow {
                             + " Search FHIR Server to search it."
                     : "A server named " + definition.name() + " is already configured.");
         });
+    }
+
+    /**
+     * Opens the server plugin manager: scan a folder for plugin jars, load them,
+     * save per-plugin settings, and manage the plugin config file.
+     */
+    private void managePlugins() {
+        java.nio.file.Path settingsFile = java.nio.file.Path.of(
+                System.getProperty("user.home", "."),
+                ".fhirviewer", "plugin-settings.properties");
+        PluginManagerDialog dialog = new PluginManagerDialog(
+                stage,
+                serverService.registry(),
+                new PluginSettingsStore(settingsFile),
+                java.nio.file.Path.of(PluginConfig.CONFIG_FILE_NAME));
+        dialog.showAndWait();
     }
 
     /** Searches a configured FHIR server and shows the picked resource in the viewer. */

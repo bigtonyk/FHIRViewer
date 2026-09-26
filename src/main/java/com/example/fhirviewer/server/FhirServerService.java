@@ -22,9 +22,13 @@ public class FhirServerService {
 
     private final FhirServerPluginRegistry registry;
 
-    /** Creates the service with the plugins discovered on the class path. */
+    /**
+     * Creates the service with the plugins described by the application's plugin
+     * configuration: service-file discovery plus anything the config enables, minus
+     * anything the config disables. See {@link PluginConfig} and {@link PluginLoader}.
+     */
     public FhirServerService() {
-        this(FhirServerPluginRegistry.discover());
+        this(PluginLoader.load());
     }
 
     /** Creates the service on an explicit registry (used by tests and bootstrapping). */
@@ -35,6 +39,17 @@ public class FhirServerService {
     /** Every registered plugin, in registration order. Exposed for the server dialog. */
     public List<FhirServerPlugin> plugins() {
         return registry.plugins();
+    }
+
+    /**
+     * The registry backing this service.
+     *
+     * <p>Exposed so the plugin manager dialog can list the loaded plugins and register
+     * ones it loads at run time. The UI is not expected to resolve plugins for its own
+     * operations; it should keep calling this service for that.</p>
+     */
+    public FhirServerPluginRegistry registry() {
+        return registry;
     }
 
     /**
