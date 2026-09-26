@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Logger;
+import java.util.prefs.BackingStoreException;
 
 import com.example.fhirviewer.server.FhirServerPlugin;
 import com.example.fhirviewer.server.FhirServerPluginRegistry;
@@ -61,6 +62,12 @@ public class PluginManagerDialog extends Dialog<Void> {
     private static final double PREF_WIDTH = 1080;
     private static final double MIN_HEIGHT = 620;
 
+    /** Preference key holding the last scanned plugin folder. */
+    private static final String PLUGIN_FOLDER_KEY = "pluginFolder";
+
+    /** The preferences node this dialog stores its own settings under. */
+    private static final String PREFERENCE_NODE = "com/example/fhirviewer/pluginManager";
+
     private final FhirServerPluginRegistry registry;
     private final PluginSettingsStore settingsStore;
     private final Path pluginConfigFile;
@@ -95,13 +102,46 @@ public class PluginManagerDialog extends Dialog<Void> {
         getDialogPane().setPrefWidth(PREF_WIDTH);
         getDialogPane().setMinHeight(MIN_HEIGHT);
 
-        folderField.setText(String.valueOf(java.util.prefs.Preferences
-                .userNodeForClass(PluginManagerDialog.class).get("pluginFolder", "")));
+        folderField.setText(rememberedPluginFolder());
 
         refreshLoadedPlugins();
         refreshConfiguredLabel(null);
         initOwner(parentWindow);
         initModality(Modality.WINDOW_MODAL);
+    }
+
+    /**
+     * The plugin folder remembered from the last run, or an empty string.
+     *
+     * <p>Uses an explicit node path under the user root rather than
+     * {@code Preferences.userNodeForClass}, which no longer exists in current JDKs.
+     * A preference backend is not guaranteed to be available (a locked or read-only
+     * preferences directory makes the first call throw), so this never propagates an
+     * exception into the constructor.</p>
+     */
+    private static String rememberedPluginFolder() {
+        try {
+            return preferenceNode().get(PLUGIN_FOLDER_KEY, "");
+        } catch (RuntimeException | BackingStoreException e) {
+            logger.log(java.util.logging.Level.FINE,
+                    "could not read the remembered plugin folder", e);
+            return "";
+        }
+    }
+
+    /** Remembers the scanned folder so it survives a restart. */
+    private void rememberPluginFolder(String folder) {
+        try {
+            preferenceNode().put(PLUGIN_FOLDER_KEY, folder == null ? "" : folder);
+        } catch (RuntimeException | BackingStoreException e) {
+            logger.log(java.util.logging.Level.FINE,
+                    "could not remember the plugin folder", e);
+        }
+    }
+
+    /** The single preferences node this dialog owns. */
+    private static java.util.prefs.Preferences preferenceNode() throws BackingStoreException {
+        return java.util.prefs.Preferences.userRoot().node(PREFERENCE_NODE);
     }
 
     private BorderPane createContent() {
@@ -224,8 +264,7 @@ public class PluginManagerDialog extends Dialog<Void> {
         java.io.File chosen = chooser.showDialog(getOwner());
         if (chosen != null) {
             folderField.setText(chosen.getAbsolutePath());
-            java.util.prefs.Preferences.userNodeForClass(PluginManagerDialog.class)
-                    .put("pluginFolder", chosen.getAbsolutePath());
+            rememberPluginFolder(chosen.getAbsolutePath());
             scanFolder();
         }
     }
@@ -333,10 +372,12 @@ public class PluginManagerDialog extends Dialog<Void> {
                 return;
             }
             try {
-                settingsStore.saveAnonymous(plugin.id(), url);
+                settingsStore.save(new PluginSettings(plugin.id(), url, user, null), "");
                 settingsStore.setLoadsOnStart(plugin.id(), loadOnStartCheck.isSelected());
                 status("Saved anonymous settings for " + plugin.displayName()
                         + ". Any previously stored password was removed.");
+            } catch (SecretBoxException e) {
+                status("Could not save settings: " + e.getMessage());
             } catch (IOException e) {
                 status("Could not save settings: " + e.getMessage());
             }
@@ -347,8 +388,7 @@ public class PluginManagerDialog extends Dialog<Void> {
             return;
         }
         try {
-            settingsStore.save(plugin.id(), new PluginSettings(plugin.id(), url, user, password),
-                    passphrase);
+            settingsStore.save(new PluginSettings(plugin.id(), url, user, password), passphrase);
             settingsStore.setLoadsOnStart(plugin.id(), loadOnStartCheck.isSelected());
             passwordField.clear();
             passphraseField.clear();
