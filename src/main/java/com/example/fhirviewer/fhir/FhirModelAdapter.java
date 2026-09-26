@@ -35,4 +35,19 @@ public interface FhirModelAdapter {
      * @return the entries in order, or an empty list when the resource is not a Bundle
      */
     List<BundleEntryInfo> entriesOf(IBaseResource resource);
+
+    /**
+     * Deletes one value (the entry at {@code index}) or all values ({@code index < 0})
+     * of the named child element from its owner.
+     *
+     * @param owner the element that carries the child element
+     * @param name  the child element name, exactly as the tree renders it; a concrete
+     *              choice name such as {@code deceasedBoolean} is matched to its
+     *              {@code [x]} definition
+     * @param index the entry to delete, or a negative value to delete every entry
+     * @throws IllegalArgumentException when the owner has no such child element, when
+     *                                  the entry does not exist, or when there is
+     *                                  nothing to delete
+     */
+    void removeValues(IBase owner, String name, int index);
 }

@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.instance.model.api.IIdType;
 
 import com.example.fhirviewer.fhir.FhirContextFactory;
 import com.example.fhirviewer.fhir.FhirModelAdapter;
@@ -39,6 +40,7 @@ public class FhirService {
     private final ResourceTreeBuilder treeBuilder;
     private final PrettyModelBuilder prettyBuilder;
     private final ValidationService validationService;
+    private final FHIRPathService fhirPathService;
 
     /** Creates a service for the default (R4) FHIR version. */
     public FhirService() {
@@ -56,6 +58,7 @@ public class FhirService {
         this.treeBuilder = new ResourceTreeBuilder(modelAdapter);
         this.prettyBuilder = new PrettyModelBuilder(modelAdapter);
         this.validationService = new ValidationService(context);
+        this.fhirPathService = new FHIRPathService(context);
     }
 
     /** Opens a resource file from disk. */
@@ -126,6 +129,37 @@ public class FhirService {
         return serializer.toJson(resource);
     }
 
+    /**
+     * Builds the resource tree for a bare resource. Used by the FHIR server layer for
+     * resources that were fetched from a server and are not {@link LoadedResource}s yet.
+     */
+    public ResourceNode buildTree(IBaseResource resource, boolean includeUnpopulated) {
+        IIdType id = resource.getIdElement();
+        String idPart = id == null || !id.hasIdPart() ? null : id.getIdPart();
+        return treeBuilder.build(resource, resource.fhirType(), idPart, includeUnpopulated);
+    }
+
+    /**
+     * A short, generic one line summary of a resource for result lists, for example
+     * <code>active: true, gender: male, birthDate: 1974-12-25</code>. It is built from
+     * the same tree the viewer shows, so no resource type is hard-coded anywhere.
+     */
+    public String summaryText(IBaseResource resource) {
+        if (resource == null) {
+            return "";
+        }
+        List<String> values = new java.util.ArrayList<>();
+        for (ResourceNode child : buildTree(resource, false).getChildren()) {
+            if (child.getValueText() != null && !child.getValueText().isBlank()) {
+                values.add(child.getDisplayText());
+            }
+            if (values.size() == 4) {
+                break;
+            }
+        }
+        return String.join(", ", values);
+    }
+
     /** Renders a resource as pretty printed XML. */
     public String toXml(IBaseResource resource) {
         return serializer.toXml(resource);
@@ -141,6 +175,22 @@ public class FhirService {
         return validationService.validate(resource);
     }
 
+    /**
+     * Validates a resource against a selected profile (Update 11/12). A blank
+     * profile means "use the resource's own meta.profile".
+     */
+    public ValidationReport validate(IBaseResource resource, String profileCanonical) {
+        return validationService.validate(resource, profileCanonical);
+    }
+
+    /**
+     * Evaluates a FHIRPath expression against a resource and reports the outcome:
+     * a value, no value or a broken expression (never throws).
+     */
+    public FHIRPathService.Result evaluateFHIRPath(IBaseResource resource, String expression) {
+        return fhirPathService.evaluate(resource, expression);
+    }
+
     /** Returns the entries of a Bundle, or an empty list for other resources. */
     public List<BundleEntryInfo> bundleEntries(IBaseResource resource) {
         return modelAdapter.entriesOf(resource);
@@ -154,5 +204,10 @@ public class FhirService {
     /** The FHIR version this service is configured for, for example <code>R4</code>. */
     public String fhirVersion() {
         return modelAdapter.fhirVersionName();
+    }
+
+    /** Returns the validation service for IG package management. */
+    public ValidationService validationService() {
+        return validationService;
     }
 }

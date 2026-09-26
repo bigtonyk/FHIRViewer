@@ -1,0 +1,2 @@
+com.example.fhirviewer.server.StandardFhirRestPlugin
+com.example.fhirviewer.server.SmileCdrPlugin

@@ -1,0 +1,7 @@
+FHIR Viewer updates needed
+1. Add/delete nodes, fhirpath entries.
+2. Edit json/xml in place.  Should refresh the resource tree and 'pretty' display.
+3. Add Implementation Guide verification
+4. Plugin for Firely server
+5. Plugin for Standard FHIR server functionality
+6. Write plugin documentation on how to add one.
