@@ -11,8 +11,10 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 
 import com.example.fhirviewer.server.ConnectionResult;
 import com.example.fhirviewer.server.FhirServerPlugin;
@@ -66,6 +68,11 @@ public class ServerDialog extends Dialog<ServerDefinition> {
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(10);
+        // Pin the label column to its preferred width so labels never collapse to "...";
+        // the control column takes all the remaining (and any extra) space.
+        grid.getColumnConstraints().addAll(
+                new ColumnConstraints(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE, Region.USE_PREF_SIZE),
+                new ColumnConstraints(240, Region.USE_PREF_SIZE, Priority.ALWAYS));
         int row = 0;
         addRow(grid, row++, "Server name", nameField);
         addRow(grid, row++, "FHIR base URL", urlField);
@@ -78,7 +85,8 @@ public class ServerDialog extends Dialog<ServerDefinition> {
         ButtonType saveType = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
         getDialogPane().setContent(grid);
         getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
-        getDialogPane().setPrefWidth(560);
+        getDialogPane().setMinWidth(680);
+        getDialogPane().setPrefWidth(760);
         getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
         saveButton = (Button) getDialogPane().lookupButton(saveType);
         if (saveButton != null) {

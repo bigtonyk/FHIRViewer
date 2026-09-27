@@ -58,9 +58,10 @@ import javafx.stage.Window;
 public class PluginManagerDialog extends Dialog<Void> {
     private static final Logger logger = Logger.getLogger(PluginManagerDialog.class.getName());
 
-    private static final double MIN_WIDTH = 940;
-    private static final double PREF_WIDTH = 1080;
-    private static final double MIN_HEIGHT = 620;
+    private static final double MIN_WIDTH = 1120;
+    private static final double PREF_WIDTH = 1300;
+    private static final double PREF_HEIGHT = 470;
+    private static final double MIN_HEIGHT = 380;
 
     /** Preference key holding the last scanned plugin folder. */
     private static final String PLUGIN_FOLDER_KEY = "pluginFolder";
@@ -101,6 +102,7 @@ public class PluginManagerDialog extends Dialog<Void> {
         getDialogPane().setMinWidth(MIN_WIDTH);
         getDialogPane().setPrefWidth(PREF_WIDTH);
         getDialogPane().setMinHeight(MIN_HEIGHT);
+        getDialogPane().setPrefHeight(PREF_HEIGHT);
 
         folderField.setText(rememberedPluginFolder());
 
@@ -144,18 +146,46 @@ public class PluginManagerDialog extends Dialog<Void> {
         return java.util.prefs.Preferences.userRoot().node(PREFERENCE_NODE);
     }
 
+    /**
+     * The dialog body.
+     *
+     * <p>Laid out as one row on top, two columns in the middle and a status line at the
+     * bottom. The earlier arrangement stacked discovery, the loaded list and the settings
+     * form as three full-width bands, which forced a tall window and left the loaded list
+     * squeezed into whatever height was left over. Putting the settings form beside the
+     * lists instead lets both lists use the full height.</p>
+     */
     private BorderPane createContent() {
         BorderPane pane = new BorderPane();
         pane.setPadding(new Insets(12));
-        pane.setTop(createDiscoveryPane());
-        pane.setCenter(createPluginsPane());
-        VBox footer = new VBox(createSettingsPane(), createStatusBar());
-        pane.setBottom(footer);
+        pane.setTop(createDiscoveryRow());
+        pane.setCenter(createColumns());
+        pane.setBottom(createStatusBar());
         return pane;
     }
 
-    /** The top row: a folder to scan, the Scan button, and the list of jars it holds. */
-    private VBox createDiscoveryPane() {
+    /** The middle: scanned jars on the left, loaded plugins and their settings on the right. */
+    private HBox createColumns() {
+        VBox left = new VBox(6, heading("Jars found in the folder"), foundJarsList, createConfigBar());
+        VBox.setVgrow(left, javafx.scene.layout.Priority.ALWAYS);
+
+        VBox right = new VBox(6, heading("Loaded plugins"), createPluginsPane(), createSettingsPane());
+        VBox.setVgrow(right, javafx.scene.layout.Priority.ALWAYS);
+
+        HBox.setHgrow(left, javafx.scene.layout.Priority.ALWAYS);
+        HBox.setHgrow(right, javafx.scene.layout.Priority.ALWAYS);
+        HBox.setMargin(right, new Insets(0, 0, 0, 12));
+        return new HBox(0, left, right);
+    }
+
+    private static Label heading(String text) {
+        Label label = new Label(text);
+        label.getStyleClass().add("pretty-row-label");
+        return label;
+    }
+
+    /** The top row: a folder to scan plus the two buttons that act on it. */
+    private HBox createDiscoveryRow() {
         folderField = new TextField();
         folderField.setPromptText("Folder containing plugin .jar files");
         HBox.setHgrow(folderField, javafx.scene.layout.Priority.ALWAYS);
@@ -164,25 +194,28 @@ public class PluginManagerDialog extends Dialog<Void> {
         browse.setOnAction(e -> chooseFolder());
         Button scan = new Button("Scan Folder");
         scan.setOnAction(e -> scanFolder());
+        keepLabelsVisible(browse, scan);
 
         foundJarsList = new ListView<>();
-        foundJarsList.setPrefHeight(140);
-        VBox.setVgrow(foundJarsList, javafx.scene.layout.Priority.SOMETIMES);
+        VBox.setVgrow(foundJarsList, javafx.scene.layout.Priority.ALWAYS);
 
         HBox row = new HBox(8, new Label("Plugin folder:"), folderField, browse, scan);
         row.setAlignment(Pos.CENTER_LEFT);
-
-        Button addToConfig = new Button("Enable Selected in Config");
-        addToConfig.setOnAction(e -> enableSelected());
-        ButtonBar configBar = new ButtonBar();
-        configBar.getButtons().add(addToConfig);
-
-        VBox box = new VBox(8, row, foundJarsList, configBar);
-        box.setPadding(new Insets(0, 0, 10, 0));
-        return box;
+        row.setPadding(new Insets(0, 0, 10, 0));
+        return row;
     }
 
-    /** The middle: the plugins actually loaded in this run. */
+    /** The button that writes the selected jar's plugin classes into the config file. */
+    private ButtonBar createConfigBar() {
+        Button addToConfig = new Button("Enable Selected in Config");
+        addToConfig.setOnAction(e -> enableSelected());
+        keepLabelsVisible(addToConfig);
+        ButtonBar configBar = new ButtonBar();
+        configBar.getButtons().add(addToConfig);
+        return configBar;
+    }
+
+    /** The middle-right: the plugins actually loaded in this run. */
     private VBox createPluginsPane() {
         loadedPluginsList = new ListView<>();
         VBox.setVgrow(loadedPluginsList, javafx.scene.layout.Priority.ALWAYS);
@@ -190,8 +223,7 @@ public class PluginManagerDialog extends Dialog<Void> {
             FhirServerPlugin selected = loadedPluginsList.getSelectionModel().getSelectedItem();
             refreshConfiguredLabel(selected);
         });
-        Label heading = new Label("Loaded plugins:");
-        return new VBox(6, heading, loadedPluginsList);
+        return new VBox(loadedPluginsList);
     }
 
     /** A one-line status area at the bottom of the dialog. */
@@ -214,18 +246,22 @@ public class PluginManagerDialog extends Dialog<Void> {
         passwordField.setPromptText("password, stored encrypted");
         passphraseField = new PasswordField();
         passphraseField.setPromptText("passphrase used to encrypt the password");
-        loadOnStartCheck = new CheckBox("Load this plugin's settings when the application starts");
+        loadOnStartCheck = new CheckBox("Load these settings at start-up");
+        // The right-hand column is half the dialog width, so the caption has to wrap
+        // rather than push the column wider than the dialog.
+        loadOnStartCheck.setWrapText(true);
+        loadOnStartCheck.setMaxWidth(Double.MAX_VALUE);
         configuredForLabel = new Label("No plugin selected.");
+        configuredForLabel.setWrapText(true);
 
         HBox.setHgrow(baseUrlField, javafx.scene.layout.Priority.ALWAYS);
         HBox.setHgrow(userNameField, javafx.scene.layout.Priority.ALWAYS);
         HBox.setHgrow(passwordField, javafx.scene.layout.Priority.ALWAYS);
         HBox.setHgrow(passphraseField, javafx.scene.layout.Priority.ALWAYS);
 
-        HBox urlRow = new HBox(8, new Label("Server URL:"), baseUrlField);
-        HBox userRow = new HBox(8, new Label("User name:"), userNameField);
-        HBox passRow = new HBox(8, new Label("Password:"), passwordField,
-                new Label("Passphrase:"), passphraseField);
+        HBox urlRow = labelledRow("Server URL:", baseUrlField);
+        HBox credentialsRow = pairedRow("User name:", userNameField, "Password:", passwordField);
+        HBox phraseRow = labelledRow("Passphrase:", passphraseField);
 
         saveButton = new Button("Save Settings");
         saveButton.setOnAction(e -> saveSettings());
@@ -236,9 +272,40 @@ public class PluginManagerDialog extends Dialog<Void> {
         HBox buttons = new HBox(8, saveButton, removeButton);
         buttons.setAlignment(Pos.CENTER_LEFT);
 
-        VBox box = new VBox(6, configuredForLabel, urlRow, userRow, passRow, loadOnStartCheck, buttons);
+        VBox box = new VBox(6, configuredForLabel, urlRow, credentialsRow, phraseRow,
+                loadOnStartCheck, buttons);
         box.setPadding(new Insets(10, 0, 0, 0));
         return box;
+    }
+
+    /**
+     * Two labelled fields sharing one row, so the credentials block is two columns wide
+     * instead of stacking and making the dialog taller than it needs to be.
+     */
+    private static HBox pairedRow(String firstCaption, javafx.scene.control.TextInputControl first,
+            String secondCaption, javafx.scene.control.TextInputControl second) {
+        Label firstLabel = new Label(firstCaption);
+        Label secondLabel = new Label(secondCaption);
+        // Pin the captions so a narrow dialog elides the field text, not the labels.
+        firstLabel.setMinWidth(Region.USE_PREF_SIZE);
+        secondLabel.setMinWidth(Region.USE_PREF_SIZE);
+        HBox row = new HBox(8, firstLabel, first, secondLabel, second);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    /**
+     * A label plus a field that fills the remaining width.
+     *
+     * <p>The label is pinned to its preferred width so a narrow column elides the text in
+     * the field rather than turning the caption itself into "...".</p>
+     */
+    private static HBox labelledRow(String caption, javafx.scene.control.TextInputControl field) {
+        Label label = new Label(caption);
+        label.setMinWidth(Region.USE_PREF_SIZE);
+        HBox row = new HBox(8, label, field);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
     }
 
     /**
