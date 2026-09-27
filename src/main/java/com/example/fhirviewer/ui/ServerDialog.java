@@ -68,11 +68,15 @@ public class ServerDialog extends Dialog<ServerDefinition> {
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(10);
-        // Pin the label column to its preferred width so labels never collapse to "...";
-        // the control column takes all the remaining (and any extra) space.
-        grid.getColumnConstraints().addAll(
-                new ColumnConstraints(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE, Region.USE_PREF_SIZE),
-                new ColumnConstraints(240, Region.USE_PREF_SIZE, Priority.ALWAYS));
+        // Pin the label column to its preferred width so labels never collapse to "..."; the
+        // control column takes all the remaining (and any extra) space. ColumnConstraints has
+        // no (min, pref, Priority) constructor, so hgrow is set separately.
+        ColumnConstraints labelColumn = new ColumnConstraints();
+        labelColumn.setMinWidth(Region.USE_PREF_SIZE);
+        labelColumn.setMaxWidth(Region.USE_PREF_SIZE);
+        ColumnConstraints controlColumn = new ColumnConstraints(240, Region.USE_PREF_SIZE, 0);
+        controlColumn.setHgrow(Priority.ALWAYS);
+        grid.getColumnConstraints().addAll(labelColumn, controlColumn);
         int row = 0;
         addRow(grid, row++, "Server name", nameField);
         addRow(grid, row++, "FHIR base URL", urlField);

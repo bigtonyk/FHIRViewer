@@ -89,4 +89,103 @@ public interface FhirServerPlugin {
     default IBaseResource localCopy(IBaseResource resource) {
         return ServerOperationException.localCopy(resource);
     }
+
+    /**
+     * Creates a new resource on the server.
+     *
+     * <p>Every method here is a {@code default} that reports
+     * {@link ServerOperationException.Kind#UNSUPPORTED}, so a read-only vendor plugin
+     * still loads and works, and the UI can offer a local export instead of failing with
+     * a generic error. Plugins that can write override these.</p>
+     *
+     * @return what the server assigned, so the editor can rebase its {@link ServerOrigin}
+     * @throws ServerOperationException with kind {@code UNSUPPORTED} when this plugin
+     *         cannot write, or the mapped failure when the server refuses
+     */
+    default ServerWriteResult create(ServerSession session, IBaseResource resource)
+            throws ServerOperationException {
+        throw unsupported("create");
+    }
+
+    /**
+     * Updates an existing resource on the server.
+     *
+     * <p>When the supplied {@link ServerOrigin} carries a {@code versionId}, an
+     * implementation should send it as {@code If-Match} and report
+     * {@link ServerOperationException.Kind#CONFLICT} on HTTP 412, so a stale editor
+     * cannot silently overwrite someone else's change.</p>
+     *
+     * @param origin where the resource came from; its {@code resourceId} is required
+     * @throws ServerOperationException with kind {@code UNSUPPORTED} when this plugin
+     *         cannot write, {@code CONFLICT} when the server reports the resource
+     *         changed underneath us
+     */
+    default ServerWriteResult update(ServerSession session, IBaseResource resource, ServerOrigin origin)
+            throws ServerOperationException {
+        throw unsupported("update");
+    }
+
+    /**
+     * Deletes a resource from the server.
+     *
+     * @throws ServerOperationException with kind {@code UNSUPPORTED} when this plugin
+     *         cannot write, {@code NOT_FOUND} when it is already gone
+     */
+    default void delete(ServerSession session, ServerOrigin origin) throws ServerOperationException {
+        throw unsupported("delete");
+    }
+
+    /**
+     * True when this plugin implements the write verbs.
+     *
+     * <p>Lets the UI disable "Save to Server" up front rather than letting the user
+     * discover it by pressing the button.</p>
+     */
+    default boolean supportsWrite() {
+        return false;
+    }
+
+    private static ServerOperationException unsupported(String verb) {
+        return new ServerOperationException(ServerOperationException.Kind.UNSUPPORTED,
+                "This server plugin does not support " + verb + ".");
+    }
+
+    /**
+     * The server-specific screens this plugin offers, for the main UI to list.
+     *
+     * <p>This is the vendor-tooling seam: a plugin whose server exposes more than plain
+     * FHIR REST declares its extra screens here, and the main UI presents them. The
+     * declaration is data rather than a JavaFX {@code Node} on purpose, so this package
+     * stays free of JavaFX and a plugin never has to build UI the application owns.</p>
+     *
+     * <p>Defaults to none, so a plugin that only speaks standard FHIR REST — or a
+     * third-party plugin written before this hook existed — needs no change.</p>
+     *
+     * @return the vendor actions, never {@code null}; possibly empty
+     */
+    default List<ServerVendorAction> vendorActions() {
+        return List.of();
+    }
+
+    /**
+     * Opens one of this plugin's {@link #vendorActions() vendor actions}.
+     *
+     * <p>Intentionally stubbed: no plugin ships a working screen yet, so this always
+     * reports {@link ServerOperationException.Kind#UNSUPPORTED} with a clear message. It
+     * exists now so the plugin contract, the menu wiring and the UI are agreed and tested
+     * before any vendor screen is written, and so adding one later is a change inside
+     * plugins rather than another change across the application.</p>
+     *
+     * <p>Implementations will receive the session to talk to the server and the host
+     * window to attach to; {@code owner} is the intended parent and is ignored here.</p>
+     *
+     * @param actionId the id from the matching {@link ServerVendorAction}
+     * @param session  the session for the server the action applies to
+     * @param owner    the intended parent window; ignored by this stub
+     * @throws ServerOperationException with kind {@code UNSUPPORTED} in this stub
+     */
+    default void openVendorTool(String actionId, ServerSession session, Object owner)
+            throws ServerOperationException {
+        throw unsupported("the server tool '" + actionId + "'");
+    }
 }

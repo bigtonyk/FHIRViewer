@@ -161,6 +161,23 @@ public class FirelyPlugin extends StandardFhirRestPlugin {
     }
 
     /**
+     * Firely Server exposes administration endpoints beyond the FHIR REST API, so this
+     * plugin declares a vendor screen for them. The declaration is live and the main UI
+     * lists it; opening it reports {@code UNSUPPORTED} until the screen is written.
+     *
+     * <p>This is the reference example of the vendor-tooling seam: a plugin describes what
+     * it can offer as data, and the application decides how to show it.</p>
+     */
+    @Override
+    public List<ServerVendorAction> vendorActions() {
+        return List.of(ServerVendorAction.available(
+                "firely-admin",
+                "Firely Administration...",
+                "Firely-specific administration operations such as audit log and session control."));
+    }
+
+
+    /**
      * A {@link ServerCapabilities} wrapper that tags the result as coming from
      * a Firely Server, so the UI can show Firely-specific options.
      */

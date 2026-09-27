@@ -27,6 +27,18 @@ public class ServerOperationException extends Exception {
         NOT_FOUND,
         /** The request itself was wrong (HTTP 400/405/422 and friends). */
         BAD_REQUEST,
+        /**
+         * This plugin or this server does not implement the requested operation. Also the
+         * kind a read-only server reports for a write, so the UI can offer to export the
+         * resource locally instead of showing a generic failure.
+         */
+        UNSUPPORTED,
+        /**
+         * The server rejected the write because the resource changed after it was read
+         * (HTTP 412). The caller should offer reload-or-force rather than overwriting
+         * somebody else's edit.
+         */
+        CONFLICT,
         /** Anything else, including unexpected failures. */
         SERVER_ERROR
     }

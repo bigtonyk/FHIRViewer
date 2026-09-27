@@ -185,6 +185,189 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * <p>Writes the resource to the server with {@code POST [type]} and reads back the id
+     * the server assigned.</p>
+     */
+    @Override
+    public ServerWriteResult create(ServerSession session, IBaseResource resource)
+            throws ServerOperationException {
+        requireSession(session);
+        requireResource(resource, "create");
+        try {
+            IGenericClient client = newClient(session);
+            // HAPI's create builder returns a MethodOutcome, not the resource: the server
+            // assigns the id, so it is read back from the outcome rather than from the
+            // resource we sent.
+            ca.uhn.fhir.rest.api.MethodOutcome outcome = client.create()
+                    .resource(resource)
+                    .execute();
+            return ServerWriteResult.created(requireAssignedId("create", idPartOf(outcome)),
+                    versionPartOf(outcome));
+        } catch (ServerOperationException alreadyMapped) {
+            throw alreadyMapped;
+        } catch (Exception failure) {
+            throw convertFailure("create", failure);
+        }
+    }
+
+    /**
+     * Guards the one case where a successful-looking create still has nothing to return.
+     *
+     * <p>A server that accepts the write but reports no id leaves the editor unable to
+     * address the resource it just created. Failing with a clear message beats letting
+     * the null travel into {@link ServerWriteResult#created(String, String)} and surface
+     * as an unexplained {@code NullPointerException}.</p>
+     */
+    private static String requireAssignedId(String verb, String assignedId)
+            throws ServerOperationException {
+        if (assignedId == null) {
+            throw new ServerOperationException(ServerOperationException.Kind.SERVER_ERROR,
+                    "The server accepted the " + verb + " but did not return a resource id, "
+                            + "so the new resource cannot be addressed.");
+        }
+        return assignedId;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Writes with {@code PUT [type]/[id]}, sending {@code If-Match} when the origin
+     * carries a {@code versionId} so the server can refuse a stale write. HAPI's generic
+     * client has no conditional-update builder, so the header is attached through the
+     * same interceptor mechanism the static headers use.</p>
+     */
+    @Override
+    public ServerWriteResult update(ServerSession session, IBaseResource resource, ServerOrigin origin)
+            throws ServerOperationException {
+        requireSession(session);
+        requireResource(resource, "update");
+        if (origin == null) {
+            throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
+                    "update needs to know which server resource came from.");
+        }
+        if (!origin.isSaved()) {
+            throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
+                    "update needs a server-assigned id; use create for a new resource.");
+        }
+        try {
+            IGenericClient client = newClient(session);
+            applyIfMatch(client, origin);
+            client.update()
+                    .resource(resource)
+                    .withId(origin.resourceId())
+                    .execute();
+            // HAPI's generic update builder discards the response body, so the new version
+            // is genuinely unknown here. The next write therefore cannot be conditional,
+            // which the UI reports honestly rather than implying a conflict check ran.
+            return ServerWriteResult.updated(origin.resourceId(), null);
+        } catch (Exception failure) {
+            throw convertFailure("update", failure);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Deletes with {@code DELETE [type]/[id]}, sending {@code If-Match} when the origin
+     * carries a version, so a delete cannot silently remove a resource somebody else has
+     * since changed.</p>
+     */
+    @Override
+    public void delete(ServerSession session, ServerOrigin origin) throws ServerOperationException {
+        requireSession(session);
+        if (origin == null || !origin.isSaved()) {
+            throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
+                    "delete needs a server-assigned id.");
+        }
+        try {
+            IGenericClient client = newClient(session);
+            applyIfMatch(client, origin);
+            client.delete()
+                    .resourceById(origin.resourceType(), origin.resourceId())
+                    .execute();
+        } catch (Exception failure) {
+            throw convertFailure("delete", failure);
+        }
+    }
+
+    @Override
+    public boolean supportsWrite() {
+        return true;
+    }
+
+    /** Attaches a conditional-write header when the origin knows the current version. */
+    private static void applyIfMatch(IGenericClient client, ServerOrigin origin) {
+        if (origin.hasVersion()) {
+            client.registerInterceptor(
+                    new StaticHeaderInterceptor("If-Match", "W/" + origin.versionId().trim()));
+        }
+    }
+
+    /** Reads the server-assigned id out of a create/update outcome. */
+    private static String idPartOf(ca.uhn.fhir.rest.api.MethodOutcome outcome) {
+        if (outcome == null || outcome.getId() == null) {
+            return null;
+        }
+        String id = outcome.getId().getIdPart();
+        return id == null || id.isBlank() ? null : id;
+    }
+
+    /**
+     * Reads the new version out of a create/update outcome.
+     *
+     * <p>Preferred from the id's version part, falling back to {@code meta.versionId} on the
+     * returned resource for servers that only report it there. Returns {@code null} when the
+     * server reported no version at all, which the caller surfaces honestly rather than
+     * implying a conflict check is in place.</p>
+     */
+    private static String versionPartOf(ca.uhn.fhir.rest.api.MethodOutcome outcome) {
+        if (outcome == null) {
+            return null;
+        }
+        if (outcome.getId() != null) {
+            String fromId = outcome.getId().getVersionIdPart();
+            if (fromId != null && !fromId.isBlank()) {
+                return fromId;
+            }
+        }
+        IBaseResource resource = outcome.getResource();
+        if (resource != null && resource.getMeta() != null) {
+            // IBaseMetaType has no hasVersionId() — getVersionId() returns null when absent.
+            String fromMeta = resource.getMeta().getVersionId();
+            if (fromMeta != null && !fromMeta.isBlank()) {
+                return fromMeta;
+            }
+        }
+        return null;
+    }
+
+    /** Extracts the trailing id from a {@code Location} like {@code Patient/123/_history/4}. */
+    private static String lastPathSegment(String location) {
+        String path = location;
+        int query = path.indexOf('?');
+        if (query >= 0) {
+            path = path.substring(0, query);
+        }
+        String[] segments = path.split("/");
+        for (int i = segments.length - 1; i >= 0; i--) {
+            String segment = segments[i].trim();
+            if (!segment.isEmpty() && !segment.startsWith("_")) {
+                return segment;
+            }
+        }
+        return null;
+    }
+
+    private static void requireResource(IBaseResource resource, String action) throws ServerOperationException {
+        if (resource == null) {
+            throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
+                    action + " needs a resource to write.");
+        }
+    }
+
+    /**
      * Creates the HAPI client for one operation. Vendor plugins override this to add
      * authentication, custom timeouts or a different transport; the default pins JSON
      * encoding and applies the server's extra headers.
@@ -250,6 +433,13 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
                     action + ": the server could not be reached. Check the base URL.", failure);
         }
         if (failure instanceof BaseServerResponseException responseFailure) {
+            // A conditional write is refused with 412 when the resource changed after it was
+            // read. This is reported as CONFLICT rather than a generic error so the UI can
+            // offer reload-or-force instead of overwriting somebody else's edit.
+            if (responseFailure.getStatusCode() == 412) {
+                return new ServerOperationException(ServerOperationException.Kind.CONFLICT,
+                        action + ": the resource changed on the server after it was read.", 412, failure);
+            }
             return new ServerOperationException(ServerOperationException.Kind.SERVER_ERROR,
                     action + ": the server returned an error.", responseFailure.getStatusCode(), failure);
         }
