@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
@@ -138,10 +139,17 @@ public final class PluginSettingsStore {
         if (pluginId == null || pluginId.isBlank()) {
             return;
         }
-        Map<String, PluginSettings> all = readAll();
-        if (all.remove(pluginId.trim()) != null) {
-            writeAll(all);
+        String id = pluginId.trim();
+        // Every key for the plugin has to go, not just the ones writeAll happens to
+        // rewrite: leaving e.g. the load-on-start flag behind would keep the id in the
+        // file and the plugin would come back as an empty ghost entry.
+        Properties properties = readProperties();
+        for (String key : List.copyOf(properties.stringPropertyNames())) {
+            if (key.startsWith(id + ".")) {
+                properties.remove(key);
+            }
         }
+        writeProperties(properties);
     }
 
     /** True when this plugin is marked to load automatically at start-up. */
