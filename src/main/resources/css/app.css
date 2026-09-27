@@ -610,6 +610,10 @@
     -fx-spacing: 4;
 }
 
+.about-logo {
+    -fx-padding: 0 0 10 0;
+}
+
 .about-section-title {
     -fx-font-weight: bold;
     -fx-text-fill: -text-strong;

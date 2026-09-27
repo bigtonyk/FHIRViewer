@@ -53,6 +53,8 @@ import javafx.application.Platform;
 import javafx.scene.Cursor;
 import javafx.scene.Node;
 import javafx.scene.Parent;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
@@ -101,6 +103,12 @@ public class MainWindow {
     private static final String READY_STATUS = "Ready. Use File > Open to load a FHIR JSON or XML resource.";
     /** How many edits can be undone; older snapshots are dropped. */
     private static final int MAX_UNDO_DEPTH = 20;
+
+    /** The About dialog logo, decoded once and reused; null when it could not be read. */
+    private static Image applicationLogo;
+
+    /** Stops the logo being looked up again after a failed read. */
+    private static boolean applicationLogoFailed;
 
     private final Stage stage;
     private final HostServices hostServices;
@@ -1961,6 +1969,11 @@ public class MainWindow {
 
         VBox content = new VBox(4);
         content.getStyleClass().add("about-content");
+        Node logo = aboutLogo();
+        if (logo != null) {
+            logo.getStyleClass().add("about-logo");
+            content.getChildren().add(logo);
+        }
         for (AboutInfo.Line line : about.lines()) {
             switch (line.kind()) {
                 case SECTION -> {
@@ -1994,6 +2007,46 @@ public class MainWindow {
         scroll.setPrefHeight(420);
         scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         return scroll;
+    }
+
+    /**
+     * The About dialog logo, or {@code null} when the image is not on the class path.
+     *
+     * <p>Branding is a nicety, so a missing or corrupt image must never stop the
+     * About dialog from opening: the stream is read defensively and any failure
+     * simply yields no logo. The image is kept in memory because the dialog can be
+     * opened more than once, and a 900 KB JPEG is re-decoded on every open otherwise.</p>
+     */
+    private Node aboutLogo() {
+        Image image = applicationLogo();
+        if (image == null) {
+            return null;
+        }
+        ImageView view = new ImageView(image);
+        view.setPreserveRatio(true);
+        // Scale the large source down to a banner width rather than letting the
+        // dialog grow to the image's 1408px natural width.
+        double targetWidth = 380;
+        view.setFitWidth(targetWidth);
+        view.setFitHeight(image.getHeight() * targetWidth / image.getWidth());
+        return view;
+    }
+
+    /** The cached application logo, loaded once from the class path. */
+    private Image applicationLogo() {
+        if (applicationLogo == null && !applicationLogoFailed) {
+            try (java.io.InputStream in =
+                         MainWindow.class.getResourceAsStream("/SpiralEyesLogo.jpg")) {
+                if (in != null) {
+                    applicationLogo = new Image(in);
+                }
+            } catch (java.io.IOException | RuntimeException problem) {
+                logger.log(java.util.logging.Level.WARNING,
+                        "Could not load the application logo", problem);
+            }
+            applicationLogoFailed = true;
+        }
+        return applicationLogo;
     }
 
     /** Opens a project or contact link, reporting failures in the status bar. */
