@@ -337,6 +337,55 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Combo box popups                                                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * A ComboBox popup - used by every ChoiceDialog, including the New Resource
+ * picker - renders in its own window stacked above the application. The
+ * generic `.list-view` and `.list-cell` rules above make lists transparent so
+ * they sit on the card behind them, which is what we want in the main window
+ * but not in a popup: a popup has nothing behind it to show through to, so
+ * the list items appear drawn straight over the application window instead of
+ * a panel that opens below the box.
+ *
+ * These rules give the popup an opaque surface. They need a descendant
+ * selector rather than a bare class because the generic rules above are
+ * already in effect for this node. JavaFX CSS has no `:not()`, so the popup
+ * is styled by overriding the generic rules with a more specific selector
+ * instead of excluding the popup from them.
+ */
+.combo-box-popup {
+    -fx-background-color: -surface;
+    -fx-border-color: -border-strong;
+    -fx-border-width: 1;
+    -fx-background-radius: 8;
+    -fx-padding: 4;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: -surface;
+    -fx-border-width: 0;
+    -fx-padding: 0;
+}
+
+.combo-box-popup .list-cell {
+    -fx-background-color: -surface;
+    -fx-text-fill: -text-strong;
+}
+
+/*
+ * The odd/even striping rule above is more specific than a plain popup cell
+ * rule, so it would win and leave every other row transparent again. Repeating
+ * the pseudo-class here restores the surface. The hover and selected rules are
+ * deliberately left alone: they are more specific still, and both are wanted
+ * inside the popup.
+ */
+.combo-box-popup .list-cell:odd {
+    -fx-background-color: -surface;
+}
+
+/* ------------------------------------------------------------------ */
 /* Cards and panels                                                    */
 /* ------------------------------------------------------------------ */
 
