@@ -474,3 +474,105 @@ identified. No vendor endpoints, no plugin changes and no UI changes were made.
   server on localhost: every verb, query encoding, header pass-through, `404` with a
   parsed outcome, an unreachable host, a timeout, and execution from a background thread.
 
+---
+
+## 13. Phase 3 — authentication and HTTP, as built
+
+Phase 3 connected the two halves that previously did not touch: the REST transport, which
+sent no credentials at all, and the saved credentials, which nothing ever read.
+
+### The extension point
+
+`ServerAuthentication` gained one method:
+
+```java
+default RequestHeaders requestHeaders() { return RequestHeaders.none(); }
+```
+
+A mechanism now says which headers it needs; both clients apply them without knowing which
+mechanism produced them. The two `instanceof` branches are gone:
+
+- `StandardFhirRestPlugin.newClient()` registers an interceptor per contributed header.
+- `StandardFhirRestPlugin.requireSession()` no longer names two allowed types. It refuses a
+  mechanism that claims to authenticate but contributes **no** header, which is a stricter
+  and more useful rule: a not-yet-implemented mechanism is caught, and an implemented one
+  is not.
+
+It is a `default` method, so the interface stays source- and binary-compatible for any
+implementation compiled against the previous three-method version.
+
+New in `com.example.fhirviewer.server`:
+
+| Class | Role |
+|---|---|
+| `RequestHeaders` | Immutable header set one mechanism contributes; redacts in `toString()` |
+| `BearerServerAuthentication` | A static access token sent as `Authorization: Bearer ...` |
+| `ServerCredentials` | Resolves a server's saved settings into a `ServerAuthentication` |
+| `ServerPassphrase` | The session passphrase, held as a wipeable `char[]` |
+
+### Decisions worth knowing
+
+- **The redaction list now lives in one place.** `RestHeaders.isSecret` delegates to
+  `RequestHeaders.isSecret`. The two types sit on opposite sides of a request — one builds
+  what a mechanism contributes, the other carries whatever a request or response ended up
+  with — so a header that was redacted on one side must not be printed on the other.
+- **`JdkHttpRestClient.forSession(session)` is the normal way to get a client.** It reads
+  the base URL, `timeoutMillis()` and the authentication from the `ServerSession` the
+  application already holds, so a plugin cannot drift from the server definition the user
+  is looking at. There is still exactly one connection system.
+- **A per-request header wins over the session's.** The client's headers are applied first
+  and the caller's afterwards. A caller overriding `Authorization` for one call must not
+  be silently overruled by the session's credentials.
+- **Saved credentials are matched on the base URL as well as the plugin id.**
+  `PluginSettingsStore` is still keyed by plugin id — re-keying it per server is a
+  persistence change belonging to a later phase — but `readForServer` only returns an
+  entry whose saved URL matches. Sending a password to a host it was never meant for is
+  not a recoverable mistake, so a changed URL, a second server on the same plugin, or a
+  trailing slash are all handled deliberately.
+- **A credential problem never throws.** A missing file, an absent passphrase, a wrong
+  passphrase and a URL mismatch all resolve to anonymous access. A dialog in the middle of
+  every read, reporting "your passphrase is wrong" where the user cannot act on it, is
+  worse than an anonymous request that the server will refuse with a `401` the UI already
+  renders. The reason is logged, without the passphrase or the password.
+- **`ServerPassphrase` closes a real gap.** `PluginManagerDialog` clears its passphrase
+  field immediately after saving — correctly — which meant the session could never read
+  the password back. The dialog now hands the passphrase to the session on a successful
+  save, and the session forgets it again when the password is removed.
+- **Only a static bearer token was added, not OAuth 2.0 or SMART.** Those need a browser,
+  a client registration, a token cache and refresh, none of which belong in a transport
+  phase; a half-built flow would be worse than none. The static token is the part that is
+  genuinely needed now and the part a flow would eventually hand over.
+
+### Logging and TLS
+
+Unchanged and still enforced. No password, token or `Authorization` value reaches a log
+line or a message: `RequestHeaders` and `RestHeaders` redact, `RestRequest.toString()`
+prints only header *counts*, and neither `toString()` of an authentication reveals its
+secret. No `SSLContext` is installed anywhere, so platform certificate validation stays
+on.
+
+### What Phase 3 deliberately did not do
+
+`ServerDialog` still collects no credentials — a credential entry UI is Phase 6 work. The
+`Authorization` header is not logged or displayed anywhere. No vendor endpoints, no
+Smile/Firely APIs, and `PluginSettingsStore`'s file format and plugin-id keying are
+untouched.
+
+### Verification
+
+- `mvnw -o test` — **Tests run: 345, Failures: 0, Errors: 0, Skipped: 0** — BUILD SUCCESS
+  (311 from Phase 2, plus 34 new).
+- The new tests cover what each mechanism contributes, redaction of credentials, header
+  case-insensitivity, and that a mechanism defined *only in the test* — one that exists
+  nowhere else in the codebase — is honoured by both clients. That last one is the
+  regression guard: if a future change reintroduces an `instanceof` over the mechanism
+  types, it fails.
+- End-to-end against `com.sun.net.httpserver` on localhost: basic, bearer and anonymous
+  over the JDK transport, credentials on every verb, per-request override, and a
+  saved password actually arriving on the wire through `FhirServerService`. Plus the
+  stored-credential rules — locked, wrong passphrase, wrong URL, changed URL, trailing
+  slash, nothing saved — and the passphrase holder.
+- Both wiring points were mutation-checked: disabling the header application fails 5 of 9
+  transport tests, and disabling the interceptor loop fails 2 of 9 plugin tests.
+
+

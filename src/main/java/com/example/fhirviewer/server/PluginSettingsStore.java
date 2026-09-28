@@ -10,6 +10,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
@@ -88,6 +89,85 @@ public final class PluginSettingsStore {
             return null;
         }
         return readAll().get(pluginId.trim());
+    }
+
+    /**
+     * The saved settings for the server a configuration points at, or {@code null} when
+     * that server has none.
+     *
+     * <p>Settings are keyed by plugin id, so one entry describes one server per plugin.
+     * Matching on the base URL as well means the entry is only used for the server it was
+     * actually saved for: a user who points the same plugin at a second server, or who
+     * changes the URL, gets anonymous access rather than a password sent somewhere it
+     * was never meant to go. Sending a credential to the wrong host is not a recoverable
+     * mistake, so the check is deliberately strict — trailing slashes and case in the
+     * scheme and host are ignored, nothing else is.
+     *
+     * @param server the server the application is about to talk to
+     */
+    public PluginSettings readForServer(FhirServerConfiguration server) throws IOException {
+        if (server == null) {
+            return null;
+        }
+        PluginSettings settings = read(server.pluginId());
+        return describesSameServer(settings, server) ? settings : null;
+    }
+
+    /**
+     * Decrypts the stored password for the server a configuration points at.
+     *
+     * @return the settings with a plaintext password, or {@code null} when that server
+     *         has no saved settings
+     * @throws SecretBoxException when the passphrase is wrong or the stored value is damaged
+     */
+    public PluginSettings unlockForServer(FhirServerConfiguration server, String passphrase)
+            throws IOException, SecretBoxException {
+        PluginSettings locked = readForServer(server);
+        if (locked == null) {
+            return null;
+        }
+        String stored = locked.password();
+        if (stored == null || stored.isBlank()) {
+            return locked.withCredentials(locked.userName(), null);
+        }
+        return locked.withCredentials(locked.userName(), secretBox.decrypt(passphrase, stored));
+    }
+
+    /**
+     * True when a saved entry really describes this server.
+     *
+     * <p>An entry with no saved URL cannot be attributed to a server, so it is treated
+     * as a match only when the server's own URL is also absent. In practice the plugin
+     * manager always requires a URL, so the common path is an exact comparison.
+     */
+    private static boolean describesSameServer(PluginSettings settings,
+            FhirServerConfiguration server) {
+        if (settings == null) {
+            return false;
+        }
+        String saved = settings.baseUrl();
+        String wanted = server.baseUrl();
+        if (saved == null || saved.isBlank()) {
+            return wanted == null || wanted.isBlank();
+        }
+        if (wanted == null || wanted.isBlank()) {
+            return false;
+        }
+        return normalizeUrl(saved).equals(normalizeUrl(wanted));
+    }
+
+    /**
+     * Reduces a URL to the form two spellings of the same server share: lower case, and
+     * no trailing slash. Only the scheme and host are case-insensitive in HTTP, but a
+     * differing case anywhere is far more likely to be a different server than a
+     * different spelling, and refusing to send credentials is the safe answer.
+     */
+    private static String normalizeUrl(String url) {
+        String trimmed = url.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed.toLowerCase(Locale.ROOT);
     }
 
     /**

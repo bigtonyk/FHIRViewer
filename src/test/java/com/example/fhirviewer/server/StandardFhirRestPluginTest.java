@@ -52,6 +52,8 @@ public class StandardFhirRestPluginTest {
     private String baseUrl;
     private StandardFhirRestPlugin plugin;
     private ServerSession session;
+    private final java.util.concurrent.atomic.AtomicReference<String> lastAuthorization =
+            new java.util.concurrent.atomic.AtomicReference<>();
 
     @BeforeEach
     void startServer() throws IOException {
@@ -112,6 +114,49 @@ public class StandardFhirRestPluginTest {
     }
 
     @Test
+    @DisplayName("A password saved for a server is sent when the service searches it")
+    void savedCredentialsReachTheServer() throws Exception {
+        // The end-to-end claim: a password saved in the plugin manager is actually sent
+        // with a request. Before this phase the service built every session anonymous,
+        // so this header stayed null no matter what had been saved.
+        PluginSettingsStore store = new PluginSettingsStore(
+                java.nio.file.Files.createTempFile("fhirviewer-credentials", ".properties"));
+        try {
+            store.save(new PluginSettings(StandardFhirRestPlugin.PLUGIN_ID, baseUrl,
+                    "alice", "s3cret"), "pass phrase");
+
+            FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+            registry.register(plugin);
+            FhirServerService service = new FhirServerService(registry,
+                    new ServerCredentials(store, () -> "pass phrase"));
+
+            lastAuthorization.set(null);
+            SearchResultPage page = service.search(session.server(),
+                    new SearchRequest("Patient", List.of(), 20));
+
+            assertEquals(1, page.resources().size());
+            assertEquals("Basic YWxpY2U6czNjcmV0", lastAuthorization.get(),
+                    "the saved password must be sent with the request");
+        } finally {
+            java.nio.file.Files.deleteIfExists(store.file());
+        }
+    }
+
+    @Test
+    @DisplayName("The service still searches anonymously when nothing is saved")
+    void serviceIsAnonymousWithoutSavedCredentials() throws Exception {
+        FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+        registry.register(plugin);
+        FhirServerService service = new FhirServerService(registry);
+
+        lastAuthorization.set(null);
+        service.search(session.server(), new SearchRequest("Patient", List.of(), 20));
+
+        assertNull(lastAuthorization.get(),
+                "a service with no stored credentials must behave exactly as before");
+    }
+
+    @Test
     @DisplayName("The plugin advertises itself and supports its own server definitions")
     void advertisesItself() {
         assertEquals("standard-rest", plugin.id());
@@ -142,7 +187,58 @@ public class StandardFhirRestPluginTest {
         assertTrue(service.read(session.server(), "Patient", "example-1") instanceof Patient);
     }
 
+    @Test
+    @DisplayName("A bearer or vendor mechanism is sent by the HAPI client like basic is")
+    void anyMechanismReachesTheHapiClient() throws Exception {
+        // Before this phase newClient() had an instanceof branch naming Basic, and
+        // requireSession refused everything else by name. Both are gone, so any
+        // mechanism now travels the same path.
+        assertEquals("Bearer tok", authorizationSeenFor(
+                new BearerServerAuthentication("tok")));
+        assertEquals("Basic YWxpY2U6czNjcmV0", authorizationSeenFor(
+                new BasicServerAuthentication("alice", "s3cret")));
+        assertNull(authorizationSeenFor(AnonymousServerAuthentication.INSTANCE),
+                "anonymous still sends nothing");
+    }
+
+    @Test
+    @DisplayName("A mechanism that supplies no header is refused, not sent unauthenticated")
+    void aHeaderlessMechanismIsRefused() {
+        ServerAuthentication headerless = new ServerAuthentication() {
+            @Override
+            public String type() {
+                return "smart";
+            }
+
+            @Override
+            public String displayName() {
+                return "SMART";
+            }
+
+            @Override
+            public boolean isAnonymous() {
+                return false;
+            }
+        };
+
+        ServerOperationException failure = assertThrows(ServerOperationException.class,
+                () -> plugin.capabilities(
+                        new ServerSession(session.server(), headerless)));
+
+        assertEquals(ServerOperationException.Kind.UNAUTHORIZED, failure.kind());
+        assertTrue(failure.getMessage().contains("smart"),
+                "the message must name the mechanism so the user can see what happened");
+    }
+
+    /** Runs a capabilities call with the given authentication and returns what arrived. */
+    private String authorizationSeenFor(ServerAuthentication authentication) throws Exception {
+        lastAuthorization.set(null);
+        plugin.capabilities(new ServerSession(session.server(), authentication));
+        return lastAuthorization.get();
+    }
+
     private void handle(HttpExchange exchange) throws IOException {
+        lastAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
         String path = exchange.getRequestURI().getPath();
         String query = exchange.getRequestURI().getQuery();
         String body;

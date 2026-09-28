@@ -19,7 +19,10 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.example.fhirviewer.server.RequestHeaders;
+import com.example.fhirviewer.server.ServerAuthentication;
 import com.example.fhirviewer.server.ServerOperationException;
+import com.example.fhirviewer.server.ServerSession;
 
 /**
  * The project's {@link RestClient}: the JDK HTTP client, wrapped so that callers never
@@ -34,6 +37,13 @@ import com.example.fhirviewer.server.ServerOperationException;
  * <p>The FHIR-specific client already in the project is untouched and still used for
  * standard FHIR operations. This one exists for the generic and vendor paths, where a
  * response is arbitrary JSON, XML or text rather than a typed resource.
+ *
+ * <p><b>Authentication.</b> The client applies whatever headers the session's
+ * {@link ServerAuthentication} contributes to every request, so a plugin never has to
+ * build an {@code Authorization} value itself and a new mechanism needs no change
+ * here. {@link #forSession(ServerSession)} is the normal way to obtain a client: it
+ * takes the URL, the timeout and the credentials from the server configuration the
+ * application already holds, so there is one connection system rather than two.
  *
  * <p><b>Threading.</b> A client is created on the calling thread and is then safe to share.
  * Requests block, so the caller must not be the JavaFX application thread. The
@@ -52,6 +62,7 @@ public final class JdkHttpRestClient implements RestClient {
     private final HttpClient httpClient;
     private final RestOutcomeParser outcomeParser;
     private final ExecutorService executor;
+    private final RequestHeaders authentication;
 
     /**
      * A client for a server, using the default deadline.
@@ -73,7 +84,47 @@ public final class JdkHttpRestClient implements RestClient {
      * @param timeoutMillis the deadline for one request, or {@code 0} for the default
      */
     public JdkHttpRestClient(String baseUrl, int timeoutMillis) {
-        this(baseUrl, timeoutMillis, null, new RestOutcomeParser());
+        this(baseUrl, timeoutMillis, RequestHeaders.none());
+    }
+
+    /**
+     * A client that sends the given authentication headers with every request.
+     *
+     * @param baseUrl         the server's FHIR base URL
+     * @param timeoutMillis   the deadline for one request, or {@code 0} for the default
+     * @param authentication  the headers the mechanism contributes; {@code null} means
+     *                        anonymous, which is the same as {@link RequestHeaders#none()}
+     */
+    public JdkHttpRestClient(String baseUrl, int timeoutMillis, RequestHeaders authentication) {
+        this(baseUrl, timeoutMillis, authentication, null, new RestOutcomeParser());
+    }
+
+    /**
+     * A client for a live session: the active server's URL, its configured timeout, and
+     * the authentication on the session.
+     *
+     * <p>This is how a plugin reaches the configured server without inventing a second
+     * connection or configuration system. Everything comes from the {@link ServerSession}
+     * the application already built — the base URL, {@code timeoutMillis()} and the
+     * mechanism's headers — so a client cannot drift from the server definition the user
+     * is looking at in the dialog. Nothing from the session's secrets is retained beyond
+     * the header value itself, and the base URL is the only thing {@link #baseUrl()}
+     * reports, so it can never carry a credential.
+     *
+     * @throws IllegalArgumentException when the session's server URL is not usable
+     */
+    public static JdkHttpRestClient forSession(ServerSession session) {
+        Objects.requireNonNull(session, "session");
+        Objects.requireNonNull(session.server(), "session.server()");
+        return new JdkHttpRestClient(
+                session.server().baseUrl(),
+                session.server().timeoutMillis(),
+                headersOf(session.authentication()));
+    }
+
+    /** The authentication's headers, tolerating a session built without one. */
+    private static RequestHeaders headersOf(ServerAuthentication authentication) {
+        return authentication == null ? RequestHeaders.none() : authentication.requestHeaders();
     }
 
     /**
@@ -84,11 +135,23 @@ public final class JdkHttpRestClient implements RestClient {
      */
     public JdkHttpRestClient(String baseUrl, int timeoutMillis, HttpClient httpClient,
             RestOutcomeParser outcomeParser) {
+        this(baseUrl, timeoutMillis, RequestHeaders.none(), httpClient, outcomeParser);
+    }
+
+    /**
+     * The full seam: authentication, an explicit HTTP client and a parser, for tests that
+     * need to observe the requests or supply a stub.
+     *
+     * @param httpClient the client to send with, or {@code null} to build one
+     */
+    public JdkHttpRestClient(String baseUrl, int timeoutMillis, RequestHeaders authentication,
+            HttpClient httpClient, RestOutcomeParser outcomeParser) {
         this.baseUrl = requireBaseUrl(baseUrl);
         // A value of zero or less means "no explicit deadline", which is the rule
         // ServerDefinition already documents. It is resolved here rather than at each use,
         // so timeout() always reports the deadline that will actually be applied.
         this.timeout = Duration.ofMillis(timeoutMillis > 0 ? timeoutMillis : DEFAULT_TIMEOUT_MILLIS);
+        this.authentication = authentication == null ? RequestHeaders.none() : authentication;
         this.outcomeParser = Objects.requireNonNull(outcomeParser, "outcomeParser");
         this.executor = Executors.newCachedThreadPool(runnable -> {
             Thread thread = new Thread(runnable, "fhir-rest-client");
@@ -106,6 +169,17 @@ public final class JdkHttpRestClient implements RestClient {
     /** The deadline applied to each request. Never {@code null}. */
     public Duration timeout() {
         return timeout;
+    }
+
+    /**
+     * The authentication headers this client sends with every request.
+     *
+     * <p>Exposed so a test, or a plugin building its own diagnostics, can assert what
+     * will go on the wire. {@link RequestHeaders#toString()} redacts the values, so
+     * printing this is safe.
+     */
+    public RequestHeaders authentication() {
+        return authentication;
     }
 
     @Override
@@ -197,13 +271,32 @@ public final class JdkHttpRestClient implements RestClient {
                 .build();
     }
 
-    /** Builds the JDK request, carrying the deadline, the headers and the body. */
+    /**
+     * Builds the JDK request, carrying the deadline, the headers and the body.
+     *
+     * <p>The client's authentication headers are applied first and a header the caller
+     * set on the request is applied after, so a per-request value always wins. That
+     * ordering matters: a caller overriding {@code Authorization} for one call — to try
+     * a different identity, or to send none at all against a public endpoint — must not
+     * be silently overruled by the session's credentials.
+     */
     private HttpRequest toHttpRequest(RestRequest request, String url) {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(toUri(url))
                 .timeout(timeout);
-        request.headers().asMap().forEach((name, values) ->
+        authentication.asMap().forEach((name, values) ->
                 values.forEach(value -> builder.header(name, value)));
+        request.headers().asMap().forEach((name, values) -> {
+            // setHeader once to clear whatever the client applied under this name, then
+            // add: a repeated request header such as several Link values must survive.
+            for (int i = 0; i < values.size(); i++) {
+                if (i == 0) {
+                    builder.setHeader(name, values.get(0));
+                } else {
+                    builder.header(name, values.get(i));
+                }
+            }
+        });
         HttpRequest.BodyPublisher publisher = request.hasBody()
                 ? HttpRequest.BodyPublishers.ofString(request.body(), StandardCharsets.UTF_8)
                 : HttpRequest.BodyPublishers.noBody();

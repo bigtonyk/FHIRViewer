@@ -40,7 +40,10 @@ import com.example.fhirviewer.server.FhirServerPlugin;
 import com.example.fhirviewer.server.FhirServerPluginRegistry;
 import com.example.fhirviewer.server.FhirServerService;
 import com.example.fhirviewer.server.PluginConfig;
+import com.example.fhirviewer.server.PluginLoader;
 import com.example.fhirviewer.server.PluginSettingsStore;
+import com.example.fhirviewer.server.ServerCredentials;
+import com.example.fhirviewer.server.ServerPassphrase;
 import com.example.fhirviewer.server.ServerDefinition;
 import com.example.fhirviewer.server.ServerOperationException;
 import com.example.fhirviewer.server.ServerOrigin;
@@ -130,10 +133,33 @@ public class MainWindow {
     /** Creates the empty resource behind File > New. */
     private final ResourceTemplateFactory templateFactory = ResourceTemplateFactory.r4();
 
+    /**
+     * The passphrase the user typed into the plugin manager, kept for the rest of the
+     * session so a later search can still decrypt a saved password. It lives here
+     * rather than in the dialog because the dialog clears its field once it has saved.
+     *
+     * <p>Declared before {@link #serverService} because field initialisers run in order
+     * and the service reads this holder while it is being built.
+     */
+    private final ServerPassphrase serverPassphrase = new ServerPassphrase();
     /** Talks to FHIR servers through plugins; the UI never sees HTTP or URLs. */
-    private final FhirServerService serverService = new FhirServerService();
+    private final FhirServerService serverService = new FhirServerService(
+            PluginLoader.load(),
+            ServerCredentials.from(new PluginSettingsStore(pluginSettingsFile()), serverPassphrase));
     /** The servers configured in this session and the active one. */
     private final FhirServerManager serverManager = new FhirServerManager();
+
+    /**
+     * Where plugin settings are kept.
+     *
+     * <p>Named in one place so the service that reads them and the dialog that writes
+     * them cannot disagree about the file.
+     */
+    private static java.nio.file.Path pluginSettingsFile() {
+        return java.nio.file.Path.of(
+                System.getProperty("user.home", "."),
+                ".fhirviewer", "plugin-settings.properties");
+    }
 
     /**
      * Snapshots of the loaded resource taken before every edit, newest first. Undo shows
@@ -1320,14 +1346,14 @@ public class MainWindow {
      * save per-plugin settings, and manage the plugin config file.
      */
     private void managePlugins() {
-        java.nio.file.Path settingsFile = java.nio.file.Path.of(
-                System.getProperty("user.home", "."),
-                ".fhirviewer", "plugin-settings.properties");
         PluginManagerDialog dialog = new PluginManagerDialog(
                 stage,
                 serverService.registry(),
-                new PluginSettingsStore(settingsFile),
-                java.nio.file.Path.of(PluginConfig.CONFIG_FILE_NAME));
+                new PluginSettingsStore(pluginSettingsFile()),
+                java.nio.file.Path.of(PluginConfig.CONFIG_FILE_NAME),
+                // The dialog clears its passphrase field once it has saved, so the session
+                // keeps its own copy; without it a saved password could never be used.
+                serverPassphrase::set);
         dialog.showAndWait();
     }
 

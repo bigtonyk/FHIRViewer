@@ -23,10 +23,18 @@ import java.util.Set;
  */
 public final class RestHeaders {
 
-    /** Header names whose value must never appear in a log line or a message. */
-    private static final Set<String> SECRET_HEADERS = Set.of(
-            "authorization", "proxy-authorization", "cookie", "set-cookie",
-            "x-api-key", "x-fhir-api-key");
+    /**
+     * True when the name is one whose value must never be printed.
+     *
+     * <p>Delegated to {@link com.example.fhirviewer.server.RequestHeaders} so the list of
+     * credential-bearing names is written down once. The two types are used on opposite
+     * sides of a request — one builds what an authentication mechanism contributes, the
+     * other carries whatever a request or response ended up with — and a header that was
+     * redacted on one side must not be printed on the other.
+     */
+    public static boolean isSecret(String name) {
+        return com.example.fhirviewer.server.RequestHeaders.isSecret(name);
+    }
 
     private static final String REDACTED = "<redacted>";
 
@@ -148,11 +156,6 @@ public final class RestHeaders {
             copy.put(name, List.of(value));
         }
         return new RestHeaders(Map.copyOf(copy));
-    }
-
-    /** True when the name is one whose value must never be printed. */
-    public static boolean isSecret(String name) {
-        return name != null && SECRET_HEADERS.contains(name.toLowerCase(Locale.ROOT));
     }
 
     /**

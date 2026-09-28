@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.logging.Logger;
 import java.util.prefs.BackingStoreException;
 
@@ -54,6 +55,11 @@ import javafx.stage.Window;
  * them; the passphrase is asked for in this dialog and is never itself stored. A plugin
  * the user has not unlocked shows its saved URL but not its password, and connecting with
  * it requires re-entering the passphrase.</p>
+ *
+ * <p>The passphrase is also handed to the {@code passphraseSink} on a successful save.
+ * The fields are cleared the moment settings are written — which is right for the dialog
+ * but leaves the session unable to read the password back — so without that hand-off a
+ * credential saved here could never authenticate anything.</p>
  */
 public class PluginManagerDialog extends Dialog<Void> {
     private static final Logger logger = Logger.getLogger(PluginManagerDialog.class.getName());
@@ -72,6 +78,7 @@ public class PluginManagerDialog extends Dialog<Void> {
     private final FhirServerPluginRegistry registry;
     private final PluginSettingsStore settingsStore;
     private final Path pluginConfigFile;
+    private final Consumer<String> passphraseSink;
 
     private TextField folderField;
     private ListView<PluginJarScanner.ScannedJar> foundJarsList;
@@ -87,11 +94,18 @@ public class PluginManagerDialog extends Dialog<Void> {
     private Button removeButton;
     private Label configuredForLabel;
 
+    /**
+     * @param passphraseSink receives the passphrase once settings have been saved with
+     *                       it, so the session can keep unlocking them afterwards; may
+     *                       be {@code null} in a caller that does not authenticate
+     */
     public PluginManagerDialog(Window parentWindow, FhirServerPluginRegistry registry,
-                               PluginSettingsStore settingsStore, Path pluginConfigFile) {
+                               PluginSettingsStore settingsStore, Path pluginConfigFile,
+                               Consumer<String> passphraseSink) {
         this.registry = registry;
         this.settingsStore = settingsStore;
         this.pluginConfigFile = pluginConfigFile;
+        this.passphraseSink = passphraseSink;
 
         setTitle("FHIR Server Plugins");
         setHeaderText("Discover plugins, enable them on start-up, and save per-plugin settings");
@@ -441,6 +455,9 @@ public class PluginManagerDialog extends Dialog<Void> {
             try {
                 settingsStore.save(new PluginSettings(plugin.id(), url, user, null), "");
                 settingsStore.setLoadsOnStart(plugin.id(), loadOnStartCheck.isSelected());
+                // The password is gone, so the session must forget the passphrase too, or
+                // it would sit in memory for a credential that no longer exists.
+                passphraseSink.accept(null);
                 status("Saved anonymous settings for " + plugin.displayName()
                         + ". Any previously stored password was removed.");
             } catch (SecretBoxException e) {
@@ -457,6 +474,9 @@ public class PluginManagerDialog extends Dialog<Void> {
         try {
             settingsStore.save(new PluginSettings(plugin.id(), url, user, password), passphrase);
             settingsStore.setLoadsOnStart(plugin.id(), loadOnStartCheck.isSelected());
+            // Hand the passphrase to the session before clearing the field: these fields
+            // are wiped on purpose, and without this the password could never be used.
+            passphraseSink.accept(passphrase);
             passwordField.clear();
             passphraseField.clear();
             status("Saved settings for " + plugin.displayName() + "; the password is encrypted.");

@@ -23,11 +23,13 @@ import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
  * The standard FHIR REST plugin: metadata, search and read over plain FHIR REST using
  * the HAPI FHIR client.
  *
- * <p>Only anonymous access is supported for now; the plugin asks the session's
- * authentication whether it is anonymous and reports anything else with a clear
- * message, so credentials can be introduced later behind {@link ServerAuthentication}
- * without changing this class's shape. Custom headers from the server configuration
- * are applied to every client this plugin creates.</p>
+ * <p>Authentication is not this class's business. The session's
+ * {@link ServerAuthentication} says which headers its mechanism needs and
+ * {@link #newClient} applies them, so anonymous, basic and bearer all travel the same
+ * path and a new mechanism needs no change here. A method that claims to authenticate
+ * but supplies no header is refused with a clear message rather than silently sending
+ * an unauthenticated request. Custom headers from the server configuration are applied
+ * to every client this plugin creates.</p>
  *
  * <p>Vendor plugins can extend this class and override single hooks
  * ({@link #newClient}, {@link #criteriaOf}, {@link #convertFailure}) instead of
@@ -382,10 +384,14 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
             }
         }
         // Credentials come from the session, never from the configuration, so persisting
-        // a server definition can never persist a secret.
-        ServerAuthentication authentication = session.authentication();
-        if (authentication instanceof BasicServerAuthentication basic) {
-            client.registerInterceptor(new StaticHeaderInterceptor("Authorization", basic.authorizationHeaderValue()));
+        // a server definition can never persist a secret. The mechanism says which
+        // headers it needs; this code does not know or care which mechanism that is, so
+        // adding a bearer token or a vendor API key needs no change here.
+        for (java.util.Map.Entry<String, java.util.List<String>> header
+                : session.authentication().requestHeaders().asMap().entrySet()) {
+            for (String value : header.getValue()) {
+                client.registerInterceptor(new StaticHeaderInterceptor(header.getKey(), value));
+            }
         }
         return client;
     }
@@ -475,14 +481,14 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
             throw new ServerOperationException(ServerOperationException.Kind.UNAUTHORIZED,
                     "This operation needs an authentication method.");
         }
-        // Only anonymous and basic are implemented. Anything else is a newer mechanism this
-        // build has no interceptor for, so say so plainly rather than silently sending
-        // an unauthenticated request.
+        // A mechanism that claims to authenticate but contributes no header cannot be
+        // honoured: the request would go out unauthenticated and the server would answer
+        // 401, which sends the user looking for the wrong problem. Say so instead.
         if (!session.authentication().isAnonymous()
-                && !(session.authentication() instanceof BasicServerAuthentication)) {
+                && session.authentication().requestHeaders().isEmpty()) {
             throw new ServerOperationException(ServerOperationException.Kind.UNAUTHORIZED,
-                    "This build supports anonymous and basic authentication only, not '"
-                            + session.authentication().type() + "'.");
+                    "This build cannot send '" + session.authentication().type()
+                            + "' credentials, because that method supplies no request header.");
         }
     }
 
