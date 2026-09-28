@@ -7,7 +7,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Logger;
 
@@ -32,15 +34,27 @@ import com.example.fhirviewer.service.ResourceLoadException;
 import com.example.fhirviewer.service.ResourceTemplateFactory;
 import com.example.fhirviewer.service.SourceEditorService;
 import com.example.fhirviewer.service.ValidationService;
+import com.example.fhirviewer.server.FhirServerConfiguration;
 import com.example.fhirviewer.server.FhirServerManager;
+import com.example.fhirviewer.server.FhirServerPlugin;
+import com.example.fhirviewer.server.FhirServerPluginRegistry;
 import com.example.fhirviewer.server.FhirServerService;
+import com.example.fhirviewer.server.PluginConfig;
+import com.example.fhirviewer.server.PluginSettingsStore;
 import com.example.fhirviewer.server.ServerDefinition;
+import com.example.fhirviewer.server.ServerOperationException;
+import com.example.fhirviewer.server.ServerOrigin;
+import com.example.fhirviewer.server.ServerVendorAction;
+import com.example.fhirviewer.server.ServerWriteResult;
 import com.example.fhirviewer.util.FileSupport;
 
 import javafx.application.HostServices;
+import javafx.application.Platform;
 import javafx.scene.Cursor;
 import javafx.scene.Node;
 import javafx.scene.Parent;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
@@ -89,6 +103,12 @@ public class MainWindow {
     private static final String READY_STATUS = "Ready. Use File > Open to load a FHIR JSON or XML resource.";
     /** How many edits can be undone; older snapshots are dropped. */
     private static final int MAX_UNDO_DEPTH = 20;
+
+    /** The About dialog logo, decoded once and reused; null when it could not be read. */
+    private static Image applicationLogo;
+
+    /** Stops the logo being looked up again after a failed read. */
+    private static boolean applicationLogoFailed;
 
     private final Stage stage;
     private final HostServices hostServices;
@@ -177,6 +197,16 @@ public class MainWindow {
     private String displayedLabel = "";
     /** When a Bundle entry is being displayed, the entry it came from. */
     private BundleEntryInfo displayedEntry;
+    /**
+     * Where the displayed resource came from on a FHIR server, or {@code null} when it
+     * came from a file, a sample or the clipboard.
+     *
+     * <p>This is deliberately not part of {@link LoadedResource}, which is file-shaped and
+     * whose {@code sourcePath} means a path on disk. Holding it here, next to
+     * {@code displayedResource}, keeps the file-open paths untouched while still letting
+     * "Save to FHIR Server" know the type, id and version it must write.
+     */
+    private ServerOrigin displayedOrigin;
 
     /** Last directory used by a file chooser, so dialogs reopen in the same folder. */
     private File lastDirectory;
@@ -467,7 +497,20 @@ public class MainWindow {
         MenuItem manageServers = new MenuItem("FHIR Servers...");
         manageServers.setOnAction(event -> manageServers());
 
-        return new Menu("Tools", null, validate, new SeparatorMenuItem(), searchServer, manageServers);
+        MenuItem managePlugins = new MenuItem("Server Plugins...");
+        managePlugins.setOnAction(event -> managePlugins());
+
+        MenuItem openFromServer = new MenuItem("Open from FHIR Server...");
+        openFromServer.setOnAction(event -> openFromServer());
+
+        MenuItem saveToServer = new MenuItem("Save to FHIR Server...");
+        saveToServer.setOnAction(event -> saveToServer());
+
+        MenuItem serverTools = new MenuItem("Server Tools...");
+        serverTools.setOnAction(event -> openServerTools());
+
+        return new Menu("Tools", null, validate, new SeparatorMenuItem(), searchServer, openFromServer,
+                saveToServer, manageServers, managePlugins, new SeparatorMenuItem(), serverTools);
     }
 
     private Menu buildHelpMenu() {
@@ -658,9 +701,22 @@ public class MainWindow {
 
     /** Displays a freshly loaded resource in every view. */
     private void display(LoadedResource resource) {
+        display(resource, null);
+    }
+
+    /**
+     * Displays a resource and records where it came from.
+     *
+     * <p>A {@code null} origin means "not from a server", which is the case for every
+     * file, sample and clipboard load. Clearing it on those paths is what stops a
+     * resource read from a server from being written back to that server after the user
+     * opens an unrelated file.
+     */
+    private void display(LoadedResource resource, ServerOrigin origin) {
         loadedResource = resource;
         displayedResource = resource.getResource();
         displayedLabel = resource.getDisplayName();
+        displayedOrigin = origin;
         selectedNode = null;
         // A different resource starts a new editing history.
         undoStack.clear();
@@ -1259,6 +1315,22 @@ public class MainWindow {
         });
     }
 
+    /**
+     * Opens the server plugin manager: scan a folder for plugin jars, load them,
+     * save per-plugin settings, and manage the plugin config file.
+     */
+    private void managePlugins() {
+        java.nio.file.Path settingsFile = java.nio.file.Path.of(
+                System.getProperty("user.home", "."),
+                ".fhirviewer", "plugin-settings.properties");
+        PluginManagerDialog dialog = new PluginManagerDialog(
+                stage,
+                serverService.registry(),
+                new PluginSettingsStore(settingsFile),
+                java.nio.file.Path.of(PluginConfig.CONFIG_FILE_NAME));
+        dialog.showAndWait();
+    }
+
     /** Searches a configured FHIR server and shows the picked resource in the viewer. */
     private void searchServer() {
         if (serverManager.servers().isEmpty()) {
@@ -1279,11 +1351,385 @@ public class MainWindow {
             setStatus("Showing " + resource.getDisplayName() + " (" + resource.getSourceName() + ").");
         });
     }
+    /**
+     * Reads one resource from a chosen server and shows it in the editor.
+     *
+     * <p>The server list comes from the same loaded servers the search dialog uses, so
+     * anything configured in this session is selectable. The resource is displayed with a
+     * {@link ServerOrigin} so that a later "Save to FHIR Server" knows the type, id and
+     * version to write back to.
+     */
+    private void openFromServer() {
+        if (serverManager.servers().isEmpty()) {
+            // Nothing configured yet: the natural next step is adding one.
+            manageServers();
+        }
+        if (serverManager.servers().isEmpty()) {
+            setStatus("No FHIR server is configured. Use Tools > FHIR Servers... to add one.");
+            return;
+        }
+        // Asked up front, not after the dialog: the user should not pick a server and a
+        // resource only to be told their current work would be discarded.
+        if (!confirmUnsavedChanges("displaying a resource from a server")) {
+            return;
+        }
+        FhirServerConfiguration preselect = displayedOrigin == null ? null
+                : serverFor(displayedOrigin);
+        OpenFromServerDialog dialog =
+                new OpenFromServerDialog(serverService, serverManager, preselect);
+        dialog.initOwner(stage);
+        dialog.showAndWait().ifPresent(outcome -> {
+            ServerOrigin origin = ServerOrigin.of(
+                    outcome.server().pluginId(),
+                    outcome.server().baseUrl(),
+                    outcome.resourceType(),
+                    outcome.resourceId(),
+                    versionOf(outcome.resource()));
+            LoadedResource loaded = new LoadedResource(
+                    outcome.resource(),
+                    ResourceFormat.JSON,
+                    outcome.resourceType() + "/" + outcome.resourceId(),
+                    OpenFromServerDialog.serverLabel(outcome.server()));
+            display(loaded, origin);
+        });
+    }
+
+    /** Finds the loaded server an origin came from, or {@code null} when it is gone. */
+    private FhirServerConfiguration serverFor(ServerOrigin origin) {
+        if (origin == null) {
+            return null;
+        }
+        for (FhirServerConfiguration server : serverManager.servers()) {
+            // Compared field by field rather than via origin.isSameServer, which takes
+            // another origin; here we are matching a server definition.
+            if (origin.pluginId().equals(server.pluginId())
+                    && origin.baseUrl().equals(server.baseUrl())) {
+                return server;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Reads {@code meta.versionId} from a resource, for use as the origin's version.
+     * Returns {@code null} when the server reported none, which disables the conflict
+     * check rather than faking one.
+     */
+    private static String versionOf(org.hl7.fhir.instance.model.api.IBaseResource resource) {
+        if (resource == null || resource.getMeta() == null) {
+            return null;
+        }
+        // IBaseMetaType has no hasVersionId() — getVersionId() returns null when absent.
+        return resource.getMeta().getVersionId();
+    }
+
+    /**
+     * Asks which server to push a resource to when it did not come from one (a file, a
+     * sample, or pasted JSON). Uses the loaded servers the rest of the server UI uses, so
+     * anything already configured is selectable.
+     */
+    private FhirServerConfiguration chooseServerForNewResource() {
+        List<FhirServerConfiguration> servers = serverManager.servers();
+        if (servers.isEmpty()) {
+            setStatus("No FHIR server is configured. Use Tools > FHIR Servers... to add one.");
+            return null;
+        }
+        ChoiceDialog<FhirServerConfiguration> choice = new ChoiceDialog<>(servers.get(0));
+        choice.setTitle("Save to FHIR Server");
+        choice.setHeaderText("Which server should receive this resource?");
+        for (FhirServerConfiguration server : servers) {
+            choice.getItems().add(server);
+        }
+        return choice.showAndWait().orElse(null);
+    }
+
+    /**
+     * Confirms a write before it happens.
+     *
+     * <p>The wording states the target and whether the server will create a new resource
+     * or overwrite an existing one, because a viewer pushing to a clinical system is not
+     * something the user should be able to trigger by muscle memory.</p>
+     *
+     * @return {@code true} when the write should proceed
+     */
+    private boolean confirmServerWrite(FhirServerConfiguration target, boolean isUpdate,
+            String resourceType) {
+        String verb = isUpdate ? "Overwrite" : "Create";
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Save to FHIR Server");
+        alert.setHeaderText(verb + " " + resourceType + " on " + target.name() + "?");
+        alert.setContentText("Server: " + target.name() + "\n" + target.baseUrl()
+                + "\n\nThis sends the resource over the network and changes data on the server.");
+        ButtonType proceed = new ButtonType(verb, ButtonBar.ButtonData.OK_DONE);
+        alert.getButtonTypes().setAll(proceed, ButtonType.CANCEL);
+        return alert.showAndWait().filter(proceed::equals).isPresent();
+    }
+
+    /**
+     * Writes the displayed resource back to the server it came from, or to a chosen
+     * server when it did not come from one.
+     *
+     * <p>Validation runs first and blocks the write: pushing a resource this viewer knows
+     * to be invalid onto a real server is worse than not pushing it. A conflict is
+     * surfaced rather than resolved silently, so a second user's work is never
+     * overwritten without a decision.</p>
+     */
+    private void saveToServer() {
+        if (displayedResource == null) {
+            setStatus("Nothing to save. Open a FHIR resource first.");
+            return;
+        }
+        FhirServerConfiguration target = displayedOrigin == null
+                ? chooseServerForNewResource()
+                : serverFor(displayedOrigin);
+        if (target == null) {
+            return;
+        }
+        ValidationReport report = fhirService.validate(displayedResource);
+        if (!report.isValid()) {
+            statusView.showValidation(report);
+            long errors = report.count(ValidationIssue.Severity.ERROR)
+                    + report.count(ValidationIssue.Severity.FATAL);
+            setStatus("Not saved: the resource has " + errors
+                    + " validation error(s). Fix them, or save to a file instead.");
+            return;
+        }
+        // Existing id means update; no id means the server has not seen it yet.
+        boolean isUpdate = displayedOrigin != null && displayedOrigin.isSaved();
+        // IBaseResource has no display name; fhirType() is the type the server addresses it by.
+        String resourceType = displayedOrigin != null
+                ? displayedOrigin.resourceType()
+                : displayedResource.fhirType();
+        if (!confirmServerWrite(target, isUpdate, resourceType)) {
+            return;
+        }
+        runServerWrite(target, isUpdate);
+    }
+
+    /**
+     * Performs the write on a background thread and reports the outcome back on the UI
+     * thread.
+     *
+     * <p>The network call must not run on the JavaFX thread or the window freezes for the
+     * duration, so the same plain daemon {@link Thread} pattern used for the IG package
+     * auto-load is used here.</p>
+     *
+     * <p>A {@link ServerOperationException.Kind#CONFLICT} is never resolved silently: it
+     * means the server holds a newer version than the editor loaded, so the user decides
+     * between discarding their change and forcing it. Every other failure is reported as
+     * a message, because the plugin layer has already mapped the HTTP status onto a
+     * {@link ServerOperationException} carrying a usable one.</p>
+     */
+    private void runServerWrite(FhirServerConfiguration target, boolean isUpdate) {
+        runServerWrite(target, isUpdate, displayedOrigin);
+    }
+
+    /**
+     * The same write against an explicit origin, so the conflict handler can retry with the
+     * version dropped without the editor's own origin having been mutated.
+     */
+    private void runServerWrite(FhirServerConfiguration target, boolean isUpdate,
+            ServerOrigin origin) {
+        if (!serverService.supportsWrite(target)) {
+            setStatus("The " + target.pluginId() + " plugin cannot write to this server.");
+            return;
+        }
+        IBaseResource resource = displayedResource;
+        setStatus((isUpdate ? "Saving to " : "Creating on ") + target.name() + "...");
+        setBusy(true);
+        Thread worker = new Thread(() -> {
+            ServerWriteResult result = null;
+            Throwable failure = null;
+            try {
+                result = isUpdate
+                        ? serverService.update(target, resource, origin)
+                        : serverService.create(target, resource);
+            } catch (Throwable problem) {
+                failure = problem;
+            }
+            ServerWriteResult written = result;
+            Throwable error = failure;
+            Platform.runLater(() -> {
+                setBusy(false);
+                onServerWriteFinished(target, origin, resource, written, error);
+            });
+        }, "server-write");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /**
+     * Reports the result of a server write and re-bases the editor's origin.
+     *
+     * <p>Rebasing matters: the server may assign an id on create, and it always reports a
+     * fresh {@code meta.versionId}. Keeping the local view of those in step is what makes
+     * the <em>next</em> save's {@code If-Match} check compare against the right version.</p>
+     */
+    private void onServerWriteFinished(FhirServerConfiguration target, ServerOrigin origin,
+            IBaseResource resource, ServerWriteResult result, Throwable failure) {
+        if (failure != null || result == null) {
+            if (failure instanceof ServerOperationException conflict
+                    && conflict.kind() == ServerOperationException.Kind.CONFLICT) {
+                resolveConflict(target, origin, conflict);
+                return;
+            }
+            setStatus("Not saved: " + ServerSearchDialog.readableFailure(failure));
+            return;
+        }
+        if (origin == null) {
+            // A create for a resource with no origin: build one from what the server said.
+            origin = ServerOrigin.unsaved(target.pluginId(), target.baseUrl(), resource.fhirType());
+        }
+        ServerOrigin rebased = origin.rebased(result);
+        display(new LoadedResource(resource, ResourceFormat.JSON,
+                rebased.resourceType() + "/" + rebased.resourceId(),
+                OpenFromServerDialog.serverLabel(target)), rebased);
+        setStatus((result.created() ? "Created " : "Updated ") + rebased.resourceType() + "/"
+                + rebased.resourceId() + " on " + target.name() + "."
+                + (rebased.hasVersion() ? ""
+                        : " The server reported no version, so changes made by others"
+                                + " cannot be detected before the next save."));
+    }
+
+    /**
+     * Handles a version conflict by asking the user to choose, rather than picking for them.
+     *
+     * <p>Two answers are offered and there is deliberately no default: reload discards the
+     * local edit, force overwrites whatever the other user did. Choosing silently either way
+     * is how two people lose each other's work, so the dialog makes the cost of each
+     * explicit and waits.</p>
+     */
+    private void resolveConflict(FhirServerConfiguration target, ServerOrigin origin,
+            ServerOperationException conflict) {
+        if (origin == null) {
+            setStatus("Not saved: " + conflict.getMessage());
+            return;
+        }
+        ButtonType reload = new ButtonType("Reload from server", ButtonBar.ButtonData.OK_DONE);
+        ButtonType force = new ButtonType("Overwrite anyway", ButtonBar.ButtonData.OK_DONE);
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Save conflict");
+        alert.setHeaderText(origin.resourceType() + "/" + origin.resourceId()
+                + " changed on the server since you loaded it.");
+        alert.setContentText("Server: " + target.name() + "\n" + target.baseUrl()
+                + "\n\nReloading discards your unsaved changes and shows the server's version."
+                + "\nOverwriting replaces the server's version with yours.");
+        alert.getButtonTypes().setAll(reload, force, ButtonType.CANCEL);
+        ButtonType answer = alert.showAndWait().orElse(ButtonType.CANCEL);
+
+        if (reload.equals(answer)) {
+            reloadFromServer(target, origin);
+        } else if (force.equals(answer)) {
+            // Force deliberately drops the version so the update goes without If-Match.
+            runServerWrite(target, true, origin.withoutVersion());
+        } else {
+            setStatus("Not saved: the server copy changed. Nothing was written.");
+        }
+    }
+
+    /** Re-reads one resource from the server and shows it, discarding the local edit. */
+    private void reloadFromServer(FhirServerConfiguration target, ServerOrigin origin) {
+        setStatus("Reloading " + origin.resourceType() + "/" + origin.resourceId() + "...");
+        setBusy(true);
+        Thread worker = new Thread(() -> {
+            IBaseResource reloaded = null;
+            Throwable failure = null;
+            try {
+                reloaded = serverService.read(target, origin.resourceType(), origin.resourceId());
+            } catch (Throwable problem) {
+                failure = problem;
+            }
+            IBaseResource fresh = reloaded;
+            Throwable error = failure;
+            Platform.runLater(() -> {
+                setBusy(false);
+                if (error != null || fresh == null) {
+                    setStatus("Could not reload: " + ServerSearchDialog.readableFailure(error));
+                    return;
+                }
+                ServerOrigin refreshed = ServerOrigin.of(
+                        target.pluginId(), target.baseUrl(), origin.resourceType(),
+                        origin.resourceId(), versionOf(fresh));
+                display(new LoadedResource(fresh, ResourceFormat.JSON,
+                        refreshed.resourceType() + "/" + refreshed.resourceId(),
+                        OpenFromServerDialog.serverLabel(target)), refreshed);
+                setStatus("Reloaded " + refreshed.resourceType() + "/"
+                        + refreshed.resourceId() + " from " + target.name() + ".");
+            });
+        }, "server-reload");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /**
+     * Lists the server-specific tools the loaded servers' plugins offer
+     * ({@link com.example.fhirviewer.server.FhirServerPlugin#vendorActions()}) and listed
+     * here against the loaded servers, so a server with no extra screens never appears.
+     * The screens themselves are stubs: opening one reports that it is not implemented yet,
+     * which is honest about where the feature stands rather than opening an empty window.</p>
+     */
+    private void openServerTools() {
+        List<FhirServerConfiguration> servers = serverManager.servers();
+        if (servers.isEmpty()) {
+            setStatus("No FHIR server is configured. Use Tools > FHIR Servers... to add one.");
+            return;
+        }
+
+        FhirServerPluginRegistry registry = serverService.registry();
+        ChoiceDialog<String> choice = new ChoiceDialog<>();
+        choice.setTitle("Server Tools");
+        choice.setHeaderText("Server-specific tools");
+        Map<String, OfferedAction> offered = new LinkedHashMap<>();
+
+        for (FhirServerConfiguration server : servers) {
+            FhirServerPlugin plugin = registry.pluginFor(server);
+            if (plugin == null) {
+                continue;
+            }
+            for (ServerVendorAction action : plugin.vendorActions()) {
+                // The label names the server as well as the action, so the same action
+                // offered by two servers stays distinguishable in the list.
+                String label = server.name() + " \u2014 " + action.label()
+                        + (action.isAvailable() ? "" : " (" + action.enabledHint() + ")");
+                choice.getItems().add(label);
+                offered.put(label, new OfferedAction(server, action));
+            }
+        }
+
+        if (offered.isEmpty()) {
+            setStatus("None of the configured servers offers extra tools.");
+            return;
+        }
+
+        setStatus("Select a server tool ...");
+        choice.showAndWait().ifPresent(selected -> {
+            OfferedAction chosen = offered.get(selected);
+            if (chosen != null) {
+                openVendorTool(chosen.server(), chosen.action());
+            }
+        });
+    }
+
+    /** A vendor action together with the server that offered it. */
+    private record OfferedAction(FhirServerConfiguration server, ServerVendorAction action) {
+    }
+
+    /**
+     * Opens one vendor screen, reporting honestly when the plugin has not built it yet.
+     */
+    private void openVendorTool(FhirServerConfiguration server, ServerVendorAction action) {
+        if (!action.isAvailable()) {
+            setStatus(action.label() + " is not available: " + action.enabledHint());
+            return;
+        }
+        setStatus(action.label() + " for " + server.name()
+                + " is not implemented yet. The plugin exposes it as "
+                + action.getClass().getName() + ".");
+    }
 
     // ------------------------------------------------------------------
     // Validation, export and window helpers
     // ------------------------------------------------------------------
-
     private void validateDisplayedResource() {
         if (displayedResource == null) {
             setStatus("Nothing to validate. Open a FHIR resource first.");
@@ -1523,6 +1969,11 @@ public class MainWindow {
 
         VBox content = new VBox(4);
         content.getStyleClass().add("about-content");
+        Node logo = aboutLogo();
+        if (logo != null) {
+            logo.getStyleClass().add("about-logo");
+            content.getChildren().add(logo);
+        }
         for (AboutInfo.Line line : about.lines()) {
             switch (line.kind()) {
                 case SECTION -> {
@@ -1556,6 +2007,46 @@ public class MainWindow {
         scroll.setPrefHeight(420);
         scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         return scroll;
+    }
+
+    /**
+     * The About dialog logo, or {@code null} when the image is not on the class path.
+     *
+     * <p>Branding is a nicety, so a missing or corrupt image must never stop the
+     * About dialog from opening: the stream is read defensively and any failure
+     * simply yields no logo. The image is kept in memory because the dialog can be
+     * opened more than once, and a 900 KB JPEG is re-decoded on every open otherwise.</p>
+     */
+    private Node aboutLogo() {
+        Image image = applicationLogo();
+        if (image == null) {
+            return null;
+        }
+        ImageView view = new ImageView(image);
+        view.setPreserveRatio(true);
+        // Scale the large source down to a banner width rather than letting the
+        // dialog grow to the image's 1408px natural width.
+        double targetWidth = 380;
+        view.setFitWidth(targetWidth);
+        view.setFitHeight(image.getHeight() * targetWidth / image.getWidth());
+        return view;
+    }
+
+    /** The cached application logo, loaded once from the class path. */
+    private Image applicationLogo() {
+        if (applicationLogo == null && !applicationLogoFailed) {
+            try (java.io.InputStream in =
+                         MainWindow.class.getResourceAsStream("/SpiralEyesLogo.jpg")) {
+                if (in != null) {
+                    applicationLogo = new Image(in);
+                }
+            } catch (java.io.IOException | RuntimeException problem) {
+                logger.log(java.util.logging.Level.WARNING,
+                        "Could not load the application logo", problem);
+            }
+            applicationLogoFailed = true;
+        }
+        return applicationLogo;
     }
 
     /** Opens a project or contact link, reporting failures in the status bar. */

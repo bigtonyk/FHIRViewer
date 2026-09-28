@@ -1,0 +1,58 @@
+name: CI
+
+# Runs on every push to the long-lived branches and on every pull request, so a
+# regression cannot reach main without the build having run.
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+# Never run two builds for the same branch at once; a newer push makes the
+# in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Deliberately named "build": this is the check name that would be added as a
+    # required status check on main, so the two must agree.
+    name: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Do not cancel the whole matrix when one leg fails: a Windows-only failure
+      # should still report the Ubuntu result.
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # JavaFX 25 (pom javafx.version) ships class files at major version 67,
+      # i.e. Java 23. javac refuses classpath classes newer than itself
+      # ("class file has wrong version 67.0"), so the build JDK must be 25 —
+      # the same JDK the application is developed and launched with. Compiling
+      # with an older JDK fails even though maven.compiler.release is 21, because
+      # --release governs the bytecode we emit, not the classes we read.
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: temurin
+          # Caches ~/.m2/repository keyed on pom.xml, so the JavaFX and HAPI
+          # artifacts are downloaded once instead of on every run.
+          cache: maven
+
+      - name: Build and test
+        # 'verify' compiles, runs the full test suite and builds the jar.
+        # The javafx-maven-plugin is not bound to a lifecycle phase (it is only
+        # run manually via `mvn javafx:run`), so CI never tries to open a window.
+        run: ./mvnw --batch-mode --no-transfer-progress verify
+        shell: bash

@@ -75,6 +75,17 @@ public final class ServerDefinition implements FhirServerConfiguration {
         return new Builder(name, baseUrl).pluginId(SmileCdrPlugin.PLUGIN_ID);
     }
 
+    /**
+     * Starts a definition pre-configured with the Firely Server plugin id,
+     * so users can point FHIRViewer at Firely Server without picking from a list.
+     *
+     * <p>Firely Server is a separate product from Smile CDR, so this is a distinct
+     * entry point from {@link #forSmileCdr(String, String)}.</p>
+     */
+    public static Builder forFirely(String name, String baseUrl) {
+        return new Builder(name, baseUrl).pluginId(FirelyPlugin.PLUGIN_ID);
+    }
+
 
     /** Builds immutable {@link ServerDefinition} instances with validation. */
     public static final class Builder {
