@@ -19,6 +19,14 @@ public class ServerOperationException extends Exception {
     public enum Kind {
         /** The server could not be reached at all. */
         UNREACHABLE,
+        /**
+         * The request was still outstanding when its deadline passed.
+         *
+         * <p>Kept apart from {@link #UNREACHABLE} on purpose. The address may well be
+         * correct and the server merely slow, so telling the user to "check the base URL"
+         * would send them to fix the wrong thing. Retry later is the useful advice.
+         */
+        TIMEOUT,
         /** The server rejected the credentials (HTTP 401). */
         UNAUTHORIZED,
         /** The credentials are valid but the operation is not allowed (HTTP 403). */

@@ -412,3 +412,65 @@ Run at the start and end of Phase 1, branch `server-rest-integration` at `a63dff
 
 Phase 1 changed no production or test code, so this baseline is unchanged.
 
+---
+
+## 12. Phase 2 — the REST core API, as built
+
+Phase 2 added the reusable REST abstraction. It is a **facade over an existing transport**,
+which is the decision section 10 argued for: no plugin, service or UI code builds an HTTP
+request itself, and no second vendor-specific API was introduced.
+
+New package `com.example.fhirviewer.server.rest`, nine small focused classes:
+
+| Class | Role |
+|---|---|
+| `RestMethod` | The five verbs, plus `allowsRequestBody()` so the rule lives in one place |
+| `RestHeaders` | Immutable, case-insensitive, multi-valued headers; redacts credentials in `toString()` |
+| `RestRequest` | Immutable request with a builder: verb, path, query, headers, body, content type, accept |
+| `RestResponse` | Status, headers, body, success classification and parsed `OperationOutcome` issues |
+| `RestOperationOutcome` | One issue reduced to plain strings, so no FHIR version leaks downstream |
+| `RestOutcomeParser` | The only class that knows the FHIR model; never throws on a malformed body |
+| `RestClient` | The abstraction: `execute` plus GET/POST/PUT/PATCH/DELETE helpers |
+| `RestFailures` | Maps transport failures and HTTP statuses onto `ServerOperationException` |
+| `JdkHttpRestClient` | The implementation, over `java.net.http.HttpClient` |
+
+### Decisions worth knowing
+
+- **The transport is the JDK client, not a new dependency.** It is already used by
+  `PackageRegistryService`, it exposes every verb plus arbitrary headers, per-request
+  timeouts and the response status and headers, and it leaves TLS validation on by
+  default. Nothing in the class installs an `SSLContext`.
+- **HAPI stays where it was.** `StandardFhirRestPlugin` is untouched and still performs
+  standard FHIR operations. The REST layer is the generic and vendor path, where a
+  response is arbitrary JSON, XML or text rather than a typed resource. Phase 4 should
+  decide deliberately whether standard operations migrate; this is the one place where two
+  HTTP stacks coexist, and the reason is recorded here rather than left to be discovered.
+- **A response that arrived is not an exception.** `404` and `500` come back as a
+  `RestResponse` with the server's own `OperationOutcome` already parsed. Only a request
+  that produced no answer throws `ServerOperationException`.
+- **`ServerOperationException.Kind` gained `TIMEOUT`.** A timeout is not an unreachable
+  server: telling a user to check the base URL when the address was right and the server
+  was slow sends them to fix the wrong thing. The new REST tests caught the JDK client
+  wrapping its own `HttpTimeoutException` in a plain `IOException`, which would have
+  reported every timeout as a network failure.
+- **Logging discipline.** `RestRequest.toString()` prints the verb, path and sizes but
+  never the body, the query values or the header values. `RestHeaders.toString()` redacts
+  `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie` and API-key headers.
+  `RestResponse.toString()` prints the status, content type and body length only.
+
+### What Phase 2 deliberately did not do
+
+No authentication is wired: `JdkHttpRestClient` sends no `Authorization` header. That is
+Phase 3, together with the small extension point on `ServerAuthentication` that phase 1
+identified. No vendor endpoints, no plugin changes and no UI changes were made.
+
+### Verification
+
+- `mvnw -o test` — **Tests run: 311, Failures: 0, Errors: 0, Skipped: 0** — BUILD SUCCESS
+  (243 from the Phase 1 baseline, plus 68 new in `server.rest`).
+- The new tests cover request building and validation, header redaction, URL joining,
+  response classification, `OperationOutcome` parsing from JSON and XML, the status and
+  transport failure mapping, and the transport itself against a `com.sun.net.httpserver`
+  server on localhost: every verb, query encoding, header pass-through, `404` with a
+  parsed outcome, an unreachable host, a timeout, and execution from a background thread.
+
