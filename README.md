@@ -262,6 +262,20 @@ Because JavaFX is resolved by Maven, the platform specific JavaFX jars already s
 `target/lib` for the platform that performed the build. Build the package on the target
 operating system to produce a native bundle.
 
+## Documentation
+
+The working documents live under `docs/`, out of the repository root:
+
+- **`docs/plans/`** — the implementation plans, one per feature. Read the plan for a
+  feature before changing it; each one records the design decisions behind the code.
+  Note that the phase numbers here are per-plan and do not always match the "Phase"
+  column in the status table above (the packaging plan and the Open/Save plan are
+  both numbered 7), so link to a plan by filename rather than by number.
+- **`docs/notes/`** — the original project plan and the loose requirement notes the
+  plans were written from.
+
+Nothing outside `docs/` is required to build, test or run the application.
+
 ## Roadmap (from the plan's future enhancements)
 
 Drag and drop, FHIR server connectivity, FHIRPath evaluation, resource comparison,
