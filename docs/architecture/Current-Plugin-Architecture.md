@@ -247,8 +247,8 @@ composites, `_sort` and `_include` are not modelled.
 | Plugin discovery | `ServiceLoader`, `PluginConfig`, `PluginLoader`, `FhirServerPluginRegistry` |
 | Third-party jar inspection | `PluginJarScanner` |
 | FHIR context / parsers | `FhirContextFactory`, `ResourceParser`, `ResourceSerializer` |
-| CapabilityStatement reading | `StandardFhirRestPlugin.capabilitiesOf` |
-| Bundle to page conversion | `StandardFhirRestPlugin.pageOf` |
+| CapabilityStatement reading | `ServerCapabilityReader` (was `StandardFhirRestPlugin.capabilitiesOf`, removed in Phase 4) |
+| Bundle to page conversion | `ServerSearchBundleReader` (was `StandardFhirRestPlugin.pageOf`, removed in Phase 4) |
 | Search request model | `SearchRequest`, `SearchCriterion`, `SearchResultPage` |
 | Write safety | `ServerOrigin`, `ServerWriteResult`, `If-Match` interception |
 | Cross-server write guard | `FhirServerService` (compares `ServerOrigin.baseUrl`) |
@@ -258,6 +258,9 @@ composites, `_sort` and `_include` are not modelled.
 | Offline test server | `com.sun.net.httpserver.HttpServer` on `127.0.0.1:0`, as in `StandardFhirRestPluginTest`, `ServerWriteTest`, `FirelyPluginTest` |
 
 ## 8. Gaps that need to be filled
+
+*The assessment below is the one made at `a63dff8`. Gaps 1, 2, 4 and 13 were closed in
+phases 2, 3 and 4 — see sections 12 and 13 for what was actually done. The rest stand.*
 
 Ordered roughly by how much they block the later phases.
 
@@ -575,4 +578,155 @@ untouched.
 - Both wiring points were mutation-checked: disabling the header application fails 5 of 9
   transport tests, and disabling the interceptor loop fails 2 of 9 plugin tests.
 
+
+---
+
+## 13. Phase 4 — standard FHIR operations, as built
+
+Phase 4 of `docs/plans/04_STANDARD_FHIR_OPERATIONS.md`. Section 10 above re-scoped this
+phase to the missing pieces: timeouts, `OperationOutcome`, `PATCH`, `$` operations and
+capability-driven gating. Read, create, update, delete, search and metadata were already
+implemented and were not rebuilt.
+
+### The decision Phase 4 was waiting for
+
+The brief said: *"Phase 4 should decide deliberately whether standard operations
+migrate"* — whether the HAPI `IGenericClient` path in `StandardFhirRestPlugin` should be
+replaced by the `server.rest` transport Phase 2 built.
+
+**It does not migrate, and the two transports are now divided by a rule rather than by
+accident:**
+
+> **The transport is chosen by the *result kind*.** Interactions whose result type is
+> known before the request is sent go through HAPI. Interactions where the *caller*
+> chooses the type at run time go through `server.rest`.
+
+| | Transport | Why |
+|---|---|---|
+| metadata, read, search, paging, create, update, delete | HAPI `IGenericClient` | HAPI already returns `IBaseResource`, and does its own content negotiation, conformance caching and `If-Match` handling |
+| `PATCH` | `server.rest` | the patch format lives in `Content-Type`, and HAPI's `IPatch` builder offers no way to set it — a caller could not say which of the three formats it meant |
+| `$`-operations | `server.rest` | the result type is not known until the server answers, and HAPI's operation API can only be told a Java class up front |
+
+Why not migrate everything:
+
+- `server.rest` speaks strings. The UI contract is `IBaseResource` and
+  `SearchResultPage`. Migrating would hand the UI raw JSON to parse, or add a second FHIR
+  parser beside the existing `fhir.ResourceParser` — the thing the plan forbids.
+- `FirelyPlugin` and `SmileCdrPlugin` extend `StandardFhirRestPlugin` and override its
+  HAPI hooks (`newClient`, `criteriaOf`, `convertFailure`). Migrating would change the
+  plugin contract inside the same phase.
+- What the "two stacks" worry was actually about — two failure vocabularies, two notions
+  of a session, two sets of credentials — is now shared. What remains different is the
+  transport, and the difference is justified by the table above.
+
+Replies from `server.rest` are parsed with the project's existing `fhir.ResourceParser`,
+so a Bundle, a `Parameters`, an `OperationOutcome` or a resource type this build has
+never heard of is the same code path as opening a file.
+
+### What was added
+
+| Class | Role |
+|---|---|
+| `ServerInteraction` | The nine R4 REST interactions, with the spellings servers disagree on folded together |
+| `ServerResourceCapabilities` | What one resource type advertises: its interactions and search parameters |
+| `ServerCapabilityReader` | The only class that reads a `CapabilityStatement` |
+| `ServerSearchBundleReader` | The only class that reads a search `Bundle` |
+| `SearchPageLinks` | All five Bundle relations, kept exactly as the server sent them |
+| `PatchFormat` | The three patch formats, each naming its `Content-Type` |
+| `FhirOperationRequest` | A `$`-operation at server, type or instance level |
+| `server.rest.FhirOperationClient` | PATCH and `$`-operations over the generic transport |
+
+Changed: `ServerOperationException` (gains `diagnostics()` and owns the HTTP-status →
+`Kind` table), `ServerCapabilities` (gains the interaction set and per-type detail),
+`SearchResultPage` (gains `links()`), `FhirServerPlugin` (gains `pageAt`, `patch`,
+`supportsPatch`, `invoke`; `nextPage` becomes a default over `pageAt`),
+
+### Decisions worth knowing
+
+- **One status table, not two.** `ServerOperationException.kindOfStatus(int)` is now the
+  only HTTP-status → `Kind` mapping; `RestFailures` delegates to it and `convertFailure`
+  uses it instead of a chain of `instanceof` tests over HAPI's exception types. Before
+  this, the same `409` could be a conflict on one path and a generic error on the other,
+  and the UI would offer reload-or-force only half the time.
+- **The server's `OperationOutcome` survives.** `convertFailure` parses the refused
+  response body with the existing `RestOutcomeParser` and puts the result on
+  `diagnostics()` and in the message. "Unknown search parameter 'foo'" replaces "the
+  server returned an error". The raw body is never kept: it can echo a submitted
+  resource back.
+- **`timeoutMillis()` is now read.** HAPI 8 exposes the socket and connect deadlines only
+  on the client *factory*, not on the client, so `newClient` builds through a
+  `ConcurrentMap<Integer, ApacheRestfulClientFactory>` keyed by the effective timeout. It
+  cannot be one factory per operation: `RestfulClientFactory` owns the set of base URLs it
+  has already validated, and a fresh one would send an extra unlogged `GET /metadata`
+  before every read. `ServerValidationModeEnum.ONCE` is set explicitly for that reason.
+- **An omitted interaction is a refusal, but an absent list is not.** A type that lists
+  read/search/create and not `patch` has declined a patch. A type the statement declares
+  with *no* interaction list is relying on the base specification, and treating that as
+  read-only would be the more damaging mistake. A type the statement never mentions
+  supports nothing.
+- **Interaction codes disagree between the spec and HAPI, and the reader folds them.** R4
+  declares search as `search-type` and splits history in two; HAPI's R4 enum accepts only
+  those spellings and rejects `search` outright — so a spec-shaped statement can fail to
+  parse at all. `ServerInteraction.fromCode` accepts both, and the `ServerCapabilitiesTest`
+  canned statement uses the spellings HAPI will parse.
+- **Page links are followed, never rebuilt.** `SearchResultPage` now carries all five
+  Bundle relations and `FhirServerPlugin.pageAt` fetches whichever one it is given.
+  `nextPage(session, request, token)` remains as a default over it, so the UI and service
+  call sites are unchanged.
+- **An operation name is a URL path segment and is validated as one.** `$everything`,
+  `$value-set` and `everything` are accepted; anything carrying `/`, `?` or `#` is refused
+  at construction, before a request exists.
+- **Operation parameters are name/value pairs sent as `Parameters`.** Every value goes as
+  a `valueString`: the form an R4 server accepts for `$expand`, `$everything` and bulk
+  data, and the only one producible without a per-operation type table. A typed date, a
+  part or a nested resource is a later increment on the request model, not a guess. The
+  map is copied into an unmodifiable `LinkedHashMap` rather than with `Map.copyOf`,
+  because `Map.copyOf` discards iteration order — a `Parameters` body a caller had
+  assembled deliberately would otherwise be silently shuffled. Caught by a test that
+  happened to pass once before failing, which is why the assertion is now on the
+  record's own accessor as well as on `orderedParameters()`.
+- **`StandardFhirRestPlugin.description()` was two phases stale.** It still read
+  "metadata, search, read ... anonymous access" after Phase 3 wired credentials in, and
+  would have understated Phase 4's additions. It is shown in the server dialog, so it
+  now lists what the plugin can actually do.
+- **A FHIRPath patch was left out on purpose.** It is a `Parameters` resource rather than a
+  patch document; sending one as a merge patch would be silently wrong.
+- **No UI work.** `ServerSearchDialog` is untouched, as the plan requires. It will need
+  previous/first/last buttons and a capability gate, and both now have a service method
+  to call.
+
+`StandardFhirRestPlugin`, `FhirServerService`, `RestFailures`, and the two vendor
+capability wrappers.
+
+
+
+### Verification
+
+- `mvnw -o -DskipTests compile` — BUILD SUCCESS
+- `mvnw -o test` — **Tests run: 383, Failures: 0, Errors: 0, Skipped: 0** — BUILD SUCCESS
+  (345 before this phase, 38 added)
+- New `ServerCapabilitiesTest` (12) — a real `CapabilityStatement` read into
+  interactions, search parameters and an honest paging answer; an omitted interaction as a
+  refusal; an absent list as unrestricted; an unmentioned type as nothing; all five Bundle
+  links read verbatim; blank link URLs dropped; the alternative code spellings.
+- New `ServerRequestModelTest` (10) — operation URL per level, name normalisation,
+  path-injection refusal for name, type and id, parameter ordering, no parameter values in
+  `toString`, patch content types, the shared status table, diagnostics on the exception.
+- New `StandardFhirOperationsTest` (16) — patch content type on the wire, `If-Match`, no
+  stale precondition without a version, `412` → `CONFLICT`, `501` → `UNSUPPORTED`,
+  operation verb per the spec, an operation result parsed, a refused operation carrying
+  the server's sentence, following a server-supplied paging link, the applied deadline.
+- Existing `ServerWriteTest`, `StandardFhirRestPluginTest`, `FirelyPluginTest` and
+  `PluginLoaderTest` all pass unchanged — the new plugin methods are `default`s, and the
+  status mapping they replaced was asserted through behaviour, not through wording.
+
+### What Phase 4 deliberately did not do
+
+- No migration of the HAPI path, and no second FHIR parser.
+- No credential collection in `ServerDialog` and no SMART/OAuth flow — still Phase 6 work,
+  and still a static bearer token only.
+- No UI: no paging buttons, no operation picker, no capability gating in the dialogs.
+- `SearchCriterion` is still a name/value pair — modifiers, prefixes, chains, `_sort` and
+  `_include` are untouched.
+- `extraHeaders()` still has no builder method, so gap 14 in section 8 is still open.
 

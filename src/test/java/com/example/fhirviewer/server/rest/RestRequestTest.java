@@ -141,6 +141,26 @@ public class RestRequestTest {
     }
 
     @Test
+    @DisplayName("Query parameters keep the order they were added, not a hash order")
+    void queryParameterOrderIsPreserved() {
+        // Regression: build() froze the map with Map.copyOf, which does not preserve
+        // iteration order, so the names came out in an arbitrary order. It was invisible
+        // while every test read parameters back by name; it only showed up as a shuffled
+        // query string once a plugin-declared operation began sending repeatable
+        // parameters. The same trap was already fixed once, for FhirOperationRequest.
+        RestRequest request = RestRequest.builder(RestMethod.GET, "Patient")
+                .parameter("name", "Smith")
+                .parameter("family", "Jones")
+                .parameter("birthdate", "1970-01-01")
+                .parameter("_count", "20")
+                .build();
+
+        assertEquals(List.of("name", "family", "birthdate", "_count"),
+                List.copyOf(request.queryParameters().keySet()),
+                "the order the caller wrote is the order the server is asked in");
+    }
+
+    @Test
     @DisplayName("The request is immutable once built")
     void builtRequestsAreFrozen() {
         RestRequest.Builder builder = RestRequest.builder(RestMethod.GET, "Patient")

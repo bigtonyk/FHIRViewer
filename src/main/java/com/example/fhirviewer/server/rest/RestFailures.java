@@ -128,31 +128,26 @@ public final class RestFailures {
      * Builds the exception for a response that arrived but was not a success.
      *
      * <p>The server's own {@code OperationOutcome} text is carried into the message so the
-     * diagnostic reaches the user. The raw body is not: it may echo a submitted resource
+     * diagnostic reaches the user, and onto
+     * {@link ServerOperationException#diagnostics()} so a caller can show it without
+     * taking the message apart. The raw body is not: it may echo a submitted resource
      * back, and messages end up in the status bar and in logs.
      */
     public static ServerOperationException httpFailure(String action, RestResponse response) {
-        ServerOperationException.Kind kind = kindOfStatus(response.statusCode());
-        String message = action + ": " + response.diagnostics();
-        return new ServerOperationException(kind, message, response.statusCode());
+        String diagnostics = response.diagnostics();
+        return new ServerOperationException(ServerOperationException.kindOfStatus(response.statusCode()),
+                action + ": " + diagnostics, response.statusCode(), null, diagnostics);
     }
 
     /**
      * Maps an HTTP status onto the plugin error kinds the UI already distinguishes.
      *
-     * <p>{@code 409} joins {@code 412} as a conflict: servers use both to refuse a write
-     * whose precondition did not hold, and the UI already offers reload-or-force for that.
+     * <p>Delegates to {@link ServerOperationException#kindOfStatus(int)} so the generic
+     * transport and the HAPI-based standard plugin cannot disagree about what a status
+     * means. Kept as a named method here because this is where a transport asks.
      */
     public static ServerOperationException.Kind kindOfStatus(int statusCode) {
-        return switch (statusCode) {
-            case 400, 405, 406, 413, 415, 422 -> ServerOperationException.Kind.BAD_REQUEST;
-            case 401 -> ServerOperationException.Kind.UNAUTHORIZED;
-            case 403 -> ServerOperationException.Kind.FORBIDDEN;
-            case 404, 410 -> ServerOperationException.Kind.NOT_FOUND;
-            case 409, 412 -> ServerOperationException.Kind.CONFLICT;
-            case 501 -> ServerOperationException.Kind.UNSUPPORTED;
-            default -> ServerOperationException.Kind.SERVER_ERROR;
-        };
+        return ServerOperationException.kindOfStatus(statusCode);
     }
 
     /**

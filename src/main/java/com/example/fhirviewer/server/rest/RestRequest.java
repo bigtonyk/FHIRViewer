@@ -1,6 +1,7 @@
 package com.example.fhirviewer.server.rest;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -227,9 +228,16 @@ public final class RestRequest {
             if (!soFar.contains("Accept")) {
                 headers.accept(DEFAULT_ACCEPT);
             }
+            // Frozen through an unmodifiable *view* of the LinkedHashMap, not through
+            // Map.copyOf. Map.copyOf does not preserve iteration order, so a query string a
+            // caller assembled deliberately would reach the server shuffled — which is
+            // exactly the bug this was already fixed for in FhirOperationRequest, where a
+            // Parameters body came out reordered. The same reasoning applies here, and a
+            // repeatable parameter like _include is order-sensitive on some servers.
             Map<String, List<String>> frozen = new LinkedHashMap<>();
             queryParameters.forEach((name, values) -> frozen.put(name, List.copyOf(values)));
-            return new RestRequest(method, path, Map.copyOf(frozen), headers.build(), body);
+            return new RestRequest(method, path, Collections.unmodifiableMap(frozen),
+                    headers.build(), body);
         }
     }
 

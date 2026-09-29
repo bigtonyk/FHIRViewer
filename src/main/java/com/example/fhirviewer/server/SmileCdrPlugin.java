@@ -161,7 +161,7 @@ public class SmileCdrPlugin extends StandardFhirRestPlugin {
     public static final class SmileServerCapabilities extends ServerCapabilities {
 
         public SmileServerCapabilities(ServerCapabilities delegate) {
-            super(delegate.fhirVersion(), delegate.resourceTypes(), delegate.pagingSupported());
+            super(delegate);
         }
 
         /** True — this capability set was produced for a Smile CDR server. */

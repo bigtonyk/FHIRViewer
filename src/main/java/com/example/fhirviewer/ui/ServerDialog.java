@@ -2,7 +2,6 @@ package com.example.fhirviewer.ui;
 
 import java.util.Optional;
 
-import javafx.concurrent.Task;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
@@ -160,33 +159,23 @@ public class ServerDialog extends Dialog<ServerDefinition> {
         setTesting(true);
         statusLabel.getStyleClass().remove("status-error");
         statusLabel.setText("Testing " + candidate.baseUrl() + " ...");
-        Task<ConnectionResult> task = new Task<>() {
-            @Override
-            protected ConnectionResult call() {
-                return serverService.testConnection(candidate);
-            }
-        };
-        task.setOnSucceeded(event -> {
-            setTesting(false);
-            ConnectionResult result = task.getValue();
-            statusLabel.getStyleClass().remove("status-error");
-            if (result != null && !result.isReachable()) {
-                statusLabel.getStyleClass().add("status-error");
-            }
-            statusLabel.setText(result == null ? "No answer." : result.message());
-        });
-        task.setOnFailed(event -> {
-            setTesting(false);
-            reportFailure(readableFailure(task.getException()));
-        });
-        Thread thread = new Thread(task, "fhir-server-test");
-        thread.setDaemon(true);
-        thread.start();
-    }
-
-    /** The message a dialog shows for a background failure, readable and log free. */
-    static String readableFailure(Throwable failure) {
-        return ServerSearchDialog.readableFailure(failure);
+        // Shared with every other screen; see BackgroundTasks.
+        BackgroundTasks.run("fhir-server-test",
+                () -> serverService.testConnection(candidate), attempt -> {
+                    setTesting(false);
+                    if (!attempt.succeeded()) {
+                        reportFailure(attempt.cancelled()
+                                ? "The connection test was cancelled."
+                                : attempt.failure());
+                        return;
+                    }
+                    ConnectionResult result = attempt.value();
+                    statusLabel.getStyleClass().remove("status-error");
+                    if (result != null && !result.isReachable()) {
+                        statusLabel.getStyleClass().add("status-error");
+                    }
+                    statusLabel.setText(result == null ? "No answer." : result.message());
+                });
     }
 
     private void setTesting(boolean testing) {

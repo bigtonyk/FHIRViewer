@@ -2,26 +2,32 @@ package com.example.fhirviewer.server;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.example.fhirviewer.server.rest.FhirOperationClient;
+import com.example.fhirviewer.server.rest.JdkHttpRestClient;
+import com.example.fhirviewer.server.rest.RestOperationOutcome;
+import com.example.fhirviewer.server.rest.RestOutcomeParser;
+
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.rest.client.api.IGenericClient;
+import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum;
+import ca.uhn.fhir.rest.client.apache.ApacheRestfulClientFactory;
 import ca.uhn.fhir.rest.client.exceptions.FhirClientConnectionException;
 import ca.uhn.fhir.rest.gclient.ICriterion;
 import ca.uhn.fhir.rest.gclient.StringClientParam;
-import ca.uhn.fhir.rest.server.exceptions.AuthenticationException;
 import ca.uhn.fhir.rest.server.exceptions.BaseServerResponseException;
-import ca.uhn.fhir.rest.server.exceptions.ForbiddenOperationException;
-import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
-import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
 
 /**
- * The standard FHIR REST plugin: metadata, search and read over plain FHIR REST using
- * the HAPI FHIR client.
+ * The standard FHIR REST plugin: metadata, search, read and the write verbs over plain
+ * FHIR REST, plus PATCH and {@code $}-operations.
  *
  * <p>Authentication is not this class's business. The session's
  * {@link ServerAuthentication} says which headers its mechanism needs and
@@ -34,6 +40,16 @@ import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
  * <p>Vendor plugins can extend this class and override single hooks
  * ({@link #newClient}, {@link #criteriaOf}, {@link #convertFailure}) instead of
  * reimplementing the whole REST flow.</p>
+ *
+ * <p><b>Which transport serves which operation.</b> The interactions whose result type
+ * is known before the request is sent — metadata, read, search, paging, create, update,
+ * delete — go through HAPI, which already turns them into an {@code IBaseResource} and
+ * is what the vendor subclasses hook into. {@code PATCH} and {@code $}-operations go
+ * through {@link FhirOperationClient} on the generic transport, because the patch format
+ * is chosen by the caller in {@code Content-Type} and an operation's result type is not
+ * known until the server answers. That split is deliberate, not drift: both paths share
+ * one session, one authentication mechanism and one failure model, and Phase 4 added
+ * the second path rather than replacing the first.</p>
  */
 public class StandardFhirRestPlugin implements FhirServerPlugin {
 
@@ -44,6 +60,24 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
 
     private final FhirContext context;
 
+    /**
+     * One HAPI client factory per distinct timeout, kept for the life of the plugin.
+     *
+     * <p>Two things force a factory to exist rather than a bare
+     * {@code newRestfulGenericClient}. The server configuration's {@code timeoutMillis}
+     * was carried by {@link FhirServerConfiguration} and read by nobody, and HAPI 8
+     * exposes the socket and connect deadlines only on the factory, not on the client.
+     * And the factory, not the shared {@code FhirContext}, owns the set of base URLs it
+     * has already validated: a fresh factory per operation would send an extra unlogged
+     * {@code GET /metadata} before every read. Keyed by the effective timeout so two
+     * servers with different deadlines cannot overwrite each other's setting, and so a
+     * server definition with no explicit deadline still reuses one factory.</p>
+     */
+    private final ConcurrentMap<Integer, ApacheRestfulClientFactory> factories = new ConcurrentHashMap<>();
+
+    /** Parses a refused response's {@code OperationOutcome} for its diagnostics. */
+    private final RestOutcomeParser outcomeParser;
+
     /** Creates the plugin on the shared application FHIR context. */
     public StandardFhirRestPlugin() {
         this(com.example.fhirviewer.fhir.FhirContextFactory.r4());
@@ -52,6 +86,7 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
     /** Creates the plugin on an explicit FHIR context (used by tests). */
     public StandardFhirRestPlugin(FhirContext context) {
         this.context = Objects.requireNonNull(context, "context");
+        this.outcomeParser = new RestOutcomeParser(context);
     }
 
     @Override
@@ -66,7 +101,12 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
 
     @Override
     public String description() {
-        return "Plain FHIR REST (metadata, search, read) over HTTP, anonymous access.";
+        // Shown in the server dialog's plugin list, so it has to keep up with what this
+        // plugin can actually do. It said "anonymous access" after Phase 3 wired
+        // credentials in, and would have said "metadata, search, read" after Phase 4
+        // added the write verbs, PATCH and $operations.
+        return "Plain FHIR REST over HTTP: metadata, search, paging, read, create, update,"
+                + " delete, patch and $operations, with whatever credentials the server has.";
     }
 
     @Override
@@ -90,7 +130,7 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
             org.hl7.fhir.r4.model.CapabilityStatement statement = client.capabilities()
                     .ofType(org.hl7.fhir.r4.model.CapabilityStatement.class)
                     .execute();
-            ServerCapabilities capabilities = capabilitiesOf(statement);
+            ServerCapabilities capabilities = ServerCapabilityReader.of(statement);
             log.info("server capabilities baseUrl={} fhirVersion={} resources={} elapsedMs={}",
                     redactedBase(session), capabilities.fhirVersion(),
                     capabilities.resourceTypes().size(), System.currentTimeMillis() - started);
@@ -133,7 +173,7 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
                 query = i == 0 ? query.where(criteria.get(i)) : query.and(criteria.get(i));
             }
             org.hl7.fhir.r4.model.Bundle bundle = query.execute();
-            SearchResultPage page = pageOf(bundle);
+            SearchResultPage page = ServerSearchBundleReader.of(bundle);
             log.info("search baseUrl={} request={} results={} total={} elapsedMs={}",
                     redactedBase(session), request, page.resources().size(), page.total(),
                     System.currentTimeMillis() - started);
@@ -143,25 +183,37 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Delegates to {@link #pageAt}: a page token is a server-minted URL, and the
+     * {@code previous}, {@code first} and {@code last} links travel the same road.</p>
+     */
     @Override
     public SearchResultPage nextPage(ServerSession session, SearchRequest request, String pageToken)
             throws ServerOperationException {
+        return pageAt(session, pageToken);
+    }
+
+    @Override
+    public SearchResultPage pageAt(ServerSession session, String pageUrl) throws ServerOperationException {
         requireSession(session);
-        if (pageToken == null || pageToken.isBlank()) {
+        if (pageUrl == null || pageUrl.isBlank()) {
             throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
-                    "There is no next page to fetch.");
+                    "There is no page to fetch; the search returned no such link.");
         }
         long started = System.currentTimeMillis();
         IGenericClient client = newClient(session);
         try {
-            org.hl7.fhir.r4.model.Bundle bundle = client.loadPage().byUrl(pageToken)
+            org.hl7.fhir.r4.model.Bundle bundle = client.loadPage().byUrl(pageUrl)
                     .andReturnBundle(org.hl7.fhir.r4.model.Bundle.class).execute();
-            SearchResultPage page = pageOf(bundle);
-            log.info("search next page baseUrl={} results={} elapsedMs={}",
-                    redactedBase(session), page.resources().size(), System.currentTimeMillis() - started);
+            SearchResultPage page = ServerSearchBundleReader.of(bundle);
+            log.info("fetched page baseUrl={} results={} links={} elapsedMs={}",
+                    redactedBase(session), page.resources().size(), page.links().describe(),
+                    System.currentTimeMillis() - started);
             return page;
         } catch (RuntimeException e) {
-            throw convertFailure("Could not fetch the next page", e);
+            throw convertFailure("Could not fetch that page of results", e);
         }
     }
 
@@ -299,6 +351,71 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
         return true;
     }
 
+    @Override
+    public boolean supportsPatch() {
+        return true;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Sent over the generic REST transport rather than HAPI: the patch format is the
+     * request's {@code Content-Type} and HAPI's patch builder offers no way to set it,
+     * so a caller could not say which of the three formats it meant. The conditional
+     * {@code If-Match} and the {@code 412} to {@code CONFLICT} mapping are the same ones
+     * update and delete already use, and a server that does not accept PATCH answers
+     * with a refusal the shared status table already names {@code UNSUPPORTED}.</p>
+     */
+    @Override
+    public ServerWriteResult patch(ServerSession session, ServerOrigin origin, String body,
+            PatchFormat format) throws ServerOperationException {
+        requireSession(session);
+        if (origin == null || !origin.isSaved()) {
+            throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
+                    "patch needs a server-assigned id; use create for a new resource.");
+        }
+        if (format == null) {
+            throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
+                    "A patch needs a format; it is what the server reads the Content-Type for.");
+        }
+        try (FhirOperationClient operations = new FhirOperationClient(session, context)) {
+            IBaseResource patched = operations.patch(origin.resourceType(), origin.resourceId(),
+                    origin.versionId(), body, format);
+            // A server may answer a PATCH with 200 and no body. Reporting the version we
+            // already knew is then the only honest option, and it keeps the next write's
+            // If-Match meaningful instead of silently dropping the conflict check.
+            String version = versionIdOf(patched);
+            return ServerWriteResult.updated(origin.resourceId(),
+                    version == null ? origin.versionId() : version);
+        } catch (ServerOperationException alreadyMapped) {
+            throw alreadyMapped;
+        } catch (Exception failure) {
+            throw convertFailure("patch", failure);
+        }
+    }
+
+    @Override
+    public IBaseResource invoke(ServerSession session, FhirOperationRequest request)
+            throws ServerOperationException {
+        requireSession(session);
+        if (request == null) {
+            throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
+                    "An operation request is required.");
+        }
+        long started = System.currentTimeMillis();
+        try (FhirOperationClient operations = new FhirOperationClient(session, context)) {
+            IBaseResource result = operations.invoke(request);
+            log.info("invoke baseUrl={} operation={} result={} elapsedMs={}", redactedBase(session),
+                    request, result == null ? "(none)" : result.fhirType(),
+                    System.currentTimeMillis() - started);
+            return result;
+        } catch (ServerOperationException alreadyMapped) {
+            throw alreadyMapped;
+        } catch (Exception failure) {
+            throw convertFailure("invoke " + request.describe(), failure);
+        }
+    }
+
     /** Attaches a conditional-write header when the origin knows the current version. */
     private static void applyIfMatch(IGenericClient client, ServerOrigin origin) {
         if (origin.hasVersion()) {
@@ -372,13 +489,13 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
     /**
      * Creates the HAPI client for one operation. Vendor plugins override this to add
      * authentication, custom timeouts or a different transport; the default pins JSON
-     * encoding and applies the server's extra headers.
+     * encoding, applies the server's configured deadline and its extra headers.
      */
     protected IGenericClient newClient(ServerSession session) {
         FhirServerConfiguration server = session.server();
-        IGenericClient client = context.newRestfulGenericClient(server.baseUrl());
+        IGenericClient client = factoryFor(server).newGenericClient(server.baseUrl());
         client.setEncoding(ca.uhn.fhir.rest.api.EncodingEnum.JSON);
-        for (java.util.Map.Entry<String, String> header : server.extraHeaders().entrySet()) {
+        for (Map.Entry<String, String> header : server.extraHeaders().entrySet()) {
             if (header.getKey() != null && !header.getKey().isBlank() && header.getValue() != null) {
                 client.registerInterceptor(new StaticHeaderInterceptor(header.getKey(), header.getValue()));
             }
@@ -387,13 +504,46 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
         // a server definition can never persist a secret. The mechanism says which
         // headers it needs; this code does not know or care which mechanism that is, so
         // adding a bearer token or a vendor API key needs no change here.
-        for (java.util.Map.Entry<String, java.util.List<String>> header
+        for (Map.Entry<String, List<String>> header
                 : session.authentication().requestHeaders().asMap().entrySet()) {
             for (String value : header.getValue()) {
                 client.registerInterceptor(new StaticHeaderInterceptor(header.getKey(), value));
             }
         }
         return client;
+    }
+
+    /**
+     * The client factory carrying this server's deadline, created once per distinct one.
+     *
+     * <p>A timeout of zero or less means "the plugin default", exactly as
+     * {@link ServerDefinition} documents, and is resolved here so every client built for
+     * that server shares one deadline and one validation cache.</p>
+     */
+    private ApacheRestfulClientFactory factoryFor(FhirServerConfiguration server) {
+        int timeout = effectiveTimeoutMillis(server);
+        return factories.computeIfAbsent(timeout, millis -> {
+            ApacheRestfulClientFactory factory = new ApacheRestfulClientFactory(context);
+            factory.setSocketTimeout(millis);
+            factory.setConnectTimeout(millis);
+            // Stated rather than left to the library default: ONCE means the factory
+            // remembers which base URLs it has already checked, so a client created per
+            // operation does not re-fetch metadata every time. This plugin reads
+            // capabilities explicitly when the user asks for them, so nothing is lost.
+            factory.setServerValidationMode(ServerValidationModeEnum.ONCE);
+            return factory;
+        });
+    }
+
+    /**
+     * The deadline for one server, in milliseconds.
+     *
+     * <p>Exposed so a caller — and a test — can ask what deadline the plugin will
+     * actually apply, rather than inferring it from a value it configured.
+     */
+    int effectiveTimeoutMillis(FhirServerConfiguration server) {
+        int configured = server == null ? 0 : server.timeoutMillis();
+        return configured > 0 ? configured : JdkHttpRestClient.DEFAULT_TIMEOUT_MILLIS;
     }
 
     /**
@@ -411,26 +561,19 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
     /**
      * Converts a HAPI/client failure into the plugin error model. Vendor plugins override
      * this to map proprietary error bodies onto {@link ServerOperationException} kinds.
+     *
+     * <p>The kind now comes from the shared
+     * {@link ServerOperationException#kindOfStatus(int) table} rather than from a chain
+     * of {@code instanceof} tests, so this path and the generic REST transport cannot
+     * report the same status differently. What the server said about it is read from the
+     * response body's {@code OperationOutcome} and carried on the exception, which is
+     * the difference between "the server returned an error" and "Unknown search
+     * parameter 'foo'". The body itself is never put in a message: it can echo a
+     * submitted resource back.</p>
      */
     protected ServerOperationException convertFailure(String action, Throwable failure) {
         if (failure instanceof ServerOperationException operationFailure) {
             return operationFailure;
-        }
-        if (failure instanceof ResourceNotFoundException) {
-            return new ServerOperationException(ServerOperationException.Kind.NOT_FOUND,
-                    action + ": the resource does not exist.", statusOf(failure), failure);
-        }
-        if (failure instanceof AuthenticationException) {
-            return new ServerOperationException(ServerOperationException.Kind.UNAUTHORIZED,
-                    action + ": the server rejected the credentials.", statusOf(failure), failure);
-        }
-        if (failure instanceof ForbiddenOperationException) {
-            return new ServerOperationException(ServerOperationException.Kind.FORBIDDEN,
-                    action + ": the server refused the operation.", statusOf(failure), failure);
-        }
-        if (failure instanceof InvalidRequestException) {
-            return new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
-                    action + ": the server rejected the request.", statusOf(failure), failure);
         }
         // Transport failures carry HTTP-ish status codes of their own, so they are tested
         // before the generic HTTP-error branch below.
@@ -439,21 +582,51 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
                     action + ": the server could not be reached. Check the base URL.", failure);
         }
         if (failure instanceof BaseServerResponseException responseFailure) {
-            // A conditional write is refused with 412 when the resource changed after it was
-            // read. This is reported as CONFLICT rather than a generic error so the UI can
-            // offer reload-or-force instead of overwriting somebody else's edit.
-            if (responseFailure.getStatusCode() == 412) {
-                return new ServerOperationException(ServerOperationException.Kind.CONFLICT,
-                        action + ": the resource changed on the server after it was read.", 412, failure);
-            }
-            return new ServerOperationException(ServerOperationException.Kind.SERVER_ERROR,
-                    action + ": the server returned an error.", responseFailure.getStatusCode(), failure);
+            int status = responseFailure.getStatusCode();
+            String diagnostics = diagnosticsOf(responseFailure);
+            return new ServerOperationException(ServerOperationException.kindOfStatus(status),
+                    action + ": " + (diagnostics == null ? describeStatus(status) : diagnostics),
+                    status, failure, diagnostics);
         }
         String detail = failure == null || failure.getMessage() == null || failure.getMessage().isBlank()
                 ? failure == null ? "unknown error" : failure.getClass().getSimpleName()
                 : failure.getMessage();
         return new ServerOperationException(ServerOperationException.Kind.SERVER_ERROR,
                 action + ": " + detail, failure);
+    }
+
+    /**
+     * What the server said, read out of the refused response's {@code OperationOutcome}.
+     *
+     * <p>The raw body is handed to the shared {@link RestOutcomeParser} rather than
+     * inspected here: it already handles JSON and XML, tolerates a vendor extension, and
+     * never throws on a body that is not an {@code OperationOutcome} at all. A server
+     * that answered an error with HTML — a proxy page, typically — yields nothing, and
+     * the status is all the caller gets, which is the honest description.</p>
+     */
+    private String diagnosticsOf(BaseServerResponseException failure) {
+        List<RestOperationOutcome> issues = outcomeParser.parse(failure.getResponseBody());
+        if (issues.isEmpty()) {
+            return null;
+        }
+        List<String> described = new ArrayList<>();
+        for (RestOperationOutcome issue : issues) {
+            described.add(issue.describe());
+        }
+        return String.join("; ", described);
+    }
+
+    /** A last-resort sentence for a refusal that carried no parsable explanation. */
+    private static String describeStatus(int status) {
+        return switch (ServerOperationException.kindOfStatus(status)) {
+            case NOT_FOUND -> "the resource does not exist.";
+            case UNAUTHORIZED -> "the server rejected the credentials.";
+            case FORBIDDEN -> "the server refused the operation.";
+            case BAD_REQUEST -> "the server rejected the request.";
+            case CONFLICT -> "the resource changed on the server after it was read.";
+            case UNSUPPORTED -> "the server does not support that operation.";
+            default -> "the server answered with HTTP " + status + ".";
+        };
     }
 
     /** True when the failure chain contains a network/transport problem. */
@@ -499,51 +672,27 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
         }
     }
 
-    private static Integer statusOf(Throwable failure) {
-        if (failure instanceof BaseServerResponseException responseFailure) {
-            return responseFailure.getStatusCode();
+    /**
+     * The {@code meta.versionId} a resource carries, or {@code null}.
+     *
+     * <p>Read through {@code IBaseResource} rather than by casting to an R4 class, so a
+     * server speaking another FHIR version still yields its version instead of a
+     * {@code ClassCastException} in the middle of a successful write.</p>
+     */
+    private static String versionIdOf(IBaseResource resource) {
+        if (resource == null || resource.getMeta() == null) {
+            return null;
         }
-        return null;
-    }
-
-    private static ServerCapabilities capabilitiesOf(org.hl7.fhir.r4.model.CapabilityStatement statement) {
-        if (statement == null) {
-            return ServerCapabilities.empty();
+        try {
+            // getVersionId() returns null when the resource has none, so there is no
+            // hasVersionId() to ask on the version-neutral interface.
+            String version = resource.getMeta().getVersionId();
+            return version == null || version.isBlank() ? null : version;
+        } catch (RuntimeException notThisVersion) {
+            // A version this build does not model is a version we cannot compare against,
+            // which is the same thing as not having one: no If-Match on the next write.
+            return null;
         }
-        String version = statement.getFhirVersion() == null ? "" : statement.getFhirVersion().toCode();
-        List<String> types = new ArrayList<>();
-        if (!statement.getRest().isEmpty() && statement.getRest().get(0) != null) {
-            for (org.hl7.fhir.r4.model.CapabilityStatement.CapabilityStatementRestResourceComponent resource
-                    : statement.getRest().get(0).getResource()) {
-                if (resource != null && resource.getType() != null && !resource.getType().isBlank()
-                        && !types.contains(resource.getType())) {
-                    types.add(resource.getType());
-                }
-            }
-        }
-        return new ServerCapabilities(version, types, false);
-    }
-
-    private static SearchResultPage pageOf(org.hl7.fhir.r4.model.Bundle bundle) {
-        if (bundle == null) {
-            return SearchResultPage.empty();
-        }
-        List<IBaseResource> resources = new ArrayList<>();
-        for (org.hl7.fhir.r4.model.Bundle.BundleEntryComponent entry : bundle.getEntry()) {
-            if (entry != null && entry.getResource() != null) {
-                resources.add(entry.getResource());
-            }
-        }
-        Integer total = bundle.hasTotal() ? bundle.getTotal() : null;
-        String next = null;
-        for (org.hl7.fhir.r4.model.Bundle.BundleLinkComponent link : bundle.getLink()) {
-            if (link != null && "next".equalsIgnoreCase(link.getRelation()) && link.getUrl() != null
-                    && !link.getUrl().isBlank()) {
-                next = link.getUrl();
-                break;
-            }
-        }
-        return new SearchResultPage(resources, total, next);
     }
 
     private static String redactedBase(ServerSession session) {

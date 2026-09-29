@@ -201,6 +201,17 @@ public class MainWindow {
     private final Button undoButton = new Button("Undo");
 
     /**
+     * The resource actions that only make sense for a resource that came from a server.
+     *
+     * <p>Held as fields because their enabled state depends on the displayed resource's
+     * origin, which changes on every display. Offering "Delete from FHIR Server" for a file
+     * that was opened from disk would be a button that always fails.</p>
+     */
+    private MenuItem refreshFromServerItem;
+    private MenuItem patchOnServerItem;
+    private MenuItem deleteFromServerItem;
+
+    /**
      * Which profile validation runs against: automatic (the resource's own
      * {@code meta.profile}), the base FHIR R4 definition, or an installed IG
      * profile chosen by the user (Updates 11 and 12).
@@ -535,8 +546,35 @@ public class MainWindow {
         MenuItem serverTools = new MenuItem("Server Tools...");
         serverTools.setOnAction(event -> openServerTools());
 
+        // Phase 6. Both are generic: the operation list comes from the active plugin, so a
+        // future vendor's operations appear here without this menu knowing they exist.
+        MenuItem serverStatus = new MenuItem("Server Status and Capabilities...");
+        serverStatus.setOnAction(event -> showServerStatus());
+
+        MenuItem runOperation = new MenuItem("Run Server Operation...");
+        runOperation.setOnAction(event -> runServerOperation());
+
+        // Resource actions, enabled only when the displayed resource came from a server.
+        MenuItem refreshFromServer = new MenuItem("Refresh from FHIR Server");
+        refreshFromServer.setDisable(true);
+        refreshFromServer.setOnAction(event -> refreshFromServer());
+
+        MenuItem patchOnServer = new MenuItem("Patch on FHIR Server...");
+        patchOnServer.setDisable(true);
+        patchOnServer.setOnAction(event -> patchOnServer());
+
+        MenuItem deleteFromServer = new MenuItem("Delete from FHIR Server...");
+        deleteFromServer.setDisable(true);
+        deleteFromServer.setOnAction(event -> deleteFromServer());
+
+        this.refreshFromServerItem = refreshFromServer;
+        this.patchOnServerItem = patchOnServer;
+        this.deleteFromServerItem = deleteFromServer;
+
         return new Menu("Tools", null, validate, new SeparatorMenuItem(), searchServer, openFromServer,
-                saveToServer, manageServers, managePlugins, new SeparatorMenuItem(), serverTools);
+                saveToServer, new SeparatorMenuItem(), refreshFromServer, patchOnServer,
+                deleteFromServer, new SeparatorMenuItem(), manageServers, managePlugins,
+                new SeparatorMenuItem(), serverStatus, runOperation, serverTools);
     }
 
     private Menu buildHelpMenu() {
@@ -1599,7 +1637,7 @@ public class MainWindow {
                 resolveConflict(target, origin, conflict);
                 return;
             }
-            setStatus("Not saved: " + ServerSearchDialog.readableFailure(failure));
+            setStatus("Not saved: " + ServerErrors.describe(failure));
             return;
         }
         if (origin == null) {
@@ -1670,7 +1708,7 @@ public class MainWindow {
             Platform.runLater(() -> {
                 setBusy(false);
                 if (error != null || fresh == null) {
-                    setStatus("Could not reload: " + ServerSearchDialog.readableFailure(error));
+                    setStatus("Could not reload: " + ServerErrors.describe(error));
                     return;
                 }
                 ServerOrigin refreshed = ServerOrigin.of(
@@ -1751,6 +1789,200 @@ public class MainWindow {
         setStatus(action.label() + " for " + server.name()
                 + " is not implemented yet. The plugin exposes it as "
                 + action.getClass().getName() + ".");
+    }
+
+    /**
+     * Re-reads the displayed resource from the server it came from.
+     *
+     * <p>The "Refresh" action from the plan. It deliberately discards local edits, so it
+     * asks first — silently throwing away unsaved work because a menu item was pressed
+     * would be the worst possible reading of the word "refresh".</p>
+     */
+    private void refreshFromServer() {
+        FhirServerConfiguration target = serverFor(displayedOrigin);
+        ServerOrigin origin = displayedOrigin;
+        if (target == null || origin == null) {
+            setStatus("This resource did not come from a configured server.");
+            return;
+        }
+        if (!confirmUnsavedChanges("refreshing from the server")) {
+            return;
+        }
+        reloadFromServer(target, origin);
+    }
+
+    /**
+     * Applies a user-written patch to the displayed resource on the server.
+     *
+     * <p>The patch is sent as written; this viewer neither rewrites nor validates it,
+     * because a merge patch is by definition a partial document that would fail the
+     * whole-resource validation a create or an update is held to. What the server makes of
+     * it is reported through the same {@link ServerOperationException} path as every other
+     * write, so an {@code OperationOutcome} explaining the refusal is what the user sees.</p>
+     */
+    private void patchOnServer() {
+        FhirServerConfiguration target = serverFor(displayedOrigin);
+        ServerOrigin origin = displayedOrigin;
+        if (target == null || origin == null) {
+            setStatus("This resource did not come from a configured server.");
+            return;
+        }
+        PatchResourceDialog dialog = new PatchResourceDialog(origin, themeManager);
+        dialog.initOwner(stage);
+        dialog.showAndWait().ifPresent(patch -> runPatch(target, origin, patch));
+    }
+
+    /** Sends a patch on a background thread and reports the server's answer. */
+    private void runPatch(FhirServerConfiguration target, ServerOrigin origin,
+            PatchResourceDialog.Patch patch) {
+        setStatus("Patching " + origin.resourceType() + "/" + origin.resourceId()
+                + " on " + target.name() + " ...");
+        setBusy(true);
+        Thread worker = new Thread(() -> {
+            ServerWriteResult written = null;
+            Throwable failure = null;
+            try {
+                // The service takes the body before the format: the format travels as the
+                // request's Content-Type, and the origin it patches is already fixed.
+                written = serverService.patch(target, origin, patch.body(), patch.format());
+            } catch (Throwable problem) {
+                failure = problem;
+            }
+            ServerWriteResult result = written;
+            Throwable error = failure;
+            Platform.runLater(() -> {
+                setBusy(false);
+                onPatchFinished(target, origin, result, error);
+            });
+        }, "server-patch");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /**
+     * Reports a patch result.
+     *
+     * <p>The returned resource is re-read rather than shown from the patch response: a
+     * server may answer a {@code PATCH} with {@code 200 OK} and an empty body, and showing
+     * the local copy at that point would claim the server holds edits it may not have
+     * applied. A reload is the only way to say what the server actually has.</p>
+     */
+    private void onPatchFinished(FhirServerConfiguration target, ServerOrigin origin,
+            ServerWriteResult result, Throwable failure) {
+        if (failure != null || result == null) {
+            setStatus("Not patched: " + ServerErrors.describe(failure));
+            return;
+        }
+        setStatus("Patched " + origin.resourceType() + "/" + origin.resourceId()
+                + " on " + target.name() + "; reloading the server's version ...");
+        reloadFromServer(target, origin);
+    }
+
+    /**
+     * Deletes the displayed resource from the server it came from.
+     *
+     * <p>Confirms first, and the confirmation states the full type and id rather than
+     * "this resource": a delete is not reversible from here, and the whole point of asking
+     * is that the user can see what is about to go.</p>
+     */
+    private void deleteFromServer() {
+        FhirServerConfiguration target = serverFor(displayedOrigin);
+        ServerOrigin origin = displayedOrigin;
+        if (target == null || origin == null) {
+            setStatus("This resource did not come from a configured server.");
+            return;
+        }
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(stage);
+        alert.setTitle("Delete from FHIR Server");
+        alert.setHeaderText("Delete " + origin.resourceType() + "/" + origin.resourceId()
+                + " from " + target.name() + "?");
+        alert.setContentText("Server: " + target.name() + "\n" + target.baseUrl()
+                + "\n\nThis removes the resource on the server. It cannot be undone from here.");
+        applyDialogTheme(alert.getDialogPane());
+        ButtonType proceed = new ButtonType("Delete", ButtonBar.ButtonData.OK_DONE);
+        alert.getButtonTypes().setAll(proceed, ButtonType.CANCEL);
+        if (alert.showAndWait().filter(proceed::equals).isEmpty()) {
+            return;
+        }
+        setStatus("Deleting " + origin.resourceType() + "/" + origin.resourceId()
+                + " from " + target.name() + " ...");
+        setBusy(true);
+        Thread worker = new Thread(() -> {
+            Throwable failure = null;
+            try {
+                serverService.delete(target, origin);
+            } catch (Throwable problem) {
+                failure = problem;
+            }
+            Throwable error = failure;
+            Platform.runLater(() -> {
+                setBusy(false);
+                if (error != null) {
+                    setStatus("Not deleted: " + ServerErrors.describe(error));
+                    return;
+                }
+                closeResource();
+                setStatus("Deleted " + origin.resourceType() + "/" + origin.resourceId()
+                        + " from " + target.name() + ".");
+            });
+        }, "server-delete");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /**
+     * Opens the connection screen: connect, disconnect, test, status and capabilities.
+     *
+     * <p>Preselects the server the displayed resource came from, because that is the one the
+     * user is working with and asking them to pick it again would be noise.</p>
+     */
+    private void showServerStatus() {
+        if (serverManager.servers().isEmpty()) {
+            manageServers();
+            if (serverManager.servers().isEmpty()) {
+                setStatus("No FHIR server is configured. Use Tools > FHIR Servers... to add one.");
+                return;
+            }
+        }
+        ServerStatusDialog dialog = new ServerStatusDialog(serverService, serverManager,
+                displayedOrigin == null ? serverManager.active().orElse(null)
+                        : serverFor(displayedOrigin),
+                themeManager);
+        dialog.initOwner(stage);
+        dialog.showAndWait();
+    }
+
+    /**
+     * Opens the generic operation screen for a configured server.
+     *
+     * <p>Nothing here names an operation. The list is whatever the active plugin reports, so
+     * a plugin written after this build appears in this dialog with no change to it.</p>
+     */
+    private void runServerOperation() {
+        if (serverManager.servers().isEmpty()) {
+            manageServers();
+            if (serverManager.servers().isEmpty()) {
+                setStatus("No FHIR server is configured. Use Tools > FHIR Servers... to add one.");
+                return;
+            }
+        }
+        FhirServerConfiguration preselect = displayedOrigin == null
+                ? serverManager.active().orElse(null)
+                : serverFor(displayedOrigin);
+        ServerOperationDialog dialog = new ServerOperationDialog(serverService, serverManager,
+                preselect, themeManager);
+        dialog.initOwner(stage);
+        dialog.showAndWait().ifPresent(outcome -> {
+            if (!confirmUnsavedChanges("displaying a result from a server")) {
+                return;
+            }
+            // Displayed through the one existing rendering path, with no origin: an
+            // operation's answer is a result to look at, not something to save back.
+            display(new LoadedResource(outcome.resource(), ResourceFormat.JSON,
+                    outcome.label(), null));
+            setStatus("Showing the result of the server operation.");
+        });
     }
 
     // ------------------------------------------------------------------
@@ -2133,6 +2365,28 @@ public class MainWindow {
         addChildMenuItem.setDisable(!hasSelection);
         // The resource itself cannot be deleted, only the elements inside it.
         deleteMenuItem.setDisable(!hasSelection || selectedNode.getParent() == null);
+        updateServerActions();
+    }
+
+    /**
+     * Enables the server-backed resource actions for the displayed resource.
+     *
+     * <p>Every one of them needs an origin: a resource opened from a file or a sample has
+     * no server behind it, and "Delete from FHIR Server" on such a resource could only fail.
+     * A resource that <em>was</em> read from a server also has to be one the server has
+     * actually saved, since there is no id to address it by otherwise.</p>
+     */
+    private void updateServerActions() {
+        boolean fromServer = displayedOrigin != null && displayedOrigin.isSaved();
+        if (refreshFromServerItem != null) {
+            refreshFromServerItem.setDisable(!fromServer);
+        }
+        if (patchOnServerItem != null) {
+            patchOnServerItem.setDisable(!fromServer);
+        }
+        if (deleteFromServerItem != null) {
+            deleteFromServerItem.setDisable(!fromServer);
+        }
     }
 
     private void showAlert(Alert.AlertType type, String title, String message) {

@@ -1,0 +1,47 @@
+BRANCH: server-rest-integration
+HEAD: a63dff8
+
+=== server package (main) ===
+AnonymousServerAuthentication.java
+BasicServerAuthentication.java
+ConnectionResult.java
+FhirServerConfiguration.java
+FhirServerManager.java
+FhirServerPlugin.java
+FhirServerPluginRegistry.java
+FhirServerService.java
+FirelyConfiguration.java
+FirelyPlugin.java
+PluginConfig.java
+PluginJarScanner.java
+PluginLoader.java
+PluginSettings.java
+PluginSettingsStore.java
+SearchCriterion.java
+SearchRequest.java
+SearchResultPage.java
+SecretBox.java
+SecretBoxException.java
+ServerAuthentication.java
+ServerCapabilities.java
+ServerDefinition.java
+ServerOperationException.java
+ServerOrigin.java
+ServerSession.java
+ServerVendorAction.java
+ServerWriteResult.java
+SmileCdrConfiguration.java
+SmileCdrPlugin.java
+StandardFhirRestPlugin.java
+
+=== server subdirs ===
+
+=== server tests ===
+FirelyPluginTest.java
+PluginLoaderTest.java
+PluginSettingsStoreTest.java
+ServerModelTest.java
+ServerOriginTest.java
+ServerWriteTest.java
+SmileCdrPluginTest.java.hold
+StandardFhirRestPluginTest.java

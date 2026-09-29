@@ -1,19 +1,32 @@
 package com.example.fhirviewer.server;
 
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Holds the FHIR servers the user has configured and which one is active.
  *
- * <p>In-memory for now: persistence (plan section 20, <code>servers.json</code> behind a
- * {@code FhirServerRepository}) can be added inside this class later without touching
- * the UI, which only ever asks this manager about servers. Servers are matched by name,
- * so a name acts as the user visible identity of a server.</p>
+ * <p>The list is persisted through {@link #save(Path)} and restored with
+ * {@link #load(Path)}, so a server only has to be typed once. Storage itself lives in
+ * {@link ServerDefinitionStore}: the manager owns the servers, and the store owns the
+ * file, so a new format is a change in one class rather than in the one the UI asks
+ * about servers. Credentials are not stored here - they belong to the plugin and live
+ * encrypted in {@link PluginSettingsStore}.</p>
+ *
+ * <p>Servers are matched by name, so a name acts as the user visible identity of a
+ * server.</p>
  */
 public final class FhirServerManager {
+
+    private static final Logger log = LoggerFactory.getLogger(FhirServerManager.class);
 
     private final List<FhirServerConfiguration> servers = new CopyOnWriteArrayList<>();
     private volatile FhirServerConfiguration active;

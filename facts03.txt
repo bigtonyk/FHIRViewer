@@ -1,0 +1,40 @@
+=== ui package ===
+AboutInfo.java
+AddChildDialog.java
+BundleView.java
+DetailsView.java
+ElementNavigationTarget.java
+FhirPathView.java
+IgPackageDialog.java
+JsonView.java
+MainWindow.java
+OpenFromServerDialog.java
+PluginManagerDialog.java
+PrettyView.java
+ResourceTreeView.java
+ServerDialog.java
+ServerSearchDialog.java
+StatusView.java
+ThemeManager.java
+XmlView.java
+
+=== top-level packages ===
+fhir
+model
+pretty
+server
+service
+ui
+util
+
+=== plan part 01 headings ===
+1: # Phase 1 ? Inspect Current Plugin Architecture
+3: ## Goal
+7: ## Tasks
+9: ### 1. Find the Plugin API
+21: ### 2. Find Existing HTTP Code
+38: ### 3. Find Existing FHIR Operations
+52: ### 4. Inspect the Viewer UI
+66: ### 5. Inspect Existing Plugins
+78: ## Deliverable
+93: ## Important

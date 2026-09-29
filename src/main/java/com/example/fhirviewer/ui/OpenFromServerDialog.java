@@ -11,11 +11,9 @@ import com.example.fhirviewer.server.FhirServerConfiguration;
 import com.example.fhirviewer.server.FhirServerManager;
 import com.example.fhirviewer.server.FhirServerService;
 import com.example.fhirviewer.server.ServerCapabilities;
-import com.example.fhirviewer.server.ServerOperationException;
 
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
-import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -59,11 +57,24 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
             IBaseResource resource) {
     }
 
-    /** One background attempt: either a value or a readable failure, never an exception. */
+    /** One background attempt, bridged from the shared helper's own attempt type. */
     private record Attempt<T>(T value, String failure) {
 
         boolean succeeded() {
             return failure == null;
+        }
+
+        /** Adapts this dialog's attempt to the one {@link BackgroundTasks} speaks. */
+        BackgroundTasks.Attempt<T> toShared() {
+            return succeeded() ? BackgroundTasks.Attempt.succeeded(value)
+                    : BackgroundTasks.Attempt.failed(failure);
+        }
+
+        /** Rebuilds this dialog's attempt from the shared one, keeping the message. */
+        static <T> Attempt<T> from(BackgroundTasks.Attempt<T> shared) {
+            return new Attempt<>(shared.succeeded() ? shared.value() : null,
+                    shared.succeeded() ? null
+                            : shared.cancelled() ? "The read was cancelled." : shared.failure());
         }
     }
 
@@ -299,26 +310,20 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     /** Runs work on a background thread and delivers the attempt on the JavaFX thread. */
     private <T> void run(java.util.concurrent.Callable<Attempt<T>> work,
             java.util.function.Consumer<Attempt<T>> done) {
-        Task<Attempt<T>> task = new Task<>() {
-            @Override
-            protected Attempt<T> call() {
-                try {
-                    return work.call();
-                } catch (ServerOperationException e) {
-                    return new Attempt<>(null, e.displayMessage());
-                } catch (Exception e) {
-                    return new Attempt<>(null, "Unexpected problem: " + ServerDialog.readableFailure(e));
-                }
-            }
-        };
-        task.setOnSucceeded(event -> done.accept(task.getValue()));
-        task.setOnFailed(event -> {
-            setBusy(false, null);
-            reportFailure("Unexpected problem: " + ServerDialog.readableFailure(task.getException()));
-        });
-        Thread thread = new Thread(task, "fhir-open-from-server");
-        thread.setDaemon(true);
-        thread.start();
+        // One shared implementation; see BackgroundTasks for why this is not written out
+        // per dialog any more. The local Attempt is bridged to the shared one in both
+        // directions so this dialog's own call sites are unchanged by the refactor.
+        BackgroundTasks.runAttempt("fhir-open-from-server",
+                () -> work.call().toShared(),
+                shared -> {
+                    Attempt<T> result = Attempt.from(shared);
+                    if (result.succeeded()) {
+                        done.accept(result);
+                    } else {
+                        setBusy(false, null);
+                        reportFailure(result.failure());
+                    }
+                });
     }
 
     /** Stops a button from collapsing to an ellipsis when the dialog is made narrow. */

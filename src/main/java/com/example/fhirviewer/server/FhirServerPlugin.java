@@ -1,6 +1,7 @@
 package com.example.fhirviewer.server;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
 
@@ -66,11 +67,36 @@ public interface FhirServerPlugin {
     /**
      * Fetches the next page of a search started with {@link #search}.
      *
-     * @param pageToken the token from {@link SearchResultPage#nextPageToken()}
+     * <p>Kept as the name the UI and the service already use. It is a thin wrapper over
+     * {@link #pageAt}, which is the general case: a page token is a server-minted URL,
+     * and the same call fetches a {@code previous}, {@code first} or {@code last} link
+     * unchanged.</p>
+     *
+     * @param request the search the page belongs to; a plugin may ignore it, since the
+     *                URL already carries everything the server needs
+     * @param pageToken the {@code next} URL from {@link SearchResultPage#nextPageToken()}
      * @throws ServerOperationException when the page cannot be fetched
      */
-    SearchResultPage nextPage(ServerSession session, SearchRequest request, String pageToken)
-            throws ServerOperationException;
+    default SearchResultPage nextPage(ServerSession session, SearchRequest request, String pageToken)
+            throws ServerOperationException {
+        return pageAt(session, pageToken);
+    }
+
+    /**
+     * Fetches the page at a URL the server itself supplied.
+     *
+     * <p>FHIR search results are navigated by following the Bundle's own links. Nothing
+     * here reconstructs one, because the server alone knows what its page token means
+     * and what order it assumed — a viewer that builds its own {@code _getpages} value
+     * silently shows the wrong page on any server that encodes it differently.</p>
+     *
+     * @param pageUrl a {@code self}, {@code first}, {@code previous}, {@code next} or
+     *                {@code last} URL from {@link SearchResultPage#links()}
+     * @throws ServerOperationException when the page cannot be fetched
+     */
+    default SearchResultPage pageAt(ServerSession session, String pageUrl) throws ServerOperationException {
+        throw unsupported("following a paging link");
+    }
 
     /**
      * Reads one resource by type and id.
@@ -136,6 +162,59 @@ public interface FhirServerPlugin {
     }
 
     /**
+     * Applies a partial update to a resource already on the server.
+     *
+     * <p>Distinct from {@link #update} because the two are not interchangeable: an update
+     * replaces the whole resource, a patch changes named parts of it. A server may
+     * support one and not the other — PATCH is the interaction most often omitted from a
+     * capability statement — so this is a separate, separately-refusable operation
+     * rather than a flag on update.</p>
+     *
+     * <p>The patch format is carried in {@code Content-Type}, not in the body, so
+     * {@link PatchFormat} is part of the call and not something to infer.</p>
+     *
+     * @param body   the patch document, already written in {@code format}
+     * @param format the patch format the body is written in
+     * @return what the server assigned, so the caller can rebase its {@link ServerOrigin}
+     * @throws ServerOperationException with kind {@code UNSUPPORTED} when this plugin
+     *         cannot patch, {@code CONFLICT} when the server reports the resource changed
+     *         underneath us
+     */
+    default ServerWriteResult patch(ServerSession session, ServerOrigin origin, String body,
+            PatchFormat format) throws ServerOperationException {
+        throw unsupported("patch");
+    }
+
+    /**
+     * True when this plugin can apply a partial update.
+     *
+     * <p>Separate from {@link #supportsWrite()} because a server can accept create,
+     * update and delete and still refuse PATCH, and offering a patch the server will
+     * reject is worse than not offering it.</p>
+     */
+    default boolean supportsPatch() {
+        return false;
+    }
+
+    /**
+     * Invokes a standard FHIR {@code $}-operation.
+     *
+     * <p>System, type and instance level operations all come through here; the request
+     * says which. A plugin that cannot run them reports
+     * {@link ServerOperationException.Kind#UNSUPPORTED} rather than silently
+     * succeeding, which is what lets the UI disable an operation it knows will
+     * fail.</p>
+     *
+     * @return the operation's result resource, which is whatever the operation defines
+     * @throws ServerOperationException with kind {@code UNSUPPORTED} when this plugin
+     *         cannot invoke operations, or the mapped failure when the server refuses
+     */
+    default IBaseResource invoke(ServerSession session, FhirOperationRequest request)
+            throws ServerOperationException {
+        throw unsupported("FHIR operations");
+    }
+
+    /**
      * True when this plugin implements the write verbs.
      *
      * <p>Lets the UI disable "Save to Server" up front rather than letting the user
@@ -165,6 +244,103 @@ public interface FhirServerPlugin {
      */
     default List<ServerVendorAction> vendorActions() {
         return List.of();
+    }
+
+    /**
+     * The operations this plugin offers beyond the standard plugin API, as data.
+     *
+     * <p>This is the discovery side of the vendor seam, and the fine-grained counterpart to
+     * {@link #vendorActions()}. An operation is a callable endpoint with a verb, a path and
+     * a parameter list, which is what a UI needs in order to build a form and run
+     * something; a vendor action is a whole screen and cannot be filled in or invoked
+     * generically. The two coexist deliberately: a plugin may offer either, or both.</p>
+     *
+     * <p>A plugin declares; the core performs. Execution goes through
+     * {@link #executeOperation}, whose default implementation is generic and needs no
+     * vendor code, so adding a vendor endpoint is a change inside the plugin and nowhere
+     * else. A plugin that needs to alter the request or the answer overrides that method.</p>
+     *
+     * <p>Declared without a session, so a UI can build its menu before connecting. Narrow
+     * the list in {@link #supportedOperations(ServerSession)} when what a server supports
+     * only becomes known after a connection test.</p>
+     *
+     * @return the operations, never {@code null}; possibly empty
+     */
+    default List<ServerOperation> availableOperations() {
+        return List.of();
+    }
+
+    /**
+     * The operations this plugin can actually run on the given session right now.
+     *
+     * <p>Defaults to {@link #availableOperations()}, which is right for a plugin whose
+     * endpoints do not depend on what the server reports. A plugin that knows an endpoint
+     * needs a capability the connected server may lack overrides this to drop it, so the
+     * UI can grey the entry out before the user presses it rather than after the server
+     * refuses it.</p>
+     *
+     * @param session the session the operations would run on
+     * @return the usable operations, never {@code null}
+     */
+    default List<ServerOperation> supportedOperations(ServerSession session) {
+        return availableOperations();
+    }
+
+    /**
+     * Finds one of this plugin's declared operations by id.
+     *
+     * @return the operation, or empty when this plugin does not declare it
+     */
+    default Optional<ServerOperation> operation(String operationId) {
+        if (operationId == null || operationId.isBlank()) {
+            return Optional.empty();
+        }
+        for (ServerOperation operation : availableOperations()) {
+            if (operation.id().equals(operationId.trim())) {
+                return Optional.of(operation);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Runs one of this plugin's declared operations.
+     *
+     * <p>The default implementation is the whole mechanism and contains no vendor code: it
+     * resolves the descriptor, builds the request from it and the caller's values through
+     * the shared {@link PluginOperationClient}, and returns the answer as a
+     * {@link ServerOperationResult}. A plugin therefore exposes a vendor endpoint by
+     * declaring it and nothing more — which is the entire point of this seam, and the
+     * reason {@code if (serverType == SMILE)} never appears anywhere in the application.</p>
+     *
+     * <p>Overrides exist for the cases a descriptor cannot express: an endpoint that needs
+     * a signature computed from a secret, or a response that has to be read by vendor code
+     * before the application sees it.</p>
+     *
+     * @param session    the session to send on; supplies the base URL, timeout and credentials
+     * @param invocation the operation id and the caller's values
+     * @return the server's answer, including an answer that was a refusal
+     * @throws ServerOperationException with kind {@code BAD_REQUEST} when the operation is
+     *         not declared, {@code UNAUTHORIZED} when it needs credentials the session does
+     *         not have, or the mapped transport failure when no answer arrived
+     */
+    default ServerOperationResult executeOperation(ServerSession session,
+            ServerOperationInvocation invocation) throws ServerOperationException {
+        if (session == null || session.server() == null) {
+            throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
+                    "A server is required.");
+        }
+        if (invocation == null) {
+            throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
+                    "An operation call is required.");
+        }
+        ServerOperation operation = operation(invocation.operationId())
+                .orElseThrow(() -> new ServerOperationException(ServerOperationException.Kind.UNSUPPORTED,
+                        "This server plugin does not offer an operation called '"
+                                + invocation.operationId() + "'."));
+        try (PluginOperationClient client = new PluginOperationClient(session)) {
+            return client.execute(operation, invocation);
+        }
     }
 
     /**

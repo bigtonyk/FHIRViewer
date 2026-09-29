@@ -180,11 +180,16 @@ public class FirelyPlugin extends StandardFhirRestPlugin {
     /**
      * A {@link ServerCapabilities} wrapper that tags the result as coming from
      * a Firely Server, so the UI can show Firely-specific options.
+     *
+     * <p>The interaction and per-type detail is copied as well as the three headline
+     * fields. Copying only those would present a Firely Server as supporting nothing
+     * beyond the bare version string, which is both wrong and worse than the un-tagged
+     * result the wrapper is decorating.
      */
     public static final class FirelyServerCapabilities extends ServerCapabilities {
 
         public FirelyServerCapabilities(ServerCapabilities delegate) {
-            super(delegate.fhirVersion(), delegate.resourceTypes(), delegate.pagingSupported());
+            super(delegate);
         }
 
         /** True — this capability set was produced for a Firely Server. */
