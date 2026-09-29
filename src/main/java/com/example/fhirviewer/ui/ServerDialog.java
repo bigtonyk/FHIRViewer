@@ -1,5 +1,6 @@
 package com.example.fhirviewer.ui;
 
+import java.util.List;
 import java.util.Optional;
 
 import javafx.scene.control.Button;
@@ -41,6 +42,13 @@ public class ServerDialog extends Dialog<ServerDefinition> {
     private final Button testButton = new Button("Test connection");
     private final Label statusLabel = new Label(" ");
     private final Button saveButton;
+
+    /**
+     * What the dialog hands back, kept so {@link #resultFor(String)} can ask it the same
+     * question a press would. JavaFX does not expose the converter it was given, and
+     * rebuilding one here would test the copy rather than the real thing.
+     */
+    private javafx.util.Callback<ButtonType, ServerDefinition> resultConverter;
 
     public ServerDialog(FhirServerService serverService, ThemeManager themeManager) {
         this.serverService = serverService;
@@ -110,7 +118,39 @@ public class ServerDialog extends Dialog<ServerDefinition> {
             cancel.getStyleClass().add("button-ghost");
         }
 
-        setResultConverter(button -> ButtonType.OK.equals(button) ? definition() : null);
+        // Compared against the button that is actually registered, not ButtonType.OK.
+        // Those are different objects: OK is a predefined ButtonType the pane never
+        // received, so comparing against it meant this converter answered null for
+        // every press of Save and the dialog silently returned no server at all.
+        this.resultConverter = button -> saveType.equals(button) ? definition() : null;
+        setResultConverter(resultConverter);
+    }
+
+    /**
+     * What the dialog hands back for the button carrying this label.
+     *
+     * <p>Looks the button up among the ones the pane actually holds and runs the dialog's
+     * own result converter against it, which is exactly what a press does. It cannot use
+     * {@code showAndWait}, because that blocks the JavaFX thread a test runs it on and
+     * would deadlock, and it does not need to: the converter is a pure function of the
+     * button, so asking it the question a press would ask is the same assertion.
+     *
+     * <p>Exists because of a defect this now catches. The dialog registered its own "Save"
+     * {@code ButtonType} but the converter compared against {@code ButtonType.OK}, a
+     * different object the pane never received, so every press produced null. The window
+     * therefore never added a server and every Tools item that needed one did nothing -
+     * while the screen built perfectly and every other test still passed.</p>
+     *
+     * @param buttonLabel the label the user sees, for example {@code "Save"}
+     * @return what the dialog would hand back, or {@code null} for a cancel
+     */
+    ServerDefinition resultFor(String buttonLabel) {
+        for (ButtonType type : getDialogPane().getButtonTypes()) {
+            if (type.getText().equals(buttonLabel)) {
+                return resultConverter.call(type);
+            }
+        }
+        throw new IllegalArgumentException("No button labelled '" + buttonLabel + "'");
     }
 
     /** The server the user described, validated by the model layer. */
@@ -120,6 +160,17 @@ public class ServerDialog extends Dialog<ServerDefinition> {
                 .fhirVersion(versionBox.getValue())
                 .pluginId(plugin == null ? "" : plugin.id())
                 .build();
+    }
+
+    /**
+     * The dialog's own text fields, so a test can fill them as a user would.
+     *
+     * <p>Read-only and package-private, for the same reason as {@link #resultFor}: the
+     * smoke test asks a real dialog rather than reimplementing the flow, which is the only
+     * way to catch a result converter that disagrees with the buttons the pane holds.</p>
+     */
+    List<TextField> textFieldsByPrompt() {
+        return List.of(nameField, urlField);
     }
 
     private void renderPluginNames() {

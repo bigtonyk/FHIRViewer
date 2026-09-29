@@ -201,7 +201,11 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         }
 
         setResultConverter(button -> {
-            IBaseResource resource = ButtonType.OK.equals(button) ? selectedResource() : null;
+            // openType, not ButtonType.OK: those are different objects, and the pane was
+            // never given the predefined OK type. Comparing against OK made this answer
+            // null for every press of "Open in viewer", so a picked resource was
+            // discarded and the window never received anything to show.
+            IBaseResource resource = openType.equals(button) ? selectedResource() : null;
             return resource == null ? null : asLoadedResource(resource);
         });
     }

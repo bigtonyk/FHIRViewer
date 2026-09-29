@@ -2,6 +2,7 @@ package com.example.fhirviewer.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.GraphicsEnvironment;
@@ -200,6 +201,66 @@ class ServerUiSmokeTest {
                     manager.servers().get(0));
             dialog.close();
         });
+    }
+
+    @Test
+    @DisplayName("The add-server screen returns its definition when Save is pressed")
+    void addScreenReturnsADefinition() throws Exception {
+        // The bug this guards: the dialog registered its own "Save" ButtonType but
+        // compared the result converter against ButtonType.OK, a different object the pane
+        // never received. Every press therefore produced null, the window added no server,
+        // and every Tools item that needed one quietly did nothing.
+        //
+        // The screen built perfectly, which is why every other test here passed while the
+        // whole server feature was dead. Only asking the converter about the button the
+        // pane really holds could have caught it.
+        AtomicReference<ServerDefinition> returned = new AtomicReference<>();
+        runOnFxThread(() -> {
+            ServerDialog dialog = new ServerDialog(service, themeManager);
+            dialog.textFieldsByPrompt().forEach(field -> {
+                if (field.getPromptText().contains("My HAPI Server")) {
+                    field.setText("Canned");
+                } else {
+                    field.setText(server.baseUrl());
+                }
+            });
+            returned.set(dialog.resultFor("Save"));
+        });
+        assertNotNull(returned.get(),
+                "pressing Save must return the definition the user described, or no server"
+                        + " is ever added and every server feature stays dead");
+        assertEquals("Canned", returned.get().name());
+        assertEquals(server.baseUrl(), returned.get().baseUrl());
+    }
+
+    @Test
+    @DisplayName("The add-server screen returns nothing when Cancel is pressed")
+    void addScreenReturnsNothingOnCancel() throws Exception {
+        AtomicReference<ServerDefinition> returned = new AtomicReference<>();
+        runOnFxThread(() -> {
+            ServerDialog dialog = new ServerDialog(service, themeManager);
+            returned.set(dialog.resultFor("Cancel"));
+        });
+        assertNull(returned.get(), "Cancel must not hand back a definition");
+    }
+
+    @Test
+    @DisplayName("The add-server screen refuses to return a definition it cannot build")
+    void addScreenRefusesAnIncompleteDefinition() throws Exception {
+        AtomicReference<Throwable> thrown = new AtomicReference<>();
+        runOnFxThread(() -> {
+            ServerDialog dialog = new ServerDialog(service, themeManager);
+            // Empty fields: the model layer must refuse rather than the dialog handing
+            // back something unusable and the window adding a broken server.
+            try {
+                thrown.set(null);
+                dialog.resultFor("Save");
+            } catch (IllegalArgumentException expected) {
+                thrown.set(expected);
+            }
+        });
+        assertNotNull(thrown.get(),
+                "a blank name must be refused, not stored as a server that cannot be reached");
     }
 
     /**
