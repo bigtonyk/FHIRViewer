@@ -84,6 +84,97 @@ public final class FhirServerManager {
         return server != null && active != null && server.name().equals(active.name());
     }
 
+    /**
+     * The default file the server list is kept in, under the application's settings
+     * directory.
+     *
+     * <p>Named in one place, beside the plugin settings path in {@code MainWindow}, so
+     * the code that loads the list and the code that saves it cannot disagree about where
+     * the file is.</p>
+     */
+    public static Path defaultStoreFile() {
+        return Path.of(System.getProperty("user.home", "."), ".fhirviewer",
+                "server-definitions.properties");
+    }
+
+    /**
+     * Adds every server saved at the given path, and restores the active selection.
+     *
+     * <p>Additive rather than a replacement: the caller decides when to load, and
+     * loading on top of servers already added in this session should not discard them.
+     * A saved name that is already configured is skipped, because a duplicate would make
+     * "which server did that resource come from?" unanswerable - the origin records a
+     * base URL, and two entries with one name cannot be told apart by the user either.</p>
+     *
+     * <p>A file that cannot be read is logged and treated as an empty list rather than
+     * thrown. Failing to start because a settings file is damaged would be a far worse
+     * outcome than starting with no servers, which the user can re-add in one dialog.</p>
+     *
+     * @return how many servers were added
+     */
+    public int load(Path storeFile) {
+        Objects.requireNonNull(storeFile, "storeFile");
+        ServerDefinitionStore store = new ServerDefinitionStore(storeFile);
+        List<ServerDefinition> saved;
+        String savedActive;
+        try {
+            saved = store.read();
+            savedActive = store.readActiveName();
+        } catch (IOException e) {
+            log.info("saved FHIR servers could not be read from {}: {}", storeFile, e.toString());
+            return 0;
+        }
+        int added = 0;
+        for (ServerDefinition definition : saved) {
+            if (add(definition)) {
+                added++;
+            }
+        }
+        restoreActive(savedActive);
+        log.info("loaded {} FHIR server(s) from {}", added, storeFile);
+        return added;
+    }
+
+    /**
+     * Writes the current servers and the active selection to the given path.
+     *
+     * @throws IOException when the file cannot be written; the caller decides whether a
+     *                     failed save is worth interrupting the user for, and a save
+     *                     triggered by adding a server is not
+     */
+    public void save(Path storeFile) throws IOException {
+        Objects.requireNonNull(storeFile, "storeFile");
+        new ServerDefinitionStore(storeFile).write(definitions(), active);
+    }
+
+    /** The configured servers narrowed to the persistable ones, in configuration order. */
+    private List<ServerDefinition> definitions() {
+        List<ServerDefinition> persistable = new ArrayList<>(servers.size());
+        for (FhirServerConfiguration server : servers) {
+            if (server instanceof ServerDefinition definition) {
+                persistable.add(definition);
+            }
+        }
+        return persistable;
+    }
+
+    /**
+     * Selects the previously active server by name.
+     *
+     * <p>Silently does nothing when the name is not among the loaded servers: the server
+     * it named was removed or never loaded, and inventing a selection would point the
+     * next search at a server the user did not choose.</p>
+     */
+    private void restoreActive(String name) {
+        if (name == null || name.isBlank()) {
+            return;
+        }
+        FhirServerConfiguration restored = find(name.trim());
+        if (restored != null) {
+            active = restored;
+        }
+    }
+
     private FhirServerConfiguration find(String name) {
         for (FhirServerConfiguration existing : servers) {
             if (existing.name().equals(name)) {

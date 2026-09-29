@@ -49,6 +49,9 @@ import com.example.fhirviewer.util.FileSupport;
  */
 public final class ServerDefinitionStore {
 
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(ServerDefinitionStore.class);
+
     /** Key prefix of a numbered server block. */
     private static final String BLOCK_PREFIX = "server.";
 
@@ -86,6 +89,21 @@ public final class ServerDefinitionStore {
      */
     public List<ServerDefinition> read() throws IOException {
         return parse(readProperties());
+    }
+
+    /**
+     * The name of the server that was active when the list was last written.
+     *
+     * <p>Read on its own rather than as a field of one of the returned definitions,
+     * because the name can name a server that has since been removed: the caller decides
+     * what to do about an active name it cannot match, and returning it verbatim keeps
+     * that decision in one place.</p>
+     *
+     * @return the saved name, or {@code null} when none was saved
+     * @throws IOException when the file exists but cannot be read
+     */
+    public String readActiveName() throws IOException {
+        return trimmed(readProperties().getProperty(ACTIVE_KEY));
     }
 
     /**
@@ -131,16 +149,25 @@ public final class ServerDefinitionStore {
         if (name == null || baseUrl == null) {
             return null;
         }
-        ServerDefinition.Builder builder = ServerDefinition.named(name, baseUrl);
-        String fhirVersion = trimmed(properties.getProperty(key + "fhirVersion"));
-        if (fhirVersion != null) {
-            builder.fhirVersion(fhirVersion);
+        ServerDefinition.Builder builder = null;
+        try {
+            builder = ServerDefinition.named(name, baseUrl);
+            String fhirVersion = trimmed(properties.getProperty(key + "fhirVersion"));
+            if (fhirVersion != null) {
+                builder.fhirVersion(fhirVersion);
+            }
+            String pluginId = trimmed(properties.getProperty(key + "pluginId"));
+            if (pluginId != null) {
+                builder.pluginId(pluginId);
+            }
+            return builder.timeoutMillis(timeoutOf(properties, key)).build();
+        } catch (IllegalArgumentException unusable) {
+            // The builder validates the base URL and refuses anything that is not one.
+            // That check is worth having, but a hand-edited file must not cost the user
+            // the servers in the other blocks, so the bad block is dropped instead.
+            log.info("skipping unreadable server definition at {}: {}", key, unusable.getMessage());
+            return null;
         }
-        String pluginId = trimmed(properties.getProperty(key + "pluginId"));
-        if (pluginId != null) {
-            builder.pluginId(pluginId);
-        }
-        return builder.timeoutMillis(timeoutOf(properties, key)).build();
     }
 
     /** The saved timeout, or the builder default when it is absent or not a number. */
