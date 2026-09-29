@@ -47,7 +47,8 @@ work can be resumed without re-reading the plan.
 Delivered against `docs/plans/Phase-7-Open-Save-from-FHIR-Server.md`. All six steps are
 done; see the note at the end of this file for what changed.
 
-**Still open across the plan as a whole:** phase 22's disabled test, and phases 29 and 30,
+**Still open across the plan as a whole:** `08_SECOND_BASE_URL_FOR_ADMIN_APIS.md`
+(a second base URL, needed for Smile CDR's administration API), and phases 29 and 30,
 which are review activities rather than code.
 
 ## Notes
@@ -150,3 +151,34 @@ JavaFX smoke tests building the new dialogs on a real toolkit. All offline.
 - `extraHeaders()` is not persisted, because `ServerDefinition` has no way to carry one and
   a header *value* is a secret. Documented on `ServerDefinitionStore` rather than silently
   dropped.
+
+### Operation discovery: Firely declared, the other two not
+
+Reported as "Run Server Operations says this plugin offers no operations for firely". Two
+causes, both addressed.
+
+**The message.** An empty list is the interface default, so it means "this plugin has not
+declared any" — not a fault in the user's setup. The screen now says that, and separates
+the two ways a list can be empty: a plugin that declares nothing, versus one whose
+operations all need credentials that are locked this session. The second points at Tools →
+Server Plugins, which is where the answer is.
+
+**The gap.** No shipped plugin overrode `availableOperations()`; only the two test fixtures
+did. The whole machinery around it had therefore only ever run against test plugins, which
+is why it looked complete in the suite and empty in the product.
+
+`FirelyPlugin` now declares fifteen operations — `$reindex`, `$reindex-all`, `$preload`,
+`$reset`, and a read-only search over each of the eleven conformance resource types.
+The paths were verified against a live Firely Server, which corrected two assumptions: the
+branch is `/administration` (not `/admin`), and the API is CRUD on FHIR resources rather
+than bespoke JSON endpoints. A `SearchParameter` search returned 1457 resources in a
+correctly shaped Bundle.
+
+`StandardFhirRestPlugin` and `SmileCdrPlugin` still declare nothing, deliberately rather
+than by oversight:
+
+- **Smile** cannot yet, because its JSON Admin API is served from a **different port**
+  (9000) than the FHIR endpoint, and a plugin can only address the configured base URL.
+  See `08_SECOND_BASE_URL_FOR_ADMIN_APIS.md`.
+- **Standard FHIR REST** has no vendor admin API to declare. Worth a look against the HAPI
+  test server, but that is its own piece of work.

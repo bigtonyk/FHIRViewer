@@ -1,0 +1,28 @@
+Plan the second base URL for vendor administration APIs
+
+Written while trying to declare Smile CDR's JSON Admin operations and
+discovering the plugin model cannot reach them. Recorded here so the next
+piece of work does not have to rediscover why.
+
+The blocker is structural, not a missing declaration. A server definition
+carries one base URL - the FHIR endpoint - and JdkHttpRestClient builds
+every request from it, so a plugin cannot address a different origin. That
+is invisible for Firely, whose administration API is a branch of the same
+origin (/administration), and fatal for Smile, whose JSON Admin API is
+served from port 9000 while the FHIR endpoint is typically 8000.
+Declaring version/ today would send it to https://host:8000/fhir/version/
+and fail against every real server.
+
+The plan proposes an optional administrationBaseUrl(), null meaning "same
+origin", which is the common case and leaves Firely needing no
+configuration at all. It also records the two dead ends already walked, so
+they are not walked again: the Firely branch is /administration and not
+/admin, which only a live query revealed; and hapi.fhir.org/baseR4, offered
+as the Smile test server, is a HAPI FHIR server by its own
+CapabilityStatement. There is currently no reachable public Smile CDR, so
+the plan asks for a local one rather than letting documentation-derived
+paths ship unverified.
+
+Per-invocation port entry is recorded as rejected, with the reason: a
+user-typed host and port on every run is a misdelivery hazard and a second
+credential path, and it would be thrown away by the real fix anyway.
