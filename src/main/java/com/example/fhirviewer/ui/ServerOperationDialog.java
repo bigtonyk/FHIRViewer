@@ -223,9 +223,37 @@ public class ServerOperationDialog extends Dialog<ServerOperationDialog.Outcome>
                     List<ServerOperation> operations = attempt.value();
                     operationList.getItems().setAll(operations);
                     showStatus(operations.isEmpty()
-                            ? "This plugin offers no operations for " + server.name() + "."
-                            : operations.size() + " operation(s) available on " + server.name() + ".", false);
+                            ? noOperationsMessage(server)
+                            : operations.size() + " operation(s) available on " + server.name() + ".",
+                            false);
                 });
+    }
+
+    /**
+     * What to say when a plugin offers nothing to run.
+     *
+     * <p>An empty list is the interface's default, so it means "this plugin has not
+     * declared any", not "something went wrong". Saying so plainly matters because the
+     * alternative reads like a fault in the user's own setup: the screen works, the list
+     * really is empty, and a user who cannot tell the difference goes looking for a
+     * misconfiguration that is not there.
+     *
+     * <p>The two reasons a list can be empty are separated because they call for different
+     * answers. A plugin that declares nothing is a limitation to know about; a plugin
+     * that declared things this session cannot run is something to fix by unlocking
+     * credentials, and saying "declares nothing" there would send the user to the wrong
+     * place.</p>
+     */
+    private String noOperationsMessage(FhirServerConfiguration server) {
+        int declared = serverService.availableOperations(server).size();
+        if (declared > 0) {
+            return server.name() + " declares " + declared + " operation(s), but none can run"
+                    + " on this connection. Operations needing credentials are hidden until"
+                    + " they are unlocked in Tools > Server Plugins...";
+        }
+        return "The " + server.pluginId() + " plugin declares no operations."
+                + " Reading, searching and writing resources are unaffected; this screen"
+                + " covers the extra endpoints a vendor adds to FHIR REST.";
     }
 
     /**

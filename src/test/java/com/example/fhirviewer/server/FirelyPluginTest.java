@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.example.fhirviewer.server.rest.RestMethod;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
@@ -189,6 +190,80 @@ public class FirelyPluginTest {
         assertEquals(FirelyPlugin.PLUGIN_ID, definition.pluginId());
         assertTrue(definition.extraHeaders().isEmpty(),
                 "extra headers must not carry credentials by default");
+    }
+
+    @Test
+    @DisplayName("Firely declares its administration operations")
+    void declaresAdministrationOperations() {
+        List<ServerOperation> operations = plugin.availableOperations();
+
+        assertFalse(operations.isEmpty(),
+                "a Firely server has an administration API; declaring nothing leaves the"
+                        + " operation screen empty for every real user");
+
+        for (ServerOperation operation : operations) {
+            assertEquals(ServerOperation.Category.ADMINISTRATION, operation.category(),
+                    operation.id() + " is an administration operation");
+            assertTrue(operation.requiresAuthentication(),
+                    operation.id() + " runs against the administration API and needs credentials");
+        }
+    }
+
+    @Test
+    @DisplayName("The administration branch is 'administration', not 'admin'")
+    void usesTheRealAdministrationPath() {
+        // Checked explicitly because this is the one thing that would make every declared
+        // operation fail while looking entirely correct. Verified against a live Firely
+        // Server: /administration/SearchParameter answers a search, while /admin does not
+        // exist. Nothing else about the declaration could catch a wrong branch.
+        for (ServerOperation operation : plugin.availableOperations()) {
+            String path = operation.pathTemplate();
+            assertTrue(path.startsWith("administration/"),
+                    operation.id() + " should be under administration/, but was: " + path);
+            assertFalse(path.startsWith("admin/"),
+                    operation.id() + " uses the wrong branch: " + path);
+        }
+    }
+
+    @Test
+    @DisplayName("The conformance searches cover the types Firely documents")
+    void coversTheDocumentedConformanceTypes() {
+        // The list is from Firely's own administration API documentation. A type added to
+        // Firely's support but missing here would simply be absent from the screen, which
+        // is exactly the silent gap this phase is closing.
+        for (String type : List.of("SearchParameter", "StructureDefinition", "ValueSet",
+                "CodeSystem", "CompartmentDefinition", "StructureMap", "ConceptMap",
+                "Library", "Measure", "Questionnaire", "Subscription")) {
+            assertTrue(plugin.operation("list-" + type).isPresent(),
+                    "no operation declared for the " + type + " administration search");
+        }
+    }
+
+    @Test
+    @DisplayName("The maintenance operations are POSTs that return an outcome")
+    void maintenanceOperationsArePost() {
+        for (String id : List.of("$reindex", "$reindex-all", "$preload", "$reset")) {
+            ServerOperation operation = plugin.operation(id).orElseThrow(
+                    () -> new AssertionError("no operation declared for " + id));
+            assertEquals(RestMethod.POST, operation.method(), id + " is invoked with POST");
+            assertEquals(ServerOperation.ResultKind.OPERATION_OUTCOME, operation.expectedResult(),
+                    id + " answers with an OperationOutcome");
+        }
+    }
+
+    @Test
+    @DisplayName("The conformance searches are read-only")
+    void conformanceSearchesAreReadOnly() {
+        // The administration API does allow writing these types. They are not offered,
+        // because changing a conformance resource changes what a server validates against,
+        // and that should not sit behind a one-click generated form.
+        for (ServerOperation operation : plugin.availableOperations()) {
+            if (operation.id().startsWith("list-")) {
+                assertEquals(RestMethod.GET, operation.method(), operation.id() + " must be a read");
+                assertEquals(ServerOperation.ResultKind.BUNDLE, operation.expectedResult(),
+                        operation.id() + " is a FHIR search and answers with a Bundle");
+            }
+        }
     }
 
     @Test

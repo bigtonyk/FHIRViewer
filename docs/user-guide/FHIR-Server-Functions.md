@@ -354,6 +354,55 @@ vendor endpoints appear here without the application knowing they exist.
 Operations declared as needing authentication cannot be run anonymously; the
 viewer says so rather than sending a request that would be refused.
 
+### If the list is empty
+
+An empty list means **this plugin has not declared any operations** — it is not
+a fault in your setup. The screen covers the extra endpoints a vendor adds to
+FHIR REST; reading, searching and writing resources are unaffected and work
+through the File and Tools menus as normal.
+
+Which plugins declare operations today:
+
+| Plugin | Operations offered |
+|---|---|
+| **Standard FHIR REST** | None declared yet |
+| **Smile CDR** | None declared yet |
+| **Firely Server** | Its administration API — see below |
+
+A second, similar-looking case: a plugin *does* declare operations, but all of
+them need credentials and none are unlocked this session. That message says so
+explicitly and points at **Tools → Server Plugins...**, which is the answer.
+
+### Firely Server operations
+
+For a Firely server the list covers the **administration API** — a separate
+branch of the server, at `/administration`, holding the conformance resources
+the server validates against rather than patient data.
+
+| Operation | What it does |
+|---|---|
+| **Re-index resources** (`$reindex`) | Re-indexes so a new or changed SearchParameter takes effect |
+| **Re-index all resources** (`$reindex-all`) | The same for every resource; considerably slower |
+| **Preload resources** (`$preload`) | Loads resources into the index ahead of time |
+| **Reset the database** (`$reset`) | Erases the administration database and reloads it. **Destroys stored conformance resources.** |
+| **List *Type* (admin)** ×11 | Searches one conformance type: SearchParameter, StructureDefinition, ValueSet, CodeSystem, CompartmentDefinition, StructureMap, ConceptMap, Library, Measure, Questionnaire, Subscription |
+
+Worth knowing before you use them:
+
+- **All of them need credentials.** Unlock them in **Tools → Server Plugins...**
+  or the list will be empty.
+- **Some are network-restricted.** Firely can limit `$reindex`, `$reset`,
+  `$preload` and `$import-resources` to particular IP networks by configuration.
+  A `403` on one of those is the server's setting, not the viewer.
+- **The searches are read-only on purpose.** The administration API does allow
+  writing these resources, but it is not offered: changing a conformance
+  resource changes what a server validates against, which should not sit behind
+  a one-click generated form. Use a dedicated conformance client for that.
+- **`$reset` destroys data.** It is listed because it is a real operation, but
+  read its description before running it.
+- A Firely server holds a great many of these — over a thousand SearchParameters
+  and CodeSystems — so the searches take a `_count` to size the page.
+
 Results are deliberately **not** given a server origin. An operation's answer
 is something to look at, not something to save back, so no server menu item
 offers to write it.
@@ -399,6 +448,7 @@ The plugin configuration is a plain text file you can edit by hand.
 | Conditional write (`If-Match`) | Yes, when the server reports a version | Yes | Yes |
 | PATCH | Yes | Yes | Yes |
 | `$`-operations | Yes | Yes | Yes |
+| Administration operations | No | No | **Yes** — the Firely administration API |
 | Vendor screens | None | None | Declared, not yet implemented |
 
 **Standard FHIR REST** is the right choice for anything that speaks ordinary
@@ -522,7 +572,9 @@ Stated plainly, so nothing here reads as working when it does not.
 
 | Not built yet | What you get instead |
 |---|---|
-| **Vendor screens** (*Tools → Server Tools...*) | Firely's *Administration* screen is declared but reports "not implemented". Use **Run Server Operation...** for its endpoints. |
+| **Vendor screens** (*Tools → Server Tools...*) | Firely's *Administration* screen is declared but reports "not implemented". Its endpoints are reachable as individual operations under **Run Server Operation...**. |
+| **Operations for Standard FHIR REST and Smile CDR** | Neither plugin declares any yet, so the operation screen lists nothing for them. Reading, searching and writing are unaffected. |
+| **Writing conformance resources** | Firely's administration API allows it; the viewer deliberately offers those searches read-only. |
 | **FHIRPath patch** | The three body-shaped patch formats only. A FHIRPath patch is a `Parameters` resource, and sending it as a merge patch would be wrong. |
 | **More than one search parameter** | The search screens take one parameter and value. Leave both blank to browse a type. |
 | **A raw REST console** | Deliberately excluded. Arbitrary GET/POST/PUT/DELETE would need its own authentication, error mapping and paging. Use the operation screen. |
