@@ -2,6 +2,7 @@ package com.example.fhirviewer.server;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Stream;
 
 import org.hl7.fhir.r4.model.CapabilityStatement;
 import org.hl7.fhir.r4.model.CanonicalType;
@@ -200,6 +201,16 @@ public class FirelyPlugin extends StandardFhirRestPlugin {
                     .requiresAuthentication()
                     .returns(ServerOperation.ResultKind.OPERATION_OUTCOME)
                     .build(),
+            ServerOperation.builder("$import-resources", RestMethod.POST,
+                            "administration/$import-resources")
+                    .displayName("Import conformance resources")
+                    .description("Loads conformance resources into the administration API on"
+                            + " demand, so they are available without a restart. Reads from the"
+                            + " conformance resource repository configured on the server.")
+                    .category(ServerOperation.Category.ADMINISTRATION)
+                    .requiresAuthentication()
+                    .returns(ServerOperation.ResultKind.OPERATION_OUTCOME)
+                    .build(),
             ServerOperation.builder("$reset", RestMethod.POST, "administration/$reset")
                     .displayName("Reset the database")
                     .description("Erases the administration database and reloads it from "
@@ -219,6 +230,61 @@ public class FirelyPlugin extends StandardFhirRestPlugin {
             searchConformanceResources("Measure"),
             searchConformanceResources("Questionnaire"),
             searchConformanceResources("Subscription"));
+
+    /**
+     * Firely's clinical quality measure operations.
+     *
+     * <p><b>These run on the main FHIR endpoint, not the administration API</b>, so they are
+     * declared at the base URL rather than under {@code administration/}. They are listed
+     * separately for that reason, and a test asserts the two groups never drift into each
+     * other: a {@code administration/} prefix on a measure evaluation would 404, and a
+     * missing prefix would send a write to the administration database.</p>
+     *
+     * <p>From Firely's "Executing Digital Quality Measures" documentation. Available when
+     * the DQM module is licensed and deployed; a server without it answers with an
+     * OperationOutcome saying the operation is unknown, which is a server setting rather
+     * than a mistake here.</p>
+     */
+    private static final List<ServerOperation> DQM_OPERATIONS = List.of(
+            ServerOperation.builder("$cql", RestMethod.POST, "$cql")
+                    .displayName("Evaluate CQL")
+                    .description("Evaluates a CQL expression against the resources on the"
+                            + " server and returns the result. Requires a CQL expression in"
+                            + " the request body.")
+                    .category(ServerOperation.Category.VENDOR)
+                    .requiresAuthentication()
+                    .requiresBody("application/fhir+json")
+                    .returns(ServerOperation.ResultKind.FHIR_RESOURCE)
+                    .build(),
+            ServerOperation.builder("$evaluate-measure", RestMethod.POST, "$evaluate-measure")
+                    .displayName("Evaluate a measure")
+                    .description("Evaluates a quality measure and returns a MeasureReport."
+                            + " Requires a Measure reference in the request body.")
+                    .category(ServerOperation.Category.VENDOR)
+                    .requiresAuthentication()
+                    .requiresBody("application/fhir+json")
+                    .returns(ServerOperation.ResultKind.FHIR_RESOURCE)
+                    .build(),
+            ServerOperation.builder("$data-requirements", RestMethod.POST, "$data-requirements")
+                    .displayName("Extract data requirements")
+                    .description("Returns the data a measure or library needs, as a Library"
+                            + " of DataRequirement resources. Useful before collecting data"
+                            + " for a measure.")
+                    .category(ServerOperation.Category.VENDOR)
+                    .requiresAuthentication()
+                    .requiresBody("application/fhir+json")
+                    .returns(ServerOperation.ResultKind.FHIR_RESOURCE)
+                    .build(),
+            ServerOperation.builder("$evaluate", RestMethod.POST, "$evaluate")
+                    .displayName("Evaluate an expression")
+                    .description("Evaluates a FHIRPath or CQL expression supplied in the"
+                            + " request body and returns the result. A general-purpose"
+                            + " calculator for trying expressions against real data.")
+                    .category(ServerOperation.Category.VENDOR)
+                    .requiresAuthentication()
+                    .requiresBody("application/fhir+json")
+                    .returns(ServerOperation.ResultKind.FHIR_RESOURCE)
+                    .build());
 
     /**
      * A search over one conformance resource type on the administration API.
@@ -255,12 +321,17 @@ public class FirelyPlugin extends StandardFhirRestPlugin {
      *
      * <p>The fine-grained counterpart to {@link #vendorActions()}: where a vendor action is
      * a whole screen, these are callable endpoints a form can be generated for. Every one
-     * is marked as needing credentials and as administration, so a locked session says
-     * why the list is empty rather than leaving the user to work it out.</p>
+     * is marked as needing credentials, so a locked session says why the list is unusable
+     * rather than leaving the user to work it out.</p>
+     *
+     * <p>Concatenated with {@code super} rather than replacing it: bulk export and import
+     * are inherited from the standard layer, and overriding without them would quietly
+     * remove them from a Firely server's list.</p>
      */
     @Override
     public List<ServerOperation> availableOperations() {
-        return ADMIN_OPERATIONS;
+        return Stream.concat(super.availableOperations().stream(),
+                Stream.concat(ADMIN_OPERATIONS.stream(), DQM_OPERATIONS.stream())).toList();
     }
 
     /**

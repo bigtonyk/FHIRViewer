@@ -32,7 +32,7 @@ work can be resumed without re-reading the plan.
 | 19 | UI Search | **done** |
 | 20 | UI Custom Operations | **done** |
 | 21 | Generic FHIR Server Plugin | **done** |
-| 22 | Smile CDR Plugin | **partial** — plugin exists; `SmileCdrPluginTest.java.hold` is still disabled |
+| 22 | Smile CDR Plugin | **partial** — plugin exists and declares operations; `SmileCdrPluginTest.java.hold` is still disabled, though its operation declarations are covered by `SmileCdrPluginOperationsTest` |
 | 23 | Firely Server Plugin | **done** |
 | 24 | UI Asynchronous Operations | **done** |
 | 25 | UI Error Handling | **done** |
@@ -48,8 +48,9 @@ Delivered against `docs/plans/Phase-7-Open-Save-from-FHIR-Server.md`. All six st
 done; see the note at the end of this file for what changed.
 
 **Still open across the plan as a whole:** `08_SECOND_BASE_URL_FOR_ADMIN_APIS.md`
-(a second base URL, needed for Smile CDR's administration API), and phases 29 and 30,
-which are review activities rather than code.
+(a second base URL, needed for Smile CDR's **Admin JSON API** — its reindex operations are
+on the FHIR endpoint and already work), and phases 29 and 30, which are review activities
+rather than code.
 
 ## Notes
 
@@ -152,7 +153,7 @@ JavaFX smoke tests building the new dialogs on a real toolkit. All offline.
   a header *value* is a secret. Documented on `ServerDefinitionStore` rather than silently
   dropped.
 
-### Operation discovery: Firely declared, the other two not
+### Operation discovery: all three plugins now declare
 
 Reported as "Run Server Operations says this plugin offers no operations for firely". Two
 causes, both addressed.
@@ -167,18 +168,33 @@ Server Plugins, which is where the answer is.
 did. The whole machinery around it had therefore only ever run against test plugins, which
 is why it looked complete in the suite and empty in the product.
 
-`FirelyPlugin` now declares fifteen operations — `$reindex`, `$reindex-all`, `$preload`,
-`$reset`, and a read-only search over each of the eleven conformance resource types.
-The paths were verified against a live Firely Server, which corrected two assumptions: the
-branch is `/administration` (not `/admin`), and the API is CRUD on FHIR resources rather
-than bespoke JSON endpoints. A `SearchParameter` search returned 1457 resources in a
-correctly shaped Bundle.
+Checked against each vendor's own documentation afterwards, which found **more missing than
+the first pass had declared** — and one wrong assumption about where they live.
 
-`StandardFhirRestPlugin` and `SmileCdrPlugin` still declare nothing, deliberately rather
-than by oversight:
+| Plugin | Declares | Source |
+|---|---|---|
+| `StandardFhirRestPlugin` | `$export`, `$import` | FHIR specification |
+| `SmileCdrPlugin` | `$reindex` (system), instance reindex, `$reindex-dryrun`, `$mark-all-resources-for-reindexing` | Smile "Search Parameter Reindexing" |
+| `FirelyPlugin` | the five admin operations, eleven conformance searches, and `$cql` / `$evaluate` / `$evaluate-measure` / `$data-requirements` | Firely Administration API and DQM documentation |
 
-- **Smile** cannot yet, because its JSON Admin API is served from a **different port**
-  (9000) than the FHIR endpoint, and a plugin can only address the configured base URL.
-  See `08_SECOND_BASE_URL_FOR_ADMIN_APIS.md`.
-- **Standard FHIR REST** has no vendor admin API to declare. Worth a look against the HAPI
-  test server, but that is its own piece of work.
+Things the documentation check corrected, each of which would have produced a screen that
+looked entirely plausible and failed on every real server:
+
+- **Firely's `$import-resources` was missing.** Documented, and it answers `403` on the live
+  server exactly as its network-protection setting says it should. It is now declared.
+- **Firely's measure operations are not administration operations.** They run on the main
+  FHIR endpoint, so they are declared at the base URL with no `administration/` prefix. A
+  prefix there would 404 on every server; a test now pins the two groups apart.
+- **Smile was wrongly assumed to have no addressable operations at all.** Its reindex family
+  is served from the **FHIR endpoint**, not the JSON Admin API, so it works with the base
+  URL already configured. `08_SECOND_BASE_URL_FOR_ADMIN_APIS.md` is corrected accordingly;
+  what still needs a second URL is the Admin JSON API, which is a much smaller piece of work
+  than that plan originally implied.
+- **Bulk operations belong on the base class.** Declared on `StandardFhirRestPlugin` so both
+  vendor plugins inherit them. Both overrides concatenate `super` rather than replacing it —
+  an override returning only its own list would have silently dropped bulk export and import
+  from a server that supports them.
+
+`$cql` returns `501 Not Implemented` against the public `server.fire.ly`, which is the DQM
+module simply not being deployed there rather than a wrong path. No declared path returns
+`404` on either test server.

@@ -365,35 +365,89 @@ Which plugins declare operations today:
 
 | Plugin | Operations offered |
 |---|---|
-| **Standard FHIR REST** | None declared yet |
-| **Smile CDR** | None declared yet |
-| **Firely Server** | Its administration API — see below |
+| **Standard FHIR REST** | Bulk `$export` and `$import` — see below |
+| **Smile CDR** | Its reindex family, plus the inherited bulk operations |
+| **Firely Server** | Its administration API, its measure operations, plus the inherited bulk operations |
 
 A second, similar-looking case: a plugin *does* declare operations, but all of
 them need credentials and none are unlocked this session. That message says so
 explicitly and points at **Tools → Server Plugins...**, which is the answer.
 
+### Bulk operations, on every server
+
+`$export` and `$import` come from the FHIR specification, so every plugin
+offers them and a vendor plugin keeps them alongside its own.
+
+- **Bulk export** (`$export`) — starts a background export of the whole server,
+  or of the types named by `_type`.
+- **Bulk import** (`$import`) — starts an import from NDJSON files already held
+  on the server as Binary resources. The files must be uploaded first; the
+  operation references them rather than carrying the data.
+
+Both are **asynchronous**. Each answers `202 Accepted` immediately with a
+`Content-Location` header naming a URL to poll, and the data arrives later as
+NDJSON files. The operation screen shows you that acknowledgement, not the
+exported data — this screen starts jobs rather than running them to completion.
+
+### Smile CDR operations
+
+Smile serves these from the **FHIR endpoint itself**, so they work with the
+address you already configured — no second URL is needed.
+
+| Operation | What it does |
+|---|---|
+| **Re-index resources (system)** (`$reindex`) | Re-indexes what `url` selects, or everything when omitted. Answers `202`; poll the `Content-Location` it returns. |
+| **Re-index one resource** | Re-indexes a single resource so a new SearchParameter takes effect for it. |
+| **Preview a re-index (dry run)** | Reports which search parameters *would* change, without altering the server. **Safe to run at any time.** |
+| **Mark all resources for re-indexing** | Deprecated by Smile in favour of `$reindex`; listed only for servers still relying on it. |
+
+- **The dry run is the one to reach for first.** It is a read, it changes
+  nothing, and it tells you what a full re-index would do before you start one.
+- It requires the FHIR Storage (RDBMS) module. A server without it answers
+  that the operation is unknown — a server setting, not a fault.
+- Re-indexing a large server is slow. Prefer the dry run, or scope `$reindex`
+  with a `url` such as `Patient?`.
+- `$reindex` also accepts `partitionId` on a multi-tenant server; `_ALL`
+  covers every partition.
+
 ### Firely Server operations
 
-For a Firely server the list covers the **administration API** — a separate
-branch of the server, at `/administration`, holding the conformance resources
-the server validates against rather than patient data.
+For a Firely server the list covers three groups.
+
+**The administration API** — a separate branch of the server, at
+`/administration`, holding the conformance resources the server validates
+against rather than patient data.
 
 | Operation | What it does |
 |---|---|
 | **Re-index resources** (`$reindex`) | Re-indexes so a new or changed SearchParameter takes effect |
 | **Re-index all resources** (`$reindex-all`) | The same for every resource; considerably slower |
 | **Preload resources** (`$preload`) | Loads resources into the index ahead of time |
+| **Import conformance resources** (`$import-resources`) | Loads conformance resources on demand, so they are available without a restart |
 | **Reset the database** (`$reset`) | Erases the administration database and reloads it. **Destroys stored conformance resources.** |
 | **List *Type* (admin)** ×11 | Searches one conformance type: SearchParameter, StructureDefinition, ValueSet, CodeSystem, CompartmentDefinition, StructureMap, ConceptMap, Library, Measure, Questionnaire, Subscription |
 
-Worth knowing before you use them:
+**Quality measures** — these run on the **main FHIR endpoint**, not under
+`/administration`, and need a request body carrying the expression or measure.
+
+| Operation | What it does |
+|---|---|
+| **Evaluate CQL** (`$cql`) | Evaluates a CQL expression against the server's data |
+| **Evaluate a measure** (`$evaluate-measure`) | Evaluates a quality measure, returning a MeasureReport |
+| **Extract data requirements** (`$data-requirements`) | Returns the data a measure or library needs |
+| **Evaluate an expression** (`$evaluate`) | Evaluates a FHIRPath or CQL expression |
+
+These need Firely's DQM module licensed and deployed. A server without it
+answers `501 Not Implemented` — including the public test server at
+`server.fire.ly`, which is a server setting rather than a mistake.
+
+Worth knowing before you use the administration operations:
 
 - **All of them need credentials.** Unlock them in **Tools → Server Plugins...**
   or the list will be empty.
-- **Some are network-restricted.** Firely can limit `$reindex`, `$reset`,
-  `$preload` and `$import-resources` to particular IP networks by configuration.
-  A `403` on one of those is the server's setting, not the viewer.
+- **Some are network-restricted.** Firely can limit `$reindex`, `$reindex-all`,
+  `$reset`, `$preload` and `$import-resources` to particular IP networks by
+  configuration. A `403` on one of those is the server's setting, not the viewer.
 - **The searches are read-only on purpose.** The administration API does allow
   writing these resources, but it is not offered: changing a conformance
   resource changes what a server validates against, which should not sit behind
@@ -573,7 +627,8 @@ Stated plainly, so nothing here reads as working when it does not.
 | Not built yet | What you get instead |
 |---|---|
 | **Vendor screens** (*Tools → Server Tools...*) | Firely's *Administration* screen is declared but reports "not implemented". Its endpoints are reachable as individual operations under **Run Server Operation...**. |
-| **Operations for Standard FHIR REST and Smile CDR** | Neither plugin declares any yet, so the operation screen lists nothing for them. Reading, searching and writing are unaffected. |
+| **Smile CDR's Admin JSON API** | User, session and partition management sit on a separate port that the viewer cannot address yet. The reindex operations, which are on the FHIR endpoint, do work. See [Phase 8](../plans/08_SECOND_BASE_URL_FOR_ADMIN_APIS.md). |
+| **Bulk jobs are started, not finished** | `$export` and `$import` return `202` with a polling URL. The screen shows that acknowledgement; it does not follow the job to completion. |
 | **Writing conformance resources** | Firely's administration API allows it; the viewer deliberately offers those searches read-only. |
 | **FHIRPath patch** | The three body-shaped patch formats only. A FHIRPath patch is a `Parameters` resource, and sending it as a merge patch would be wrong. |
 | **More than one search parameter** | The search screens take one parameter and value. Leave both blank to browse a type. |
@@ -582,7 +637,7 @@ Stated plainly, so nothing here reads as working when it does not.
 | **Transaction bundles** | No multi-resource write. Write one resource at a time. |
 | **Conditional create / `$everything`** | Out of scope. |
 | **Subscriptions and push notifications** | Out of scope. |
-| **Smile CDR has no automated test** | Its test is disabled, so regressions there would not be caught by the suite. |
+| **Smile CDR's connection half has no automated test** | Its test file is disabled. The operation declarations added here are covered separately. |
 
 ---
 

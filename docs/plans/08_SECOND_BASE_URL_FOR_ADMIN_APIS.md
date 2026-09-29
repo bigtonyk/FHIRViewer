@@ -1,14 +1,26 @@
 # Phase 8 — A Second Base URL for Vendor Administration APIs
 
+> **Corrected after reading Smile's documentation.** This plan originally said Smile had
+> **no** addressable operations. That was wrong, and checking the documentation rather than
+> the plan is what caught it. Smile exposes a reindex family — `$reindex`,
+> `$reindex-dryrun` and `$mark-all-resources-for-reindexing` — as **ordinary operations on
+> the FHIR endpoint**, not on the JSON Admin API. Those are now declared and work with the
+> single base URL already configured.
+>
+> What remains true is narrower: Smile's **JSON Admin API** (`/version/`, user and session
+> management, partition configuration) really is on a separate port and really is
+> unreachable today. That is still worth doing, and this plan still covers it — it just no
+> longer has a whole plugin's usability resting on it.
+
 ## Goal
 
 Let a plugin address a vendor's administration API when it is served from a
 **different origin** than the FHIR endpoint, so Smile CDR's JSON Admin API
 becomes reachable from the generic operation screen.
 
-Not an emergency, and not a bug. It is the reason
-`SmileCdrPlugin.availableOperations()` returns nothing while
-`FirelyPlugin` returns fifteen operations.
+Not an emergency, and not a bug. It is the reason Smile's **Admin JSON API**
+endpoints are absent from the operation screen, while its reindex operations —
+which live on the FHIR endpoint — are present.
 
 ## Why this exists
 
@@ -25,7 +37,9 @@ public interface FhirServerConfiguration {
 operation's path template against it. A plugin therefore **cannot address a
 different origin**, by construction.
 
-That is fine when the admin API shares the FHIR origin. Firely's does:
+That is fine when the admin API shares the FHIR origin, and fine when the
+operations live on the FHIR endpoint itself. It is a problem only for a
+genuinely separate origin:
 
 | | Firely | Smile CDR |
 |---|---|---|
@@ -33,9 +47,12 @@ That is fine when the admin API shares the FHIR origin. Firely's does:
 | Administration API | `https://server.fire.ly/administration` | `https://host:9000` |
 
 Firely's is a **branch of the same origin**, so the existing Firely
-declarations work unchanged. Smile's is a **separate port**, so declaring
-`version/` today would send the request to `https://host:8000/fhir/version/`
-and fail against every real server.
+declarations work unchanged. Smile's JSON Admin API is a **separate port**, so
+declaring `version/` today would send the request to
+`https://host:8000/fhir/version/` and fail against every real server.
+
+Smile's *reindex* operations are unaffected: they are served from the FHIR
+endpoint, so the single base URL reaches them, and they are already declared.
 
 ## Important
 

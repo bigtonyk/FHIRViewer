@@ -283,16 +283,59 @@ class ServerUiSmokeTest {
         ServerOperationDialog screen = builtFirely.get();
         assertNotNull(screen, "The operation screen was not built for the Firely plugin");
 
-        awaitCount(15, screen);
-        assertEquals(15, screen.operationCount(),
-                "a Firely server must show its administration operations, not an empty list");
+        // Counted from the plugin rather than hard-coded, so adding a documented operation
+        // does not turn into a failing test that has to be re-tuned. The assertions below
+        // check that specific operations are present, which is what actually matters; a
+        // magic number here would only ever detect that the number changed.
+        int expected = new com.example.fhirviewer.server.FirelyPlugin().availableOperations().size();
+        awaitCount(expected, screen);
+        assertEquals(expected, screen.operationCount(),
+                "the screen must show every operation the Firely plugin declares");
         assertTrue(screen.operationIds().contains("$reindex"),
                 "the re-index operation is missing from the screen");
+        assertTrue(screen.operationIds().contains("$import-resources"),
+                "Firely documents $import-resources; it must reach the screen");
+        assertTrue(screen.operationIds().contains("$cql"),
+                "the measure operations run on the FHIR endpoint and must reach the screen");
+        assertTrue(screen.operationIds().contains("$export"),
+                "bulk export is inherited from the standard layer and must survive the override");
 
         runOnFxThread(() -> screen.close());
     }
 
-    /** Waits for the operation list to reach the expected size, or gives up. */
+    @Test
+    @DisplayName("The operation screen lists the real Smile plugin's operations")
+    void listsTheRealSmileOperations() throws Exception {
+        // The same check for Smile, and the one that matters more: Smile used to declare
+        // nothing at all, so a Smile user saw an empty operation screen that looked like a
+        // failure. Driving the real plugin through the real screen is the only combination
+        // that would have caught it.
+        FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+        registry.register(new com.example.fhirviewer.server.SmileCdrPlugin());
+        FhirServerService service = new FhirServerService(registry);
+        FhirServerManager manager = new FhirServerManager();
+        manager.add(ServerDefinition.forSmileCdr("Smile", "https://example.org/fhir").build());
+
+        AtomicReference<ServerOperationDialog> built = new AtomicReference<>();
+        runOnFxThread(() -> built.set(new ServerOperationDialog(service, manager,
+                manager.servers().get(0), themeManager)));
+        ServerOperationDialog screen = built.get();
+        assertNotNull(screen, "The operation screen was not built for the Smile plugin");
+
+        int expected = new com.example.fhirviewer.server.SmileCdrPlugin()
+                .availableOperations().size();
+        awaitCount(expected, screen);
+        assertEquals(expected, screen.operationCount(),
+                "the screen must show every operation the Smile plugin declares");
+        assertTrue(screen.operationIds().contains("$reindex"),
+                "Smile's system re-index is missing from the screen");
+        assertTrue(screen.operationIds().contains("reindex-dryrun"),
+                "the dry run is the safe one and is the one most worth offering");
+        assertTrue(screen.operationIds().contains("$export"),
+                "bulk export is inherited from the standard layer and must survive the override");
+
+        runOnFxThread(() -> screen.close());
+    }
     private void awaitCount(int expected, ServerOperationDialog dialog) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
         while (System.nanoTime() < deadline) {

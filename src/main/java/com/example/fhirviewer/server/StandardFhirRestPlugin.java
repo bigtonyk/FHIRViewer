@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 import com.example.fhirviewer.server.rest.FhirOperationClient;
 import com.example.fhirviewer.server.rest.JdkHttpRestClient;
+import com.example.fhirviewer.server.rest.RestMethod;
 import com.example.fhirviewer.server.rest.RestOperationOutcome;
 import com.example.fhirviewer.server.rest.RestOutcomeParser;
 
@@ -57,6 +58,49 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
     public static final String PLUGIN_ID = "standard-rest";
 
     private static final Logger log = LoggerFactory.getLogger(StandardFhirRestPlugin.class);
+
+    /**
+     * The FHIR bulk data operations, which every conforming server is expected to offer.
+     *
+     * <p>Declared here rather than per vendor so that {@link SmileCdrPlugin} and
+     * {@link FirelyPlugin}, which both extend this class, inherit them: bulk data is part of
+     * the FHIR specification, not a vendor extension, and duplicating it per plugin would
+     * give the three a chance to drift apart.</p>
+     *
+     * <p>Both are asynchronous. Each answers {@code 202 Accepted} with a
+     * {@code Content-Location} header naming a URL to poll, and the payload arrives later
+     * as NDJSON files wrapped in Binary resources — so neither completes within the request
+     * this screen makes. They are offered because starting a bulk job is genuinely useful
+     * and is the operation itself; note the completion behaviour in the description rather
+     * than leaving the user to infer it from a bare 202.</p>
+     */
+    private static final List<ServerOperation> BULK_OPERATIONS = List.of(
+            ServerOperation.builder("$export", RestMethod.GET, "$export")
+                    .displayName("Bulk export")
+                    .description("Starts a bulk export of the whole server, or of the"
+                            + " groups named by _type. Answers 202 Accepted immediately with a"
+                            + " Content-Location header; the export runs in the background and"
+                            + " the completed NDJSON files are fetched separately, so this"
+                            + " screen will show the acknowledgement rather than the data.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .requiresAuthentication()
+                    .queryParameter("_type", "Comma-separated resource types to export."
+                            + " Exports everything when omitted.", false)
+                    .queryParameter("_since", "Only resources changed after this instant.", false)
+                    .queryParameter("outputFormat", "application/fhir+ndjson by default.", false)
+                    .returns(ServerOperation.ResultKind.JSON)
+                    .build(),
+            ServerOperation.builder("$import", RestMethod.POST, "$import")
+                    .displayName("Bulk import")
+                    .description("Starts a bulk import from NDJSON files already held on the"
+                            + " server. The files must be uploaded as Binary resources first;"
+                            + " this operation references them rather than carrying the data."
+                            + " Answers 202 Accepted with a Content-Location header to poll.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .requiresAuthentication()
+                    .requiresBody("application/fhir+json")
+                    .returns(ServerOperation.ResultKind.JSON)
+                    .build());
 
     private final FhirContext context;
 
@@ -112,6 +156,18 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
     @Override
     public List<String> supportedFhirVersions() {
         return List.of("R4");
+    }
+
+    /**
+     * The bulk data operations every conforming FHIR server should offer.
+     *
+     * <p>Declared on this class so that the Smile CDR and Firely plugins, which both extend
+     * it, inherit them without restating the paths. That inheritance is also why their own
+     * declarations are additions rather than replacements.</p>
+     */
+    @Override
+    public List<ServerOperation> availableOperations() {
+        return BULK_OPERATIONS;
     }
 
     @Override
