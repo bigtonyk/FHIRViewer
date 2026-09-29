@@ -348,19 +348,15 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         });
     }
 
-    /** The criteria from the two fields; empty when the user left both blank. */
+    /**
+     * The criteria from the two fields; empty when the user left both blank.
+     *
+     * <p>Delegates to {@link SearchCriteriaBuilder} so this screen and
+     * {@code OpenFromServerDialog} cannot disagree about what a valid criterion is.</p>
+     */
     private List<SearchCriterion> criteria() {
-        String name = parameterField.getText() == null ? "" : parameterField.getText().trim();
-        String value = valueField.getText() == null ? "" : valueField.getText().trim();
-        if (name.isBlank() && value.isBlank()) {
-            return List.of();
-        }
-        if (name.isBlank() || value.isBlank()) {
-            reportFailure("Enter both a search parameter and a value.");
-            return null;
-        }
         try {
-            return List.of(new SearchCriterion(name, value));
+            return SearchCriteriaBuilder.from(parameterField.getText(), valueField.getText());
         } catch (IllegalArgumentException e) {
             reportFailure(e.getMessage());
             return null;

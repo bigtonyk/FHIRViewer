@@ -10,8 +10,11 @@ import com.example.fhirviewer.model.LoadedResource;
 import com.example.fhirviewer.server.FhirServerConfiguration;
 import com.example.fhirviewer.server.FhirServerManager;
 import com.example.fhirviewer.server.FhirServerService;
+import com.example.fhirviewer.server.SearchCriterion;
+import com.example.fhirviewer.server.SearchRequest;
 import com.example.fhirviewer.server.ServerCapabilities;
 
+import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.event.ActionEvent;
@@ -27,6 +30,8 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressIndicator;
+import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.ColumnConstraints;
@@ -51,6 +56,9 @@ import javafx.util.Callback;
  * only the result is handled on the JavaFX thread.</p>
  */
 public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
+
+    /** How many results a search asks for; one screenful, not a bulk export. */
+    private static final int PAGE_SIZE = 20;
 
     /** The result of a successful open: the resource, and the server it came from. */
     public record Outcome(FhirServerConfiguration server, String resourceType, String resourceId,
@@ -84,10 +92,14 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     private final ComboBox<FhirServerConfiguration> serverBox = new ComboBox<>();
     private final TextField typeField = new TextField();
     private final TextField idField = new TextField();
+    private final TextField parameterField = new TextField();
+    private final TextField valueField = new TextField();
     private final ListView<String> typeList = new ListView<>();
+    private final TableView<IBaseResource> results = new TableView<>();
     private final Label status = new Label(" ");
     private final Button loadTypes = new Button("Load types");
     private final Button readButton = new Button("Read");
+    private final Button searchButton = new Button("Search");
     private final ProgressIndicator progress = new ProgressIndicator(18);
 
     /** The dialog's own Read button, so a background result can be returned from it. */
@@ -155,9 +167,12 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     private Region buildContent() {
         typeField.setPromptText("Resource type, for example Patient");
         idField.setPromptText("Resource id");
+        parameterField.setPromptText("Search parameter, e.g. name");
+        valueField.setPromptText("Value to match, e.g. Smith");
 
         readButton.setDefaultButton(true);
         readButton.setOnAction(event -> readTypedResource());
+        searchButton.setOnAction(event -> search());
 
         // The cancel button is looked up by ButtonType (and cast back to Button), the
         // same way ServerDialog does it, rather than by ButtonData.
@@ -181,16 +196,17 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         query.add(typeField, 1, 1);
         query.add(new Label("Id:"), 0, 2);
         query.add(idField, 1, 2);
+        query.add(new Label("Parameter:"), 0, 3);
+        query.add(parameterField, 1, 3);
+        query.add(new Label("Value:"), 0, 4);
+        query.add(valueField, 1, 4);
         ColumnConstraints grow = new ColumnConstraints();
         grow.setHgrow(Priority.ALWAYS);
         query.getColumnConstraints().addAll(new ColumnConstraints(), grow);
 
-        HBox actions = new HBox(8, loadTypes, readButton);
+        HBox actions = new HBox(8, loadTypes, searchButton, readButton);
         actions.setPadding(new Insets(0, 12, 0, 12));
         actions.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
-
-        VBox left = new VBox(10, query, actions);
-        VBox.setVgrow(query, Priority.NEVER);
 
         typeField.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
             if (event.getCode() == javafx.scene.input.KeyCode.ENTER) {
@@ -205,18 +221,75 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
                 typeField.setText(selected);
             }
         });
+        typeList.setPrefHeight(180);
+        // Search can only be offered once there is a type to search, whether it was
+        // typed or picked from the list.
+        typeField.textProperty().addListener((obs, old, text) -> searchButton.setDisable(
+                busy || text == null || text.isBlank()));
 
         HBox statusBar = new HBox(8, progress, status);
         statusBar.setPadding(new Insets(6, 12, 6, 12));
         statusBar.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
         busyRegion = statusBar;
 
+        // Query, then the type list, then the actions: the left column answers "which
+        // resource", and the results table on the right answers "which one".
+        VBox left = new VBox(8, query, withPlaceholder(typeList), actions);
+        VBox.setVgrow(query, Priority.NEVER);
+        left.setPrefWidth(380);
+
         BorderPane pane = new BorderPane();
         pane.setLeft(left);
-        pane.setCenter(withPlaceholder(typeList));
+        pane.setCenter(withTablePlaceholder(resultsTable()));
         pane.setBottom(statusBar);
-        keepLabelsVisible(readButton, loadTypes);
+        keepLabelsVisible(readButton, loadTypes, searchButton);
         return pane;
+    }
+
+    /**
+     * The table of search results.
+     *
+     * <p>Columns are read-only, and the type is shown alongside the id because a Bundle
+     * can mix resource types and a bare list of ids gives no way to tell what was found.
+     * A table rather than a list so the version is visible before the user commits to
+     * reading one: that version is what a later write's conflict check will use, so
+     * seeing it here is the difference between an informed open and a blind one.</p>
+     */
+    private TableView<IBaseResource> resultsTable() {
+        TableColumn<IBaseResource, String> type = new TableColumn<>("Type");
+        type.setCellValueFactory(data -> new ReadOnlyStringWrapper(data.getValue().fhirType()));
+        type.setPrefWidth(140);
+        TableColumn<IBaseResource, String> id = new TableColumn<>("Id");
+        id.setCellValueFactory(data -> new ReadOnlyStringWrapper(idOf(data.getValue())));
+        TableColumn<IBaseResource, String> version = new TableColumn<>("Version");
+        version.setCellValueFactory(data -> new ReadOnlyStringWrapper(
+                data.getValue().getMeta() == null
+                        ? "" : nullToEmpty(data.getValue().getMeta().getVersionId())));
+        version.setPrefWidth(90);
+        results.getColumns().setAll(type, id, version);
+        results.getSelectionModel().selectedItemProperty().addListener(
+                (obs, old, selected) -> readButton.setDisable(busy || selected == null));
+        return results;
+    }
+
+    /**
+     * Wraps a table in a stack with a centred hint shown while the table is empty.
+     *
+     * <p>{@code TableView} has no placeholder API either, and an empty table with no
+     * heading reads as a failure rather than as "nothing searched yet". The hint is
+     * mouse-transparent so it cannot swallow a click meant for the (empty) table.</p>
+     */
+    private static Region withTablePlaceholder(TableView<IBaseResource> table) {
+        Label hint = new Label("Search results appear here. Select one and press Read.");
+        hint.setWrapText(true);
+        hint.setMouseTransparent(true);
+
+        StackPane stack = new StackPane(table, hint);
+        stack.setAlignment(Pos.CENTER);
+        table.itemsProperty().addListener(
+                (obs, old, items) -> hint.setVisible(items == null || items.isEmpty()));
+        hint.setVisible(true);
+        return stack;
     }
 
     /**
@@ -243,10 +316,18 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     /** Reads the typed type/id, so a user who knows the id never needs the list. */
     private void readTypedResource() {
         FhirServerConfiguration server = serverBox.getValue();
+        IBaseResource selected = results.getSelectionModel().getSelectedItem();
         String type = typeField.getText() == null ? "" : typeField.getText().trim();
         String id = idField.getText() == null ? "" : idField.getText().trim();
-        if (server == null || type.isEmpty() || id.isEmpty()) {
-            status.setText("Choose a server, and give both a resource type and an id.");
+        if (selected == null && (server == null || type.isEmpty() || id.isEmpty())) {
+            status.setText("Choose a server, select a search result, or give both a type and an id.");
+            return;
+        }
+        // A selected result wins: the user picked that row, and re-reading it by id could
+        // return a newer version than the one they chose, which would be a different
+        // resource from the one whose version they can see in the table.
+        if (selected != null) {
+            openSelected(server, selected);
             return;
         }
         setBusy(true, "Reading " + type + "/" + id + " ...");
@@ -262,6 +343,59 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
             }
             setResult(new Outcome(server, type, id, attempt.value()));
             close();
+        });
+    }
+
+    /**
+     * Hands a resource the user selected in the results table straight to the editor.
+     *
+     * <p>No second request: the search Bundle already carried the full resource, and
+     * re-reading it would both cost a round trip and risk returning a version newer than
+     * the one displayed.</p>
+     */
+    private void openSelected(FhirServerConfiguration server, IBaseResource resource) {
+        if (server == null) {
+            reportFailure("Choose a server first.");
+            return;
+        }
+        setResult(new Outcome(server, resource.fhirType(), idOf(resource), resource));
+        close();
+    }
+
+    /**
+     * Runs a search on the selected server and fills the results table.
+     *
+     * <p>The parameter and value are optional: leaving both blank asks the server for
+     * everything of that type, which is a legitimate way to browse. Half a criterion is
+     * refused by the shared {@link SearchCriteriaBuilder}, so the two search screens
+     * cannot disagree about what counts as a valid query.</p>
+     */
+    private void search() {
+        FhirServerConfiguration server = serverBox.getValue();
+        String type = typeField.getText() == null ? "" : typeField.getText().trim();
+        if (server == null || type.isEmpty()) {
+            status.setText("Choose a server and a resource type to search.");
+            return;
+        }
+        List<SearchCriterion> criteria;
+        try {
+            criteria = SearchCriteriaBuilder.from(parameterField.getText(), valueField.getText());
+        } catch (IllegalArgumentException e) {
+            reportFailure(e.getMessage());
+            return;
+        }
+        SearchRequest request = new SearchRequest(type, criteria, PAGE_SIZE);
+        setBusy(true, "Searching " + type + " ...");
+        run(() -> new Attempt<>(serverService.search(server, request), null), attempt -> {
+            setBusy(false, null);
+            if (!attempt.succeeded()) {
+                reportFailure(attempt.failure());
+                return;
+            }
+            List<IBaseResource> found = attempt.value() == null
+                    ? List.of() : attempt.value().resources();
+            results.getItems().setAll(found);
+            status.setText(found.size() + " resource(s) returned by " + server.name() + ".");
         });
     }
 
@@ -301,7 +435,11 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
             busyRegion.setVisible(true);
         }
         loadTypes.setDisable(nowBusy);
-        readButton.setDisable(nowBusy || serverBox.getValue() == null);
+        // Search needs a type; Read needs either a selected result or a typed id, so
+        // its enablement follows the selection rather than the server box.
+        searchButton.setDisable(nowBusy || typeField.getText() == null
+                || typeField.getText().isBlank());
+        readButton.setDisable(nowBusy || results.getSelectionModel().getSelectedItem() == null);
         if (message != null) {
             status.setText(message);
         }
@@ -324,6 +462,25 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
                         reportFailure(result.failure());
                     }
                 });
+    }
+
+    /**
+     * The server-assigned id, with any version stripped.
+     *
+     * <p>{@code IIdType} renders as {@code Patient/123/_history/2}, which is a history
+     * reference rather than the plain id the server addresses a resource by. Taking
+     * {@code getIdPart()} is what keeps a resource read from a search Bundle from being
+     * written back as a versioned path.</p>
+     */
+    private static String idOf(IBaseResource resource) {
+        if (resource == null || resource.getIdElement() == null) {
+            return "";
+        }
+        return nullToEmpty(resource.getIdElement().getIdPart());
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     /** Stops a button from collapsing to an ellipsis when the dialog is made narrow. */

@@ -6,15 +6,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.GraphicsEnvironment;
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.hl7.fhir.r4.model.Patient;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.example.fhirviewer.server.FhirServerConfiguration;
 import com.example.fhirviewer.server.FhirServerManager;
 import com.example.fhirviewer.server.FhirServerPluginRegistry;
 import com.example.fhirviewer.server.FhirServerService;
@@ -152,6 +155,49 @@ class ServerUiSmokeTest {
             PatchResourceDialog dialog = new PatchResourceDialog(
                     ServerOrigin.of("shapes", server.baseUrl(), "Patient", "123", "1"),
                     themeManager);
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("The save-to-server screen builds, with and without a version")
+    void buildsTheSaveScreen() throws Exception {
+        runOnFxThread(() -> {
+            Patient patient = new Patient();
+            FhirServerConfiguration only = manager.servers().get(0);
+            // A versioned resource: the force and unversioned rows are computed during
+            // construction, so this is the branch where both are decided.
+            SaveToServerDialog versioned = new SaveToServerDialog(manager.servers(), only,
+                    ServerOrigin.of(ShapePlugin.PLUGIN_ID, server.baseUrl(), "Patient", "123", "7"),
+                    patient, "Patient");
+            versioned.close();
+
+            // An unversioned resource: the warning about not being able to detect a
+            // conflicting change is the whole reason this branch exists.
+            SaveToServerDialog unversioned = new SaveToServerDialog(manager.servers(), only,
+                    ServerOrigin.of(ShapePlugin.PLUGIN_ID, server.baseUrl(), "Patient", "123", null),
+                    patient, "Patient");
+            unversioned.close();
+
+            // A resource that has never been on a server, which is a create.
+            SaveToServerDialog creating = new SaveToServerDialog(manager.servers(), null, null,
+                    patient, "Patient");
+            creating.close();
+
+            // An empty server list must not throw: there is no choice to offer, and the
+            // screen says so rather than failing to open.
+            SaveToServerDialog none = new SaveToServerDialog(List.of(), null, null,
+                    patient, "Patient");
+            none.close();
+        });
+    }
+
+    @Test
+    @DisplayName("The open-from-server screen builds with its search results table")
+    void buildsTheOpenScreen() throws Exception {
+        runOnFxThread(() -> {
+            OpenFromServerDialog dialog = new OpenFromServerDialog(service, manager,
+                    manager.servers().get(0));
             dialog.close();
         });
     }
