@@ -12,16 +12,16 @@ work can be resumed without re-reading the plan.
 | # | Phase | Status |
 |---|-------|--------|
 | 1 | Inspect the Existing Plugin Architecture | **done** |
-| 2 | Define the Common REST API | not started |
-| 3 | Create a Server REST Request/Response Model | not started |
-| 4 | Implement the Common HTTP Transport | not started |
-| 5 | Authentication Architecture | not started |
-| 6 | Standard FHIR REST Operations | not started |
-| 7 | High-Level FHIR Client API | not started |
-| 8 | Custom/Vendor REST Operations | not started |
-| 9 | Separate Standard and Vendor APIs | not started |
-| 10 | Server Capabilities | not started |
-| 11 | Server Status | not started |
+| 2 | Define the Common REST API | **done** (`f67a339`) |
+| 3 | Create a Server REST Request/Response Model | **done** (`f67a339`) |
+| 4 | Implement the Common HTTP Transport | **done** (`f67a339`) |
+| 5 | Authentication Architecture | **done** (`45663be`) |
+| 6 | Standard FHIR REST Operations | **done** |
+| 7 | High-Level FHIR Client API | **done** (`FhirOperationClient`) |
+| 8 | Custom/Vendor REST Operations | **done** |
+| 9 | Separate Standard and Vendor APIs | **done** |
+| 10 | Server Capabilities | **done** |
+| 11 | Server Status | **done** |
 | 12 | UI Plugin Operations API | **done** |
 | 13 | UI Operation Discovery | **done** |
 | 14 | UI Operation Model | **done** |
@@ -31,16 +31,24 @@ work can be resumed without re-reading the plan.
 | 18 | UI Resource Operations | **done** |
 | 19 | UI Search | **done** |
 | 20 | UI Custom Operations | **done** |
-| 21 | Generic FHIR Server Plugin | not started |
-| 22 | Smile CDR Plugin | not started |
-| 23 | Firely Server Plugin | not started |
+| 21 | Generic FHIR Server Plugin | **done** |
+| 22 | Smile CDR Plugin | **partial** — plugin exists; `SmileCdrPluginTest.java.hold` is still disabled |
+| 23 | Firely Server Plugin | **done** |
 | 24 | UI Asynchronous Operations | **done** |
 | 25 | UI Error Handling | **done** |
-| 26 | Logging and Diagnostics | not started |
-| 27 | Plugin Developer API | not started |
-| 28 | Testing | not started |
-| 29 | Backward Compatibility | not started |
-| 30 | Security Review | not started |
+| 26 | Logging and Diagnostics | **partial** — logged throughout; no diagnostics doc |
+| 27 | Plugin Developer API | **partial** — loader, registry and a mock plugin in tests; no published guide |
+| 28 | Testing | **done** — 499 tests, offline, `@TempDir` + localhost `HttpServer` |
+| 29 | Backward Compatibility | **not started** |
+| 30 | Security Review | **not started** |
+
+### Phase 7 — Open from / Save to a FHIR Server
+
+Delivered against `docs/plans/Phase-7-Open-Save-from-FHIR-Server.md`. All six steps are
+done; see the note at the end of this file for what changed.
+
+**Still open across the plan as a whole:** phase 22's disabled test, and phases 29 and 30,
+which are review activities rather than code.
 
 ## Notes
 
@@ -95,3 +103,50 @@ vendor actions become entries in that list rather than a separate menu.
 - Cancellation is cooperative: a cancel stops the UI waiting and stops the callback
   delivering, but a request already on the wire may still reach the server. The dialog's
   tooltip says so rather than overstating it.
+
+### Phase 7 — Open from / Save to a FHIR Server
+
+Steps 1–6 of `docs/plans/Phase-7-Open-Save-from-FHIR-Server.md` are complete. Steps 2 and
+3 (the plugin write verbs and `FhirServerService`) had landed earlier; the rest is new.
+
+| Step | Delivered as |
+|---|---|
+| 1. Persist server definitions | `ServerDefinitionStore` (properties, atomic write, no secrets) + `FhirServerManager.load/save`; loaded in the `MainWindow` constructor, saved after an add |
+| 2. Write verbs | already present: `FhirServerPlugin` defaults, `StandardFhirRestPlugin` with `If-Match` |
+| 3. Service + coordinator | `ServerResourceCoordinator` — **JavaFX-free**, owns validate-then-write, create-vs-update, conflict, force and origin rebasing |
+| 4. Open from Server | `OpenFromServerDialog` gained parameter/value fields and a results table; shared criteria building extracted to `SearchCriteriaBuilder` |
+| 5. Save to Server | `SaveToServerDialog` — target server, create/overwrite summary, version situation, force and unversioned checkboxes |
+| 6. Menu wiring | **File → Open from FHIR Server...** and **Save to FHIR Server...**, both state-dependent; removed from Tools, where they did not belong |
+
+**The two design decisions that mattered most:**
+
+- `LoadedResource` was **not** touched. `ServerOrigin` lives in `MainWindow` beside
+  `displayedResource`, so the file, sample and paste paths are unchanged and a resource
+  read from a server cannot be written back after the user opens an unrelated file.
+- Every decision a push makes moved out of the `MainWindow` handlers and into
+  `ServerResourceCoordinator`. That class is free of JavaFX, which is what makes
+  validate-before-push, the conflict outcome and the forced write assertable in a headless
+  build. `MainWindow` now only moves the result onto the FX thread and reacts to it.
+
+**Bugs found and fixed by the new tests:**
+
+- `ServerDefinitionStore` let a malformed block's `IllegalArgumentException` escape, so one
+  hand-edited entry with a bad base URL cost the user *every* server in the file. The bad
+  block is now skipped and logged.
+- `Properties.store` escapes the colons in a URL (`http\://...`), so the "no secret in the
+  file" test has to assert on a parsed round trip rather than on raw text. Worth knowing
+  before anything greps this file.
+- `withPlaceholder(ListView)` could not be reused for the new `TableView`; the results
+  table got its own, since neither control has a placeholder API of its own.
+
+**Tests:** 499 passing, up from 468. New: `ServerDefinitionPersistenceTest` (11),
+`ServerResourceCoordinatorTest` (14), `SearchCriteriaBuilderTest` (4), and two more
+JavaFX smoke tests building the new dialogs on a real toolkit. All offline.
+
+**Not done, deliberately:**
+
+- A raw REST console. The Phase 7 plan rules it out of this phase; it needs its own auth,
+  error mapping and paging, and belongs behind the plugin interface as a separate change.
+- `extraHeaders()` is not persisted, because `ServerDefinition` has no way to carry one and
+  a header *value* is a secret. Documented on `ServerDefinitionStore` rather than silently
+  dropped.

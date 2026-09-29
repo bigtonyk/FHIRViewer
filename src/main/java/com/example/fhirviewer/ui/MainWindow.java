@@ -150,6 +150,17 @@ public class MainWindow {
     private final FhirServerManager serverManager = new FhirServerManager();
 
     /**
+     * Decides and performs every write to a FHIR server.
+     *
+     * <p>Held as a field so the File menu action and the conflict handler share one
+     * instance, and so the rules about validation, create-versus-update, conflicts and
+     * the rebased origin are in one testable place rather than spread through the
+     * handlers below. It validates through {@code FhirService}, so a push is checked
+     * against the same rules as the Validate menu item.</p>
+     */
+    private ServerResourceCoordinator coordinator;
+
+    /**
      * Where plugin settings are kept.
      *
      * <p>Named in one place so the service that reads them and the dialog that writes
@@ -212,6 +223,17 @@ public class MainWindow {
     private MenuItem deleteFromServerItem;
 
     /**
+     * The File menu's server actions.
+     *
+     * <p>Both depend on state that is not known while the menu is being built: opening
+     * needs at least one configured server, and saving needs a displayed resource. Held
+     * as fields so {@link #updateServerActions()} can set their state whenever either
+     * changes, exactly as the existing Save and Undo items do.</p>
+     */
+    private MenuItem openFromServerItem;
+    private MenuItem saveToServerItem;
+
+    /**
      * Which profile validation runs against: automatic (the resource's own
      * {@code meta.profile}), the base FHIR R4 definition, or an installed IG
      * profile chosen by the user (Updates 11 and 12).
@@ -257,6 +279,8 @@ public class MainWindow {
     public MainWindow(Stage stage, HostServices hostServices) {
         this.stage = stage;
         this.hostServices = hostServices;
+        this.coordinator = new ServerResourceCoordinator(serverService, fhirService::validate);
+        loadSavedServers();
         buildLayout();
         wireInteractions();
         startIgPackageAutoLoad();
@@ -422,6 +446,15 @@ public class MainWindow {
         open.setAccelerator(KeyCombination.keyCombination("Shortcut+O"));
         open.setOnAction(event -> openFile());
 
+        // Phase 7. Held as fields like the other state-dependent items, because their
+        // enabled state depends on both the displayed resource and the configured
+        // servers, neither of which is known when the menu is built.
+        openFromServerItem = new MenuItem("Open from FHIR Server...");
+        openFromServerItem.setOnAction(event -> openFromServer());
+
+        saveToServerItem = new MenuItem("Save to FHIR Server...");
+        saveToServerItem.setOnAction(event -> saveToServer());
+
         saveMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+S"));
         saveMenuItem.setOnAction(event -> saveResource());
 
@@ -447,9 +480,11 @@ public class MainWindow {
         fileMenu.getItems().addAll(
                 newMenuItem,
                 open,
+                openFromServerItem,
                 new SeparatorMenuItem(),
                 saveMenuItem,
                 saveAsMenuItem,
+                saveToServerItem,
                 new SeparatorMenuItem(),
                 sampleMenu,
                 exportJson,
@@ -537,12 +572,6 @@ public class MainWindow {
         MenuItem managePlugins = new MenuItem("Server Plugins...");
         managePlugins.setOnAction(event -> managePlugins());
 
-        MenuItem openFromServer = new MenuItem("Open from FHIR Server...");
-        openFromServer.setOnAction(event -> openFromServer());
-
-        MenuItem saveToServer = new MenuItem("Save to FHIR Server...");
-        saveToServer.setOnAction(event -> saveToServer());
-
         MenuItem serverTools = new MenuItem("Server Tools...");
         serverTools.setOnAction(event -> openServerTools());
 
@@ -571,8 +600,12 @@ public class MainWindow {
         this.patchOnServerItem = patchOnServer;
         this.deleteFromServerItem = deleteFromServer;
 
-        return new Menu("Tools", null, validate, new SeparatorMenuItem(), searchServer, openFromServer,
-                saveToServer, new SeparatorMenuItem(), refreshFromServer, patchOnServer,
+        // Open from / Save to a server live in the File menu: they open and save the
+        // displayed resource, which is what the File menu is for. What remains here is
+        // the server administration, plus the actions on a resource already read from
+        // one.
+        return new Menu("Tools", null, validate, new SeparatorMenuItem(), searchServer,
+                refreshFromServer, patchOnServer,
                 deleteFromServer, new SeparatorMenuItem(), manageServers, managePlugins,
                 new SeparatorMenuItem(), serverStatus, runOperation, serverTools);
     }
@@ -1366,17 +1399,59 @@ public class MainWindow {
     // FHIR server connectivity
     // ------------------------------------------------------------------
 
+    /**
+     * Restores the servers configured in an earlier session.
+     *
+     * <p>Before this, {@code FhirServerManager} was in-memory only, so "Open from
+     * Server" worked for servers added in this one session and silently offered an empty
+     * list on the next morning. Loaded before the layout so the first menu state is
+     * already correct and "Open from FHIR Server" is not briefly greyed out.</p>
+     *
+     * <p>A damaged file is logged and skipped rather than reported: failing to start
+     * because a settings file is unreadable would be far worse than starting with no
+     * servers, which one dialog re-adds.</p>
+     */
+    private void loadSavedServers() {
+        int loaded = serverManager.load(FhirServerManager.defaultStoreFile());
+        if (loaded > 0) {
+            logger.info("Restored " + loaded + " configured FHIR server(s)");
+        }
+    }
+
     /** Adds a FHIR server through the server dialog and keeps it for this session. */
     private void manageServers() {
         ServerDialog dialog = new ServerDialog(serverService, themeManager);
         dialog.initOwner(stage);
         dialog.showAndWait().ifPresent(definition -> {
             boolean stored = serverManager.add(definition);
+            if (stored) {
+                persistServers();
+            }
             setStatus(stored
                     ? "Server " + definition.name() + " (" + definition.baseUrl() + ") added; use Tools >"
                             + " Search FHIR Server to search it."
                     : "A server named " + definition.name() + " is already configured.");
+            // The File menu's server items enable on the configured-server count, so the
+            // state has to be refreshed even when nothing was added.
+            updateEditActions();
         });
+    }
+
+    /**
+     * Writes the server list out, logging rather than interrupting on failure.
+     *
+     * <p>Called after an add, which is not worth an error dialog over: the server is in
+     * the list for this session, and the user can see the log if it does not survive.
+     * A save the user asked for explicitly is the case that should be reported.</p>
+     */
+    private void persistServers() {
+        try {
+            serverManager.save(FhirServerManager.defaultStoreFile());
+        } catch (IOException e) {
+            logger.warning("Could not save the FHIR server list: " + e.getMessage());
+            setStatus("The server was added for this session only: the list could not be saved ("
+                    + e.getMessage() + ").");
+        }
     }
 
     /**
@@ -1488,86 +1563,38 @@ public class MainWindow {
     }
 
     /**
-     * Asks which server to push a resource to when it did not come from one (a file, a
-     * sample, or pasted JSON). Uses the loaded servers the rest of the server UI uses, so
-     * anything already configured is selectable.
-     */
-    private FhirServerConfiguration chooseServerForNewResource() {
-        List<FhirServerConfiguration> servers = serverManager.servers();
-        if (servers.isEmpty()) {
-            setStatus("No FHIR server is configured. Use Tools > FHIR Servers... to add one.");
-            return null;
-        }
-        ChoiceDialog<FhirServerConfiguration> choice = new ChoiceDialog<>(servers.get(0));
-        choice.setTitle("Save to FHIR Server");
-        choice.setHeaderText("Which server should receive this resource?");
-        for (FhirServerConfiguration server : servers) {
-            choice.getItems().add(server);
-        }
-        return choice.showAndWait().orElse(null);
-    }
-
-    /**
-     * Confirms a write before it happens.
-     *
-     * <p>The wording states the target and whether the server will create a new resource
-     * or overwrite an existing one, because a viewer pushing to a clinical system is not
-     * something the user should be able to trigger by muscle memory.</p>
-     *
-     * @return {@code true} when the write should proceed
-     */
-    private boolean confirmServerWrite(FhirServerConfiguration target, boolean isUpdate,
-            String resourceType) {
-        String verb = isUpdate ? "Overwrite" : "Create";
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-        alert.setTitle("Save to FHIR Server");
-        alert.setHeaderText(verb + " " + resourceType + " on " + target.name() + "?");
-        alert.setContentText("Server: " + target.name() + "\n" + target.baseUrl()
-                + "\n\nThis sends the resource over the network and changes data on the server.");
-        ButtonType proceed = new ButtonType(verb, ButtonBar.ButtonData.OK_DONE);
-        alert.getButtonTypes().setAll(proceed, ButtonType.CANCEL);
-        return alert.showAndWait().filter(proceed::equals).isPresent();
-    }
-
-    /**
      * Writes the displayed resource back to the server it came from, or to a chosen
      * server when it did not come from one.
      *
-     * <p>Validation runs first and blocks the write: pushing a resource this viewer knows
-     * to be invalid onto a real server is worse than not pushing it. A conflict is
-     * surfaced rather than resolved silently, so a second user's work is never
-     * overwritten without a decision.</p>
+     * <p>The confirmation is {@link SaveToServerDialog}, which replaced a bare
+     * server-picker plus a separate alert. One screen now states the target, the verb
+     * and the version situation together, so the decision that was split across two
+     * dialogs is made in one place.</p>
+     *
+     * <p>A conflict is surfaced rather than resolved silently, so a second user's work is
+     * never overwritten without a decision; the rules themselves live in
+     * {@link ServerResourceCoordinator}.</p>
      */
     private void saveToServer() {
         if (displayedResource == null) {
             setStatus("Nothing to save. Open a FHIR resource first.");
             return;
         }
-        FhirServerConfiguration target = displayedOrigin == null
-                ? chooseServerForNewResource()
-                : serverFor(displayedOrigin);
-        if (target == null) {
-            return;
-        }
-        ValidationReport report = fhirService.validate(displayedResource);
-        if (!report.isValid()) {
-            statusView.showValidation(report);
-            long errors = report.count(ValidationIssue.Severity.ERROR)
-                    + report.count(ValidationIssue.Severity.FATAL);
-            setStatus("Not saved: the resource has " + errors
-                    + " validation error(s). Fix them, or save to a file instead.");
-            return;
-        }
-        // Existing id means update; no id means the server has not seen it yet.
-        boolean isUpdate = displayedOrigin != null && displayedOrigin.isSaved();
-        // IBaseResource has no display name; fhirType() is the type the server addresses it by.
+        FhirServerConfiguration preselect = serverFor(displayedOrigin);
+        // IBaseResource has no display name; fhirType() is the type the server addresses
+        // it by, and is the fallback when the resource has no origin to read it from.
         String resourceType = displayedOrigin != null
                 ? displayedOrigin.resourceType()
                 : displayedResource.fhirType();
-        if (!confirmServerWrite(target, isUpdate, resourceType)) {
+        SaveToServerDialog dialog = new SaveToServerDialog(serverManager.servers(), preselect,
+                displayedOrigin, displayedResource, resourceType);
+        dialog.initOwner(stage);
+        applyDialogTheme(dialog.getDialogPane());
+        SaveToServerDialog.Plan plan = dialog.showAndWait().orElse(null);
+        if (plan == null) {
             return;
         }
-        runServerWrite(target, isUpdate);
+        runServerWrite(plan.server(), plan.force());
     }
 
     /**
@@ -1578,81 +1605,70 @@ public class MainWindow {
      * duration, so the same plain daemon {@link Thread} pattern used for the IG package
      * auto-load is used here.</p>
      *
-     * <p>A {@link ServerOperationException.Kind#CONFLICT} is never resolved silently: it
-     * means the server holds a newer version than the editor loaded, so the user decides
-     * between discarding their change and forcing it. Every other failure is reported as
-     * a message, because the plugin layer has already mapped the HTTP status onto a
-     * {@link ServerOperationException} carrying a usable one.</p>
+     * <p>Every decision is delegated to {@link ServerResourceCoordinator}, which owns the
+     * validate-then-write rule, the create-versus-update choice, the conflict outcome and
+     * the rebased origin. This method only moves the result onto the JavaFX thread, so
+     * the rules that must not be wrong are testable without a toolkit.</p>
+     *
+     * @param force when set, the version is dropped so the write goes through even though
+     *              the server copy changed
      */
-    private void runServerWrite(FhirServerConfiguration target, boolean isUpdate) {
-        runServerWrite(target, isUpdate, displayedOrigin);
-    }
-
-    /**
-     * The same write against an explicit origin, so the conflict handler can retry with the
-     * version dropped without the editor's own origin having been mutated.
-     */
-    private void runServerWrite(FhirServerConfiguration target, boolean isUpdate,
-            ServerOrigin origin) {
-        if (!serverService.supportsWrite(target)) {
-            setStatus("The " + target.pluginId() + " plugin cannot write to this server.");
-            return;
-        }
+    private void runServerWrite(FhirServerConfiguration target, boolean force) {
         IBaseResource resource = displayedResource;
-        setStatus((isUpdate ? "Saving to " : "Creating on ") + target.name() + "...");
+        ServerOrigin origin = displayedOrigin;
+        setStatus(force ? "Overwriting on " + target.name() + "..." : "Saving to " + target.name() + "...");
         setBusy(true);
+        // The write is a network call and must not run on the JavaFX thread, or the
+        // window freezes for its whole duration. The coordinator is deliberately free of
+        // JavaFX, so it can be called straight from this worker and its value handed
+        // back to the UI thread.
         Thread worker = new Thread(() -> {
-            ServerWriteResult result = null;
-            Throwable failure = null;
+            ServerResourceCoordinator.PushResult result;
             try {
-                result = isUpdate
-                        ? serverService.update(target, resource, origin)
-                        : serverService.create(target, resource);
-            } catch (Throwable problem) {
-                failure = problem;
+                result = force
+                        ? coordinator.forceWrite(target, resource, origin)
+                        : coordinator.push(target, resource, origin);
+            } catch (RuntimeException unexpected) {
+                result = new ServerResourceCoordinator.PushResult(
+                        ServerResourceCoordinator.Outcome.FAILED, origin, null,
+                        ServerErrors.describe(unexpected), null);
             }
-            ServerWriteResult written = result;
-            Throwable error = failure;
-            Platform.runLater(() -> {
-                setBusy(false);
-                onServerWriteFinished(target, origin, resource, written, error);
-            });
+            ServerResourceCoordinator.PushResult outcome = result;
+            Platform.runLater(() -> onServerWriteFinished(target, resource, outcome));
         }, "server-write");
         worker.setDaemon(true);
         worker.start();
     }
 
     /**
-     * Reports the result of a server write and re-bases the editor's origin.
+     * Reports what the coordinator decided and updates the editor.
      *
-     * <p>Rebasing matters: the server may assign an id on create, and it always reports a
-     * fresh {@code meta.versionId}. Keeping the local view of those in step is what makes
-     * the <em>next</em> save's {@code If-Match} check compare against the right version.</p>
+     * <p>Handles each outcome the way it deserves: a write re-bases the origin so the
+     * <em>next</em> save's {@code If-Match} compares against the right version; a
+     * conflict is escalated to a user decision rather than resolved; a validation block
+     * shows the issues in the validation panel so they can actually be fixed.</p>
      */
-    private void onServerWriteFinished(FhirServerConfiguration target, ServerOrigin origin,
-            IBaseResource resource, ServerWriteResult result, Throwable failure) {
-        if (failure != null || result == null) {
-            if (failure instanceof ServerOperationException conflict
-                    && conflict.kind() == ServerOperationException.Kind.CONFLICT) {
-                resolveConflict(target, origin, conflict);
-                return;
-            }
-            setStatus("Not saved: " + ServerErrors.describe(failure));
+    private void onServerWriteFinished(FhirServerConfiguration target, IBaseResource resource,
+            ServerResourceCoordinator.PushResult result) {
+        setBusy(false);
+        if (result.isConflict()) {
+            resolveConflict(target, resource, result.origin());
             return;
         }
-        if (origin == null) {
-            // A create for a resource with no origin: build one from what the server said.
-            origin = ServerOrigin.unsaved(target.pluginId(), target.baseUrl(), resource.fhirType());
+        if (result.report() != null) {
+            // Show the issues whenever validation ran, not only on success: a resource
+            // that was written with warnings should still show them.
+            statusView.showValidation(result.report());
         }
-        ServerOrigin rebased = origin.rebased(result);
+        if (!result.written()) {
+            setStatus(result.message());
+            return;
+        }
+        ServerOrigin rebased = result.origin();
         display(new LoadedResource(resource, ResourceFormat.JSON,
                 rebased.resourceType() + "/" + rebased.resourceId(),
                 OpenFromServerDialog.serverLabel(target)), rebased);
-        setStatus((result.created() ? "Created " : "Updated ") + rebased.resourceType() + "/"
-                + rebased.resourceId() + " on " + target.name() + "."
-                + (rebased.hasVersion() ? ""
-                        : " The server reported no version, so changes made by others"
-                                + " cannot be detected before the next save."));
+        setStatus(result.message());
     }
 
     /**
@@ -1663,10 +1679,10 @@ public class MainWindow {
      * is how two people lose each other's work, so the dialog makes the cost of each
      * explicit and waits.</p>
      */
-    private void resolveConflict(FhirServerConfiguration target, ServerOrigin origin,
-            ServerOperationException conflict) {
-        if (origin == null) {
-            setStatus("Not saved: " + conflict.getMessage());
+    private void resolveConflict(FhirServerConfiguration target, IBaseResource resource,
+            ServerOrigin origin) {
+        if (origin == null || !origin.isSaved()) {
+            setStatus("Not saved: the server copy changed. Nothing was written.");
             return;
         }
         ButtonType reload = new ButtonType("Reload from server", ButtonBar.ButtonData.OK_DONE);
@@ -1684,8 +1700,8 @@ public class MainWindow {
         if (reload.equals(answer)) {
             reloadFromServer(target, origin);
         } else if (force.equals(answer)) {
-            // Force deliberately drops the version so the update goes without If-Match.
-            runServerWrite(target, true, origin.withoutVersion());
+            // The coordinator drops the version, so the update goes without If-Match.
+            runServerWrite(target, true);
         } else {
             setStatus("Not saved: the server copy changed. Nothing was written.");
         }
@@ -2378,6 +2394,7 @@ public class MainWindow {
      */
     private void updateServerActions() {
         boolean fromServer = displayedOrigin != null && displayedOrigin.isSaved();
+        boolean hasServer = !serverManager.servers().isEmpty();
         if (refreshFromServerItem != null) {
             refreshFromServerItem.setDisable(!fromServer);
         }
@@ -2386,6 +2403,18 @@ public class MainWindow {
         }
         if (deleteFromServerItem != null) {
             deleteFromServerItem.setDisable(!fromServer);
+        }
+        if (openFromServerItem != null) {
+            // With no server configured the action could only open the "add a server"
+            // dialog, which is not what the item says it does, so it is disabled and the
+            // user is pointed at the item that does add one.
+            openFromServerItem.setDisable(!hasServer);
+        }
+        if (saveToServerItem != null) {
+            // A resource to write and somewhere to write it to. A resource with no
+            // origin is still offered: a file or a sample can be pushed to a server, and
+            // that is a create rather than an update.
+            saveToServerItem.setDisable(displayedResource == null || !hasServer);
         }
     }
 
