@@ -263,6 +263,48 @@ class ServerUiSmokeTest {
                 "a blank name must be refused, not stored as a server that cannot be reached");
     }
 
+    @Test
+    @DisplayName("The operation screen lists the real Firely plugin's operations")
+    void listsTheRealFirelyOperations() throws Exception {
+        // The ShapePlugin case above proves the screen renders whatever a plugin declares.
+        // It does not prove a *shipped* plugin declares anything - and for a long time none
+        // of them did, so the screen was perfect in the suite and empty in the product.
+        // This drives the real FirelyPlugin through the real screen, which is the only
+        // combination that would have caught it.
+        FhirServerPluginRegistry firelyRegistry = new FhirServerPluginRegistry();
+        firelyRegistry.register(new com.example.fhirviewer.server.FirelyPlugin());
+        FhirServerService firelyService = new FhirServerService(firelyRegistry);
+        FhirServerManager firelyManager = new FhirServerManager();
+        firelyManager.add(ServerDefinition.forFirely("Public", "https://server.fire.ly").build());
+
+        AtomicReference<ServerOperationDialog> builtFirely = new AtomicReference<>();
+        runOnFxThread(() -> builtFirely.set(new ServerOperationDialog(firelyService, firelyManager,
+                firelyManager.servers().get(0), themeManager)));
+        ServerOperationDialog screen = builtFirely.get();
+        assertNotNull(screen, "The operation screen was not built for the Firely plugin");
+
+        awaitCount(15, screen);
+        assertEquals(15, screen.operationCount(),
+                "a Firely server must show its administration operations, not an empty list");
+        assertTrue(screen.operationIds().contains("$reindex"),
+                "the re-index operation is missing from the screen");
+
+        runOnFxThread(() -> screen.close());
+    }
+
+    /** Waits for the operation list to reach the expected size, or gives up. */
+    private void awaitCount(int expected, ServerOperationDialog dialog) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        while (System.nanoTime() < deadline) {
+            int[] seen = {0};
+            runOnFxThread(() -> seen[0] = dialog.operationCount());
+            if (seen[0] >= expected) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+    }
+
     /**
      * Waits briefly for the stub to record a request.
      *

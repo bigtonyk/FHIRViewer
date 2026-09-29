@@ -267,6 +267,44 @@ public class FirelyPluginTest {
     }
 
     @Test
+    @DisplayName("An anonymous Firely session still offers the operations")
+    void anonymousSessionStillSeesTheOperations() {
+        // Reproduces what a user does on a public Firely server: connect, open the
+        // operation screen, and be shown nothing. The list is filtered on nothing, so an
+        // anonymous session must see the same operations an authenticated one does -
+        // whether the server then refuses them is the server's business, and is reported
+        // per operation rather than by hiding the list.
+        ServerSession anonymous = new ServerSession(
+                ServerDefinition.forFirely("Public", "https://server.fire.ly").build(),
+                AnonymousServerAuthentication.INSTANCE);
+
+        List<ServerOperation> shown = plugin.supportedOperations(anonymous);
+
+        assertFalse(shown.isEmpty(),
+                "an anonymous session must still see the declared operations; an empty list"
+                        + " here is indistinguishable from the plugin declaring nothing");
+        assertEquals(plugin.availableOperations().size(), shown.size());
+    }
+
+    @Test
+    @DisplayName("The service returns the Firely operations for a Firely server")
+    void theServiceReturnsThem() {
+        // The same thing one layer up, through the only entry point the UI uses. A plugin
+        // whose declaration is right but which the registry does not resolve would still
+        // leave the screen empty, and this is the seam where that would show.
+        FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+        registry.register(plugin);
+        FhirServerService service = new FhirServerService(registry);
+
+        List<ServerOperation> shown = service.supportedOperations(
+                ServerDefinition.forFirely("Public", "https://server.fire.ly").build());
+
+        assertFalse(shown.isEmpty(),
+                "Run Server Operation lists service.supportedOperations, so an empty result"
+                        + " here is an empty screen");
+    }
+
+    @Test
     @DisplayName("An unreachable server fails cleanly instead of throwing")
     void unreachableServerFails() {
         ServerSession dead = new ServerSession(
