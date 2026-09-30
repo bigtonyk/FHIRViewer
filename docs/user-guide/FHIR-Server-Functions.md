@@ -389,7 +389,10 @@ Use this when a read fails, to tell "the server is unreachable" apart from
 The generic operation screen. The list comes from the server's plugin, so
 vendor endpoints appear here without the application knowing they exist.
 
-1. Pick a server.
+1. Pick a server from the **Server** drop-down at the top. It lists every
+   configured server, and defaults to whichever one the current resource
+   came from, or the active one. Changing it reloads the operation list for
+   that server, because each server's plugin offers different operations.
 2. Pick an operation from the list. The description explains what it does.
 3. Fill in the parameters the form asks for. Required ones are marked.
 4. Press **Run**.

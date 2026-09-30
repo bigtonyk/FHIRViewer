@@ -458,6 +458,53 @@ class ServerUiSmokeTest {
     }
 
     @Test
+    @DisplayName("The operation screen's server selector is actually on screen")
+    void theServerSelectorIsOnScreen() throws Exception {
+        // The server box was created, populated, given a cell factory, wired to reload the
+        // operation list, and read in three places - and never added to any layout. It
+        // worked perfectly and could not be seen, so the server was fixed at whatever the
+        // main window preselected.
+        //
+        // The check that would have caught it: walk the scene graph and require the control
+        // to be in it. A control that is not reachable from the dialog pane is not a control,
+        // however much of it is written and wired.
+        AtomicReference<Boolean> onScreen = new AtomicReference<>(false);
+        runOnFxThread(() -> {
+            FhirServerManager fresh = new FhirServerManager();
+            fresh.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
+            fresh.add(ServerDefinition.named("Test", "https://test.example.org/fhir").build());
+            ServerOperationDialog dialog = new ServerOperationDialog(service, fresh,
+                    fresh.servers().get(0), themeManager);
+            inspect(dialog.getDialogPane(), node -> {
+                if (node == dialog.serverBox()) {
+                    onScreen.set(true);
+                }
+            });
+            dialog.close();
+        });
+
+        assertTrue(onScreen.get(),
+                "the server selector is not in the scene graph, so the user cannot change"
+                        + " which server the operation runs against");
+    }
+
+    @Test
+    @DisplayName("The operation screen offers every configured server")
+    void theOperationScreenOffersEveryServer() throws Exception {
+        runOnFxThread(() -> {
+            FhirServerManager fresh = new FhirServerManager();
+            fresh.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
+            fresh.add(ServerDefinition.named("Test", "https://test.example.org/fhir").build());
+            ServerOperationDialog dialog = new ServerOperationDialog(service, fresh,
+                    fresh.servers().get(0), themeManager);
+            assertEquals(2, dialog.serverBox().getItems().size(),
+                    "every configured server must be selectable, or the user cannot run an"
+                            + " operation against the second one");
+            dialog.close();
+        });
+    }
+
+    @Test
     @DisplayName("No control in the manager claims an unbounded preferred width")
     void noControlHasAnUnboundedPreferredWidth() throws Exception {
         // A layout bug that cannot be seen from a test is not much use, and this class of
