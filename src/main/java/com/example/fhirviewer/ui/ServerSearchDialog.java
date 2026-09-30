@@ -494,6 +494,16 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         statusLabel.setText(message);
     }
 
+    /** The Search button, for tests. */
+    Button searchButton() {
+        return searchButton;
+    }
+
+    /** The parameters editor, for tests. */
+    SearchCriteriaEditor criteriaEditor() {
+        return criteriaEditor;
+    }
+
     /** The resource type currently in the form, for tests. */
     String typeBoxValue() {
         return typeBox.getValue();

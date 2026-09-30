@@ -676,6 +676,84 @@ class ServerUiSmokeTest {
         });
     }
 
+    /** A minimal, valid searchset Bundle with no entries. */
+    private static String searchBundleOf(String resourceType, int count) {
+        StringBuilder entries = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            entries.append("<entry><resource><")
+                    .append(resourceType)
+                    .append("><id>stub-").append(i).append("</id></")
+                    .append(resourceType)
+                    .append("></resource></entry>");
+        }
+        return "{\"resourceType\":\"Bundle\",\"type\":\"searchset\",\"entry\":["
+                + entries + "]}";
+    }
+
+    @Test
+    @DisplayName("Pressing Search leaves the search remembered for the next opening")
+    void pressingSearchRemembersItForNextTime() throws Exception {
+        // The gap this closes: every earlier test injected SearchMemory.remember() directly,
+        // which proved the restore path but never that pressing Search fills the memory in
+        // the first place. If search() returned early - no server chosen, no type, a bad
+        // parameter - nothing was recorded and the screen came back blank, and none of those
+        // tests could tell.
+        //
+        // So drive the real button on a real dialog, against the stub server, then throw the
+        // dialog away and build a new one with the same memory.
+        SearchMemory memory = new SearchMemory();
+        server.answerWith(200, "application/fhir+json", searchBundleOf("Patient", 0));
+
+        runOnFxThread(() -> {
+            ServerSearchDialog dialog = new ServerSearchDialog(service, manager, null,
+                    themeManager, memory);
+            dialog.simulateCapabilitiesArriving(List.of("Patient", "Observation"));
+            dialog.searchButton().fire();
+            dialog.close();
+        });
+
+        // The search runs on a worker; give it a moment before asking whether it landed.
+        Thread.sleep(1500);
+
+        assertNotNull(memory.last(),
+                "pressing Search did not record anything, so the next opening cannot "
+                        + "restore it - this is what the user sees as the search clearing");
+
+        runOnFxThread(() -> {
+            ServerSearchDialog reopened = new ServerSearchDialog(service, manager, null,
+                    themeManager, memory);
+            assertEquals("Patient", reopened.typeBoxValue(),
+                    "the searched-for type did not come back on the next opening");
+            reopened.close();
+        });
+    }
+
+    @Test
+    @DisplayName("The parameters come back too, not just the type")
+    void parametersComeBackAsWell() throws Exception {
+        // The type is the easy half. What the user actually types is the parameter list, and
+        // restoring the type while leaving that blank reads as "the search cleared".
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search(null, "Patient",
+                List.of(new SearchCriterion("family", "Smith"),
+                        new SearchCriterion("gender", "male")),
+                20));
+
+        runOnFxThread(() -> {
+            ServerSearchDialog reopened = new ServerSearchDialog(service, manager, null,
+                    themeManager, memory);
+            assertEquals(List.of("family", "gender"),
+                    reopened.criteriaEditor().criteria().stream()
+                            .map(SearchCriterion::name).toList(),
+                    "the parameters did not come back, so the search reads as cleared");
+            assertEquals(List.of("Smith", "male"),
+                    reopened.criteriaEditor().criteria().stream()
+                            .map(SearchCriterion::value).toList(),
+                    "the parameter values did not come back");
+            reopened.close();
+        });
+    }
+
     @Test
     @DisplayName("A search with no parameters is remembered")
     void searchWithoutParametersIsRemembered() {
