@@ -12,7 +12,7 @@ describing an ideal.
 ## Contents
 
 1. [What the server functions do](#1-what-the-server-functions-do)
-2. [Adding your first server](#2-adding-your-first-server)
+2. [Adding and editing servers](#2-adding-and-editing-servers)
 3. [Credentials](#3-credentials)
 4. [Finding a resource: three ways](#4-finding-a-resource-three-ways)
 5. [Editing a resource](#5-editing-a-resource)
@@ -56,29 +56,34 @@ appear in the menus without the application changing.
 
 ---
 
-## 2. Adding your first server
+## 2. Adding and editing servers
 
 **Tools → FHIR Servers...**
 
-The dialog has a list of the servers you have already configured on the left,
-and the details of the selected one on the right. Four buttons sit under the
-form.
+The dialog opens with a **Server** drop-down listing every configured server,
+so you can switch between them without leaving the form. Choosing one loads
+its details; typing a name that is not in the list starts a new one. The
+first entry is blank, which means "a new server" — that is how the first
+server gets added.
+
+Four buttons sit under the form:
 
 | Button | What it does |
 |---|---|
-| **Add** | Clears the form so you can describe a new server. Nothing is created until you press **Save**. |
-| **Save** | Adds the server, or updates the one selected. Takes effect immediately — there is no separate OK. |
-| **Delete** | Removes the selected server from the list. |
+| **Add** | Clears the form and returns the selector to the blank entry, ready to describe a new server. |
+| **Save** | Adds the server, or updates the one you picked. Takes effect immediately — there is no separate OK. |
+| **Delete** | Removes the server you picked from the list. Disabled until you pick one. |
 | **Test connection** | Fetches the server's `CapabilityStatement` and reports whether it is reachable. Works on whatever the form currently holds, so you can test before saving. |
 
-To correct a server that is already there: select it, change what needs
-changing, press **Save**. Editing replaces the server rather than adding a
-second one, so you do not end up with a stale copy to clean up.
+To correct a server that is already there: pick it from the drop-down, change
+what needs changing, press **Save**. Editing replaces the server rather than
+adding a second one, so you do not end up with a stale copy to clean up.
 
 The form asks for:
 
 | Field | What to enter |
 |---|---|
+| **Server** | Pick an existing one, or leave blank and type a **Name** for a new one |
 | **Name** | Any label you like. It is how you tell your servers apart, and it is the identity the viewer matches on, so names must be unique. |
 | **Base URL** | The server's FHIR root, e.g. `https://example.com/fhir` or `http://localhost:8080/fhir`. Must start with `http://` or `https://`. Trailing slashes are removed for you. |
 | **FHIR version** | `R4` is the only choice currently. |

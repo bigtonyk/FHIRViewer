@@ -32,6 +32,7 @@ import javafx.geometry.Bounds;
 import javafx.scene.Scene;
 import javafx.scene.Node;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 
 /**
@@ -250,7 +251,7 @@ class ServerUiSmokeTest {
 
         runOnFxThread(() -> {
             ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
-            dialog.serverList().getSelectionModel().selectFirst();
+            dialog.serverBox().getSelectionModel().select(1);
             dialog.form().urlField().setText("https://new.example.org/fhir");
             dialog.saveButton().fire();
             dialog.close();
@@ -270,7 +271,7 @@ class ServerUiSmokeTest {
 
         runOnFxThread(() -> {
             ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
-            dialog.serverList().getSelectionModel().selectFirst();
+            dialog.serverBox().getSelectionModel().select(1);
             dialog.deleteButton().fire();
             dialog.close();
         });
@@ -296,8 +297,13 @@ class ServerUiSmokeTest {
             built.get().close();
         });
 
-        assertEquals(2, built.get().serverList().getItems().size(),
-                "the manager must show the servers already configured");
+        assertEquals(3, built.get().serverBox().getItems().size(),
+                "the selector must offer the blank entry plus both configured servers, so the"
+                        + " user can switch between them from the form");
+        assertTrue(built.get().serverBox().getItems().contains("One"),
+                "the configured server names must be listed");
+        assertTrue(built.get().serverBox().getItems().contains("Two"),
+                "the configured server names must be listed");
     }
 
     @Test
@@ -321,39 +327,116 @@ class ServerUiSmokeTest {
     }
 
     @Test
-    @DisplayName("Save and Delete are disabled until a server is selected")
-    void managerDisablesActionsWithoutASelection() throws Exception {
+    @DisplayName("Delete needs a configured server; Save and Add are always available")
+    void managerDisablesDeleteWithoutASelection() throws Exception {
+        // With the selector, the blank entry means "a form ready for a new server", so Save
+        // is deliberately available from the moment the dialog opens - that is how a first
+        // server gets added, and disabling it there left no way to configure anything.
+        // Delete is different: it can only remove something that exists.
         AtomicReference<ServerManagerDialog> built = new AtomicReference<>();
         runOnFxThread(() -> {
             built.set(new ServerManagerDialog(service, new FhirServerManager(), null));
             built.get().close();
         });
 
-        assertTrue(built.get().saveButton().isDisabled(),
-                "Save with nothing selected would silently do nothing");
         assertTrue(built.get().deleteButton().isDisabled(),
-                "Delete with nothing selected would silently do nothing");
+                "Delete with no server selected would silently do nothing");
         assertFalse(built.get().addButton().isDisabled(),
                 "Add is how a first server gets configured, so it must always be available");
+        assertFalse(built.get().saveButton().isDisabled(),
+                "Save must be available on the blank selector entry, which is a form ready"
+                        + " for a new server");
     }
 
     @Test
-    @DisplayName("The configured-server list is actually visible once laid out")
-    void theListIsActuallyVisible() throws Exception {
-        // The tests above check properties. This one checks the symptom a user reports:
-        // "the list doesn't show". It lays the dialog out at a realistic window size and
-        // measures what the list ended up with, so a layout that is structurally correct but
-        // collapses to nothing still fails here.
-        //
-        // That collapse is what happened: a preferred width of MAX_VALUE on the status line
-        // made the whole chain of containers unbounded, and the list was squeezed to nothing
-        // beside it. Nothing about the population code was wrong.
+    @DisplayName("No two form fields are laid out in the same grid row")
+    void noTwoFieldsShareAGridRow() throws Exception {
+        // "User name" and "Password" were both added with `row` instead of `row++`, so they
+        // landed in the same cell. Their labels drew over each other and the label column
+        // clipped them to an ellipsis. Every other check passed: both controls existed, were
+        // enabled and were populated correctly - they were simply in the wrong place, which
+        // is invisible until someone looks at the window.
+        AtomicReference<String> clash = new AtomicReference<>();
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, new FhirServerManager(), null);
+            inspect(dialog.getDialogPane(), node -> {
+                if (node instanceof javafx.scene.layout.GridPane grid) {
+                    java.util.Map<Integer, java.util.List<Node>> rows = new java.util.HashMap<>();
+                    for (Node child : grid.getChildren()) {
+                        if (child instanceof javafx.scene.control.Label) {
+                            // Row labels must not share a row; controls may, in principle.
+                            if (rows.computeIfAbsent(GridPane.getRowIndex(child),
+                                    k -> new java.util.ArrayList<>()).size() > 1) {
+                                clash.set("row " + GridPane.getRowIndex(child));
+                            }
+                        }
+                    }
+                }
+            });
+            dialog.close();
+        });
+
+        assertNull(clash.get(), "two labels share grid " + clash.get()
+                + ", so they overlap and the narrow label column clips them");
+    }
+
+    @Test
+    @DisplayName("Choosing a server from the selector loads it into the form")
+    void choosingAServerLoadsIt() throws Exception {
+        // The behaviour the selector exists for: switch between configured servers without
+        // deleting and re-adding, and without a separate list to find the right one in.
         FhirServerManager fresh = new FhirServerManager();
         fresh.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
         fresh.add(ServerDefinition.named("Test", "https://test.example.org/fhir").build());
 
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
+            dialog.serverBox().getSelectionModel().select("Test");
+            assertEquals("https://test.example.org/fhir",
+                    dialog.form().urlField().getText(),
+                    "choosing a server must load its details");
+            dialog.serverBox().getSelectionModel().select("Prod");
+            assertEquals("https://prod.example.org/fhir",
+                    dialog.form().urlField().getText(),
+                    "choosing another server must replace what is loaded");
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("The selector opens on a new server rather than silently selecting one")
+    void theSelectorOpensOnNew() throws Exception {
+        // Without the blank entry an editable combo opens on the first configured server,
+        // so simply looking at the dialog would start an edit of it.
+        FhirServerManager fresh = new FhirServerManager();
+        fresh.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
+
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
+            // The blank entry is selected, not null: it is a real item in the drop-down and
+            // the user selects it deliberately to start a new server.
+            assertTrue(dialog.serverBox().getValue() == null
+                            || dialog.serverBox().getValue().isBlank(),
+                    "opening the dialog must not preselect a server, but selected "
+                            + dialog.serverBox().getValue());
+            assertTrue(dialog.form().urlField().getText().isEmpty(),
+                    "the form must start empty");
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("The form is actually visible once laid out")
+    void theFormIsActuallyVisible() throws Exception {
+        // Checks the symptom a user reports rather than a property. The dialog was once
+        // squashed to the left with the server list measured at 12px, because a preferred
+        // width of MAX_VALUE on the status line made every container above it unbounded.
+        // Laying out at a real window size and measuring is what catches that class of bug;
+        // asserting on grow priorities alone would not.
+        FhirServerManager fresh = new FhirServerManager();
+        fresh.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
+
         AtomicReference<double[]> bounds = new AtomicReference<>();
-        AtomicReference<Integer> rows = new AtomicReference<>(0);
         runOnFxThread(() -> {
             ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
             // The DialogPane is already the root of the dialog's own scene, so it cannot be
@@ -364,18 +447,14 @@ class ServerUiSmokeTest {
             Scene scene = new Scene(host, 900, 500);
             scene.getRoot().applyCss();
             scene.getRoot().layout();
-            Bounds laidOut = dialog.serverList().getBoundsInParent();
+            Bounds laidOut = dialog.form().nameField().getBoundsInParent();
             bounds.set(new double[] { laidOut.getWidth(), laidOut.getHeight() });
-            rows.set(dialog.serverList().getItems().size());
             dialog.close();
         });
 
-        assertEquals(2, rows.get(), "both configured servers should be in the list");
-        assertTrue(bounds.get()[0] >= 120,
-                "the list collapsed to " + bounds.get()[0]
-                        + "px wide, so the user cannot see or select anything");
-        assertTrue(bounds.get()[1] >= 60,
-                "the list is only " + bounds.get()[1] + "px tall, which cannot show two rows");
+        assertTrue(bounds.get()[0] >= 200,
+                "the form collapsed to " + bounds.get()[0] + "px wide");
+        assertTrue(bounds.get()[1] > 0, "the form has no height at all");
     }
 
     @Test
@@ -438,30 +517,6 @@ class ServerUiSmokeTest {
         assertTrue(grows.get(),
                 "the form's scroll pane must grow horizontally or the form hugs its fields"
                         + " and the rest of the dialog stays empty");
-    }
-
-    @Test
-    @DisplayName("The server list is capped so it cannot squeeze the form")
-    void theListIsCapped() throws Exception {
-        // The ceiling is on the column holding the list, not on the list itself, so this
-        // checks the parent. Without it a narrow dialog squeezes the form instead, which is
-        // the same complaint from the other direction.
-        AtomicReference<Boolean> capped = new AtomicReference<>(false);
-        runOnFxThread(() -> {
-            ServerManagerDialog dialog = new ServerManagerDialog(service, new FhirServerManager(), null);
-            inspect(dialog.getDialogPane(), node -> {
-                if (node instanceof javafx.scene.layout.Pane pane
-                        && pane.getChildren().contains(dialog.serverList())
-                        && pane.getMaxWidth() > 0 && pane.getMaxWidth() < Double.MAX_VALUE) {
-                    capped.set(true);
-                }
-            });
-            dialog.close();
-        });
-
-        assertTrue(capped.get(),
-                "the list column needs a width ceiling, or a narrow dialog squeezes the form"
-                        + " instead");
     }
 
     @Test

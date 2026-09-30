@@ -36,6 +36,15 @@ import com.example.fhirviewer.server.ServerDefinition;
  */
 final class ServerFormPanel {
 
+    /**
+     * The server selector: an editable combo listing the configured servers.
+     *
+     * <p>Editable rather than a plain drop-down because it has to do two jobs. Choosing an
+     * existing server switches the form to it; typing a name not in the list starts a new
+     * one. A read-only combo could only do the first, and a separate list beside the form
+     * split the same choice across two places.</p>
+     */
+    private final ComboBox<String> serverBox = new ComboBox<>();
     private final TextField nameField = new TextField();
     private final TextField urlField = new TextField();
     private final ComboBox<String> versionBox = new ComboBox<>();
@@ -49,6 +58,11 @@ final class ServerFormPanel {
     private final Label credentialHint;
 
     ServerFormPanel(FhirServerService serverService) {
+        serverBox.setEditable(true);
+        // The blank entry is how a new server is started. Without it an editable combo opens
+        // on the first configured server, so opening the dialog would silently select one
+        // and a stray edit would rewrite it.
+        serverBox.getItems().add("");
         versionBox.getItems().addAll("R4");
         versionBox.getSelectionModel().selectFirst();
         pluginBox.getItems().setAll(serverService.plugins());
@@ -101,13 +115,19 @@ final class ServerFormPanel {
         grid.getColumnConstraints().addAll(labelColumn, controlColumn);
 
         int row = 0;
+        addRow(grid, row++, "Server", serverBox);
         addRow(grid, row++, "Name", nameField);
         addRow(grid, row++, "Base URL", urlField);
         addRow(grid, row++, "FHIR version", versionBox);
         addRow(grid, row++, "Server type", pluginBox);
         addRow(grid, row++, "Authentication", authBox);
-        addRow(grid, row, "User name", userField);
-        addRow(grid, row, "Password", secretField);
+        // Both of these need the increment. Without it they were added to the *same* row,
+        // so the two labels were drawn on top of each other and the label column clipped
+        // them to an ellipsis - reported as "labels overlapping" and "a label showing
+        // ....". Row positions are invisible to every other check here: the controls were
+        // all present, enabled and correctly populated, they were just in the wrong place.
+        addRow(grid, row++, "User name", userField);
+        addRow(grid, row++, "Password", secretField);
 
         // The hint spans both columns so it can use the full width rather than being
         // squeezed into the control column, which is what made it unreadable.
@@ -119,8 +139,79 @@ final class ServerFormPanel {
 
     /** The fields a test drives, so it can fill the form as a user would. */
     List<Control> fields() {
-        return List.of(nameField, urlField, versionBox, pluginBox, authBox, userField,
-                secretField);
+        return List.of(serverBox, nameField, urlField, versionBox, pluginBox, authBox,
+                userField, secretField);
+    }
+
+    /** The server selector, so the dialog can list the configured servers into it. */
+    ComboBox<String> serverBox() {
+        return serverBox;
+    }
+
+    /**
+     * Replaces the drop-down's contents with the configured server names.
+     *
+     * <p>The blank entry stays at the top. Order is the caller's configuration order rather
+     * than alphabetical: the list on screen matches what the user arranged, and a name they
+     * gave something deliberately is not re-sorted away from it.</p>
+     */
+    void offerServers(List<String> names) {
+        // Suppressed, because repopulating the drop-down selects its first entry. Without
+        // this the dialog would be told a server had been chosen while it was only listing
+        // them, and would clear the form it was in the middle of showing.
+        suppressSelectionEvents = true;
+        try {
+            serverBox.getItems().clear();
+            serverBox.getItems().add("");
+            if (names != null) {
+                serverBox.getItems().addAll(names);
+            }
+            serverBox.getSelectionModel().selectFirst();
+        } finally {
+            suppressSelectionEvents = false;
+        }
+    }
+
+    /** Selects a server by name, or the blank entry when {@code name} is {@code null}. */
+    void selectServer(String name) {
+        serverBox.getSelectionModel().select(name == null ? "" : name);
+        if (serverBox.isEditable()) {
+            serverBox.getEditor().setText(name == null ? "" : name);
+        }
+    }
+
+    /** The server currently chosen in the selector, or {@code null} for "a new server". */
+    String selectedServer() {
+        String value = serverBox.getValue();
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /**
+     * Called when the user picks a different server from the selector.
+     *
+     * <p>Only fires for a change the user made, not for the ones this class makes while
+     * populating or resetting, or opening the dialog would immediately load a server and
+     * make an ordinary "look at my settings" visit start an edit.</p>
+     */
+    void onServerChosen(java.util.function.Consumer<String> handler) {
+        serverBox.getSelectionModel().selectedItemProperty().addListener((obs, old, now) -> {
+            if (!suppressSelectionEvents) {
+                handler.accept(now);
+            }
+        });
+    }
+
+    /** True while this class is changing the selection itself, to avoid re-entering. */
+    private boolean suppressSelectionEvents;
+
+    /** Sets the selection without telling the dialog, for when it is driving. */
+    void selectServerQuietly(String name) {
+        suppressSelectionEvents = true;
+        try {
+            selectServer(name);
+        } finally {
+            suppressSelectionEvents = false;
+        }
     }
 
     TextField nameField() {
