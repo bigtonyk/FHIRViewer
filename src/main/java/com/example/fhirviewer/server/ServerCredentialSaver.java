@@ -3,6 +3,9 @@ package com.example.fhirviewer.server;
 import java.io.IOException;
 import java.util.Objects;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Writes a server's credentials to the encrypted settings store, asking for a passphrase
  * when one is needed.
@@ -51,6 +54,8 @@ public final class ServerCredentialSaver {
         }
     }
 
+    private static final Logger log = LoggerFactory.getLogger(ServerCredentialSaver.class);
+
     private final PluginSettingsStore store;
     private final ServerPassphrase passphrase;
 
@@ -82,6 +87,14 @@ public final class ServerCredentialSaver {
         String effectiveUser = user == null || user.isBlank() ? null : user.trim();
         boolean wantsSecret = kind != null && !kind.isAnonymous();
         boolean hasSecret = secret != null && !secret.isBlank();
+        if (wantsSecret && hasSecret && TransportSecurity.exposesCredentials(server.baseUrl())) {
+            // Said out loud before the password is written, not discovered later when a
+            // request fails. The user is not stopped: http to a non-loopback host is their
+            // call, and a warning they can see is better than a refusal they would work
+            // around by turning the check off.
+            log.warn("credentials for {} would be sent over a connection that is not"
+                    + " encrypted; loopback is exempt", server.name());
+        }
         // The server's own key, not its plugin id: one plugin can serve several servers, and
         // saving by plugin id meant each server's password replaced the previous one's.
         String key = server.credentialKey();

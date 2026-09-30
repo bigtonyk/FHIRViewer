@@ -25,6 +25,7 @@ import com.example.fhirviewer.server.FhirServerService;
 import com.example.fhirviewer.server.ServerAuthKind;
 import com.example.fhirviewer.server.ServerCredentialSaver;
 import com.example.fhirviewer.server.ServerDefinition;
+import com.example.fhirviewer.server.TransportSecurity;
 
 /**
  * Manages the configured FHIR servers: a list of them, and a form that adds, edits and
@@ -279,7 +280,16 @@ public class ServerManagerDialog extends Dialog<Void> {
         ServerAuthKind kind = form.authKind();
         ServerCredentialSaver.Outcome outcome =
                 credentialSaver.save(definition, kind, form.userName(), form.secret());
-        return outcome.message() + " ";
+        StringBuilder message = new StringBuilder(outcome.message()).append(' ');
+        // Said alongside the result rather than instead of it, so the warning survives the
+        // "Added <server>" text that is written after this returns. A user who does not
+        // know their password will cross the network in the clear has no way to find out
+        // except by reading this line.
+        String plaintext = TransportSecurity.warningFor(definition.baseUrl());
+        if (plaintext != null && !kind.isAnonymous()) {
+            message.append(plaintext);
+        }
+        return message.toString();
     }
 
     private void onDelete() {

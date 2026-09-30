@@ -40,7 +40,7 @@ work can be resumed without re-reading the plan.
 | 27 | Plugin Developer API | **partial** — loader, registry and a mock plugin in tests; no published guide |
 | 28 | Testing | **done** — 539 tests, offline, `@TempDir` + localhost `HttpServer` |
 | 29 | Backward Compatibility | **not started** |
-| 30 | Security Review | **not started** |
+| 30 | Security Review | **done** — 10 items inspected, 8 clean, 3 findings; 1 fixed. See `Phase-30-Security-Review.md` |
 
 ### Phase 7 — Open from / Save to a FHIR Server
 
@@ -64,7 +64,7 @@ subscriptions, multi-parameter search, and a FHIRPath patch.
 
 | | Why it matters |
 |---|---|
-| **Phase 30 — security review** | Not started, and the one I would weigh most heavily: this branch can write to clinical systems and that capability has never been reviewed for security. |
+| **Phase 30 — security review** | **Done** — see `Phase-30-Security-Review.md`. Ten items inspected, eight clean, three findings; the one medium finding (credentials silently sent over plain HTTP) is fixed. It was written by the author of the code it reviews, so a second reader is still worth having. |
 | **Phase 29 — backward compatibility** | Not started. A review activity, not code. |
 | **Phase 9 — second base URL** | Planned, not built. Needed for Smile's Admin JSON API only; its reindex operations already work. |
 | `SmileCdrPluginTest.java.hold` | Disabled, so Smile's connection and detection half is untested. Its operation declarations are covered separately. |
