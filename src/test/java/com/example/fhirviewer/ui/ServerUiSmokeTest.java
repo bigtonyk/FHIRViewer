@@ -3,6 +3,7 @@ package com.example.fhirviewer.ui;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.GraphicsEnvironment;
@@ -27,6 +28,9 @@ import com.example.fhirviewer.server.ServerDefinition;
 import com.example.fhirviewer.server.ServerOrigin;
 
 import javafx.application.Platform;
+import javafx.scene.Node;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.HBox;
 
 /**
  * A smoke test that builds the new Phase 6 screens on a real JavaFX toolkit.
@@ -329,6 +333,92 @@ class ServerUiSmokeTest {
                 "Delete with nothing selected would silently do nothing");
         assertFalse(built.get().addButton().isDisabled(),
                 "Add is how a first server gets configured, so it must always be available");
+    }
+
+    @Test
+    @DisplayName("No control in the manager claims an unbounded preferred width")
+    void noControlHasAnUnboundedPreferredWidth() throws Exception {
+        // A layout bug that cannot be seen from a test is not much use, and this class of
+        // one is invisible until someone looks at the window. prefWidth is the size a parent
+        // adds up when working out its own size; MAX_VALUE there makes the whole chain above
+        // it unbounded, and the result is content pinned to one side of a wide dialog.
+        // maxWidth is the property that means "grow to fill" - it is the right one and it
+        // does not feed the parent's arithmetic.
+        AtomicReference<Node> offender = new AtomicReference<>();
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, new FhirServerManager(), null);
+            inspect(dialog.getDialogPane(), node -> {
+                double pref = node.prefWidth(-1);
+                if (pref == Double.MAX_VALUE || pref > 100_000) {
+                    offender.set(node);
+                }
+            });
+            dialog.close();
+        });
+
+        assertNull(offender.get(), "unbounded preferred width on "
+                + (offender.get() == null ? "?" : offender.get().getClass().getName())
+                + "; use maxWidth instead");
+    }
+
+    /** Visits a node, and every node below it, reporting each to {@code check}. */
+    private static void inspect(Node node, java.util.function.Consumer<Node> check) {
+        check.accept(node);
+        if (node instanceof javafx.scene.layout.Pane pane) {
+            for (Node child : pane.getChildren()) {
+                inspect(child, check);
+            }
+        } else if (node instanceof javafx.scene.control.ScrollPane pane
+                && pane.getContent() != null) {
+            inspect(pane.getContent(), check);
+        }
+    }
+
+    @Test
+    @DisplayName("The form column grows to fill the dialog width")
+    void theFormColumnGrowsToFill() throws Exception {
+        // The form is the part with fields, so it is the part that must take the slack.
+        // Without an explicit hgrow on the scroll pane it sat at its content's preferred
+        // width, which is what left the right-hand side of the dialog empty.
+        AtomicReference<Boolean> grows = new AtomicReference<>(false);
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, new FhirServerManager(), null);
+            inspect(dialog.getDialogPane(), node -> {
+                if (node instanceof javafx.scene.control.ScrollPane pane
+                        && HBox.getHgrow(pane) == Priority.ALWAYS) {
+                    grows.set(true);
+                }
+            });
+            dialog.close();
+        });
+
+        assertTrue(grows.get(),
+                "the form's scroll pane must grow horizontally or the form hugs its fields"
+                        + " and the rest of the dialog stays empty");
+    }
+
+    @Test
+    @DisplayName("The server list is capped so it cannot squeeze the form")
+    void theListIsCapped() throws Exception {
+        // The ceiling is on the column holding the list, not on the list itself, so this
+        // checks the parent. Without it a narrow dialog squeezes the form instead, which is
+        // the same complaint from the other direction.
+        AtomicReference<Boolean> capped = new AtomicReference<>(false);
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, new FhirServerManager(), null);
+            inspect(dialog.getDialogPane(), node -> {
+                if (node instanceof javafx.scene.layout.Pane pane
+                        && pane.getChildren().contains(dialog.serverList())
+                        && pane.getMaxWidth() > 0 && pane.getMaxWidth() < Double.MAX_VALUE) {
+                    capped.set(true);
+                }
+            });
+            dialog.close();
+        });
+
+        assertTrue(capped.get(),
+                "the list column needs a width ceiling, or a narrow dialog squeezes the form"
+                        + " instead");
     }
 
     @Test

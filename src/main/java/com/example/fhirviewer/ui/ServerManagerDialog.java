@@ -152,27 +152,41 @@ public class ServerManagerDialog extends Dialog<Void> {
         formScroll.setFitToWidth(true);
         formScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         formScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        VBox.setVgrow(formScroll, Priority.ALWAYS);
+        // Grow is set once formSide exists, below, where the parent is known.
 
         VBox formSide = new VBox(6);
         Label formTitle = new Label("Server details");
         formTitle.getStyleClass().add("pretty-row-label");
         formSide.getChildren().addAll(formTitle, formScroll, buildButtons(), statusLabel);
         VBox.setVgrow(formScroll, Priority.ALWAYS);
+        // The horizontal counterpart, and the one that was missing. Without it the scroll
+        // pane sits at its content's preferred width inside the form column, so the form
+        // hugged its fields and left the rest of the dialog empty. fitToWidth alone does not
+        // help: it resizes the *content* to the pane, not the pane to its container.
+        HBox.setHgrow(formScroll, Priority.ALWAYS);
 
         statusLabel.getStyleClass().add("app-subtitle");
         statusLabel.setWrapText(true);
         statusLabel.setMaxWidth(Double.MAX_VALUE);
-        // The status line used to sit in the grid, where it inherited the label column's
-        // fixed width and truncated a long message. Full width and wrapping, it reads.
-        statusLabel.setPrefWidth(Double.MAX_VALUE);
+        // Only maxWidth, never prefWidth. A preferred width is the size a parent adds up to
+        // work out its own size, and MAX_VALUE there makes the whole chain above it unbounded
+        // - which is what squashed this layout to the left. maxWidth is what says "grow to
+        // fill", and it does not feed the parent's arithmetic.
 
         HBox panes = new HBox(14, listSide, formSide);
+        // TopLeft so each column hugs its own top edge; the columns are what take the slack,
+        // set by the grow priorities immediately below.
         panes.setAlignment(Pos.TOP_LEFT);
+        HBox.setHgrow(listSide, Priority.SOMETIMES);
         HBox.setHgrow(formSide, Priority.ALWAYS);
+        // The list keeps its 180px and takes no more; without a ceiling the form column is
+        // squeezed when the dialog is narrow, which is the opposite problem.
+        listSide.setMaxWidth(240);
 
         BorderPane root = new BorderPane(panes);
         root.setPadding(new Insets(12));
+        // maxWidth, not prefWidth, for the same reason as the status line above.
+        root.setMaxWidth(Double.MAX_VALUE);
         getDialogPane().setContent(root);
     }
 
