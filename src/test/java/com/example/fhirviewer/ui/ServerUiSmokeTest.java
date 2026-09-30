@@ -33,8 +33,10 @@ import com.example.fhirviewer.server.ServerOrigin;
 import javafx.application.Platform;
 import javafx.geometry.Bounds;
 import javafx.scene.Scene;
+import javafx.scene.control.Button;
 import javafx.scene.Node;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 
@@ -611,6 +613,67 @@ class ServerUiSmokeTest {
             editor.valueFieldAt(0).setText("Smith");
             assertThrows(IllegalArgumentException.class, editor::criteria,
                     "a value with no name should be refused");
+        });
+    }
+
+    @Test
+    @DisplayName("The criteria editor's buttons cannot be squeezed to hide their text")
+    void editorButtonsKeepTheirText() throws Exception {
+        // A JavaFX Button shrinks its text rather than overflowing it, so a narrow dialog
+        // silently renders "Add parameter" as "Add param". Reported as buttons with the text
+        // cut off.
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            for (Button button : List.of(editor.addButton(), editor.removeButton())) {
+                // JavaFX normalises USE_PREF_SIZE to its -1 sentinel once CSS is applied, so
+                // the stored value cannot be compared directly. What matters is the effect:
+                // the minimum is the preferred width, so the label cannot shrink.
+                double min = button.getMinWidth();
+                boolean minIsPref = min == Region.USE_PREF_SIZE
+                        || min == -1.0
+                        || min >= button.prefWidth(-1);
+                assertTrue(minIsPref,
+                        button.getText() + " can be squeezed below its natural width (min "
+                                + min + "px, pref " + button.prefWidth(-1) + "px)");
+            }
+        });
+    }
+
+    @Test
+    @DisplayName("The search screens are wide enough for the editor's buttons")
+    void searchScreensAreWideEnough() throws Exception {
+        // The editor's widest row is "Parameters" / "Search string" plus its two buttons.
+        // Measured from the laid-out controls rather than a guessed number, so a longer
+        // button label is caught here instead of on screen.
+        AtomicReference<Double> available = new AtomicReference<>();
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            javafx.scene.layout.StackPane host = new javafx.scene.layout.StackPane(
+                    editor.build());
+            Scene scene = new Scene(host, 900, 500);
+            scene.getRoot().applyCss();
+            scene.getRoot().layout();
+            double needed = editor.addButton().prefWidth(-1)
+                    + editor.removeButton().prefWidth(-1)
+                    + editor.rawMode().prefWidth(-1)
+                    + editor.parametersMode().prefWidth(-1)
+                    + 8 * 4;
+            available.set(needed);
+        });
+        assertTrue(available.get() > 0, "could not measure the editor's buttons");
+
+        runOnFxThread(() -> {
+            ServerSearchDialog search = new ServerSearchDialog(service, new FhirServerManager(), null, themeManager);
+            assertTrue(search.getDialogPane().getMinWidth() >= available.get(),
+                    "the search dialog is " + search.getDialogPane().getMinWidth()
+                            + "px but its buttons need " + available.get());
+            search.close();
+
+            OpenFromServerDialog open = new OpenFromServerDialog(service, new FhirServerManager(), null);
+            assertTrue(open.getDialogPane().getMinWidth() >= available.get(),
+                    "the open dialog is " + open.getDialogPane().getMinWidth()
+                            + "px but its buttons need " + available.get());
+            open.close();
         });
     }
 

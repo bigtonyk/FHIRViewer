@@ -120,7 +120,9 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
 
         setTitle("Open from Server");
         setResizable(true);
-        getDialogPane().setMinWidth(760);
+        // Room for the criteria editor's mode toggle and its Add/Remove buttons, whose text
+        // was clipped at the old width.
+        getDialogPane().setMinWidth(880);
         getDialogPane().setMinHeight(520);
         readType = new ButtonType("Read", ButtonBar.ButtonData.OK_DONE);
         getDialogPane().getButtonTypes().addAll(readType, ButtonType.CANCEL);

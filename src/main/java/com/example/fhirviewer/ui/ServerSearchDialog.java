@@ -181,7 +181,11 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         VBox content = new VBox(10, criteriaGrid(), statusLabel, pageInfo, results);
         getDialogPane().setContent(content);
         getDialogPane().getButtonTypes().addAll(openType, ButtonType.CANCEL);
-        getDialogPane().setPrefWidth(680);
+        // Wide enough for the criteria editor's buttons. "Parameters" / "Search string" and
+        // "Add parameter" / "Remove last" were clipped at the old width, which is a worse
+        // failure than a wide dialog: a button reading "Add param" is a guess.
+        getDialogPane().setPrefWidth(840);
+        getDialogPane().setMinWidth(760);
         getDialogPane().setPrefHeight(640);
         getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
         openButton = (Button) getDialogPane().lookupButton(openType);

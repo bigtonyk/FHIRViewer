@@ -80,6 +80,13 @@ final class SearchCriteriaEditor {
         HBox buttons = new HBox(8, addButton, removeButton);
         buttons.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
+        // A JavaFX Button shrinks its text rather than overflowing it, so a narrow window
+        // silently turns "Add parameter" into "Add param". These are the same width whatever
+        // the dialog is doing, and the dialog is sized to fit them instead.
+        for (javafx.scene.control.Button button : List.of(addButton, removeButton)) {
+            button.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
+        }
+
         VBox all = new VBox(8, modeRow, rows, buttons, rawField, hint);
         all.setPadding(new Insets(0));
         VBox.setVgrow(rows, Priority.NEVER);
