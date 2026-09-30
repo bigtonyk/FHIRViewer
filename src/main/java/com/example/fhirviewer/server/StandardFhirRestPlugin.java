@@ -605,10 +605,20 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
     /**
      * Turns a generic request into HAPI search criteria. Vendor plugins override this to
      * translate names, add fixed parameters or rewrite values.
+     *
+     * <p><b>Raw criteria are skipped here.</b> They are sent by
+     * {@link #rawSearch}, because a raw string cannot be expressed as an
+     * {@link ICriterion} — which is the whole point of it. Building one as a
+     * {@link StringClientParam} with {@code matchesExactly()} would quietly normalise away
+     * exactly the prefixes, modifiers and chains the user typed. {@link SearchRequest}
+     * forbids a request that mixes the two kinds, so this method never sees a mixture.</p>
      */
     protected List<ICriterion<?>> criteriaOf(SearchRequest request) {
         List<ICriterion<?>> criteria = new ArrayList<>();
         for (SearchCriterion criterion : request.criteria()) {
+            if (criterion.isRaw()) {
+                continue;
+            }
             criteria.add(new StringClientParam(criterion.name()).matchesExactly().value(criterion.value()));
         }
         return criteria;
