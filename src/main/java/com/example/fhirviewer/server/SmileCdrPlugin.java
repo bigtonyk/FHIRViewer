@@ -164,7 +164,7 @@ public class SmileCdrPlugin extends StandardFhirRestPlugin {
      * is the whole reason they can be declared at all: the Admin API lives on a separate
      * port (typically 9000, against a FHIR endpoint on 8000), and this application resolves
      * operation paths against the single base URL the user configured, so anything under
-     * {@code admin-json} would 404. See {@code docs/plans/08_SECOND_BASE_URL_FOR_ADMIN_APIS.md}.
+     * {@code admin-json} would 404. See {@code docs/plans/09_SECOND_BASE_URL_FOR_ADMIN_APIS.md}.
      * The reindex family is <em>not</em> affected, because Smile exposes it as a normal FHIR
      * operation — which also corrects an earlier assumption in that plan that Smile had no
      * addressable operations at all.</p>

@@ -66,7 +66,7 @@ subscriptions, multi-parameter search, and a FHIRPath patch.
 |---|---|
 | **Phase 30 — security review** | Not started, and the one I would weigh most heavily: this branch can write to clinical systems and that capability has never been reviewed for security. |
 | **Phase 29 — backward compatibility** | Not started. A review activity, not code. |
-| **Phase 8 — second base URL** | Planned, not built. Needed for Smile's Admin JSON API only; its reindex operations already work. |
+| **Phase 9 — second base URL** | Planned, not built. Needed for Smile's Admin JSON API only; its reindex operations already work. |
 | `SmileCdrPluginTest.java.hold` | Disabled, so Smile's connection and detection half is untested. Its operation declarations are covered separately. |
 | **Phase 26 — diagnostics doc** | Partial. Logging is thorough; there is no written diagnostic guide. |
 | **Phase 27 — plugin developer guide** | Partial. The loader, registry and a worked example exist in tests; nothing is published for a third-party author. |
@@ -75,7 +75,7 @@ subscriptions, multi-parameter search, and a FHIRPath patch.
 tests press real buttons on a real toolkit, and that is how two real bugs were caught — but
 they cannot see layout, and the last three commits changed a lot of layout.
 
-**Still open across the plan as a whole:** `08_SECOND_BASE_URL_FOR_ADMIN_APIS.md`
+**Still open across the plan as a whole:** `09_SECOND_BASE_URL_FOR_ADMIN_APIS.md`
 (a second base URL, needed for Smile CDR's **Admin JSON API** — its reindex operations are
 on the FHIR endpoint and already work), and phases 29 and 30, which are review activities
 rather than code.
@@ -214,7 +214,7 @@ looked entirely plausible and failed on every real server:
   prefix there would 404 on every server; a test now pins the two groups apart.
 - **Smile was wrongly assumed to have no addressable operations at all.** Its reindex family
   is served from the **FHIR endpoint**, not the JSON Admin API, so it works with the base
-  URL already configured. `08_SECOND_BASE_URL_FOR_ADMIN_APIS.md` is corrected accordingly;
+  URL already configured. `09_SECOND_BASE_URL_FOR_ADMIN_APIS.md` is corrected accordingly;
   what still needs a second URL is the Admin JSON API, which is a much smaller piece of work
   than that plan originally implied.
 - **Bulk operations belong on the base class.** Declared on `StandardFhirRestPlugin` so both

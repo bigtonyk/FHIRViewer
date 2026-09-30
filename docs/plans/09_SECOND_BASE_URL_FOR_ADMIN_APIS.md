@@ -1,4 +1,4 @@
-# Phase 8 — A Second Base URL for Vendor Administration APIs
+# Phase 9 — A Second Base URL for Vendor Administration APIs
 
 > **Corrected after reading Smile's documentation.** This plan originally said Smile had
 > **no** addressable operations. That was wrong, and checking the documentation rather than

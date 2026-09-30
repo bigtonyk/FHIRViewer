@@ -23,7 +23,7 @@ contract the UI and the service layer depend on, and it is genuinely UI-neutral 
 | Member | Kind | Notes |
 |---|---|---|
 | `id()` | abstract | Stable key stored in server definitions (`standard-rest`, `smile-cdr`, `firely`) |
-| `displayName()`, `description()` | abstract | Shown in `ServerDialog`'s plugin combo |
+| `displayName()`, `description()` | abstract | Shown in `ServerManagerDialog`'s plugin combo |
 | `supportedFhirVersions()` | abstract | All three plugins return `List.of("R4")` |
 | `supports(FhirServerConfiguration)` | abstract | Used by the registry to pick a plugin for a stored server |
 | `capabilities(ServerSession)` | abstract | `GET [base]/metadata` |
@@ -106,7 +106,8 @@ cross-server writes up front by comparing `ServerOrigin.baseUrl()` with
 
 The one deliberate exception is `registry()`: it is exposed so `PluginManagerDialog` can
 list and run-time-register plugins. Its own javadoc says the UI is not expected to resolve
-plugins for its own operations, and `MainWindow` only uses it inside `openServerTools()`.
+plugins for its own operations, and `MainWindow` no longer resolves plugins itself at all —
+it used to do so only inside `openServerTools()`, which has since been removed.
 
 ### Threading
 
@@ -115,7 +116,7 @@ than shared:
 
 | Class | Mechanism |
 |---|---|
-| `ServerDialog` | `javafx.concurrent.Task` on a daemon `Thread` named `fhir-server-test` |
+| `ServerManagerDialog` | `javafx.concurrent.Task` on a daemon `Thread` named `fhir-server-test` |
 | `ServerSearchDialog` | same pattern, `fhir-server-search`; has its own private `Attempt<T>` record |
 | `OpenFromServerDialog` | same pattern, `fhir-open-from-server`; its own `Attempt<T>` |
 | `MainWindow.runServerWrite` | raw `Thread` + `Platform.runLater`, no cancellation |
@@ -130,7 +131,7 @@ maps HAPI exceptions onto `ServerOperationException.Kind` (`UNREACHABLE`, `UNAUT
 `FORBIDDEN`, `NOT_FOUND`, `BAD_REQUEST`, `UNSUPPORTED`, `CONFLICT`, `SERVER_ERROR`) and
 preserves the HTTP status. The UI then only has to render `displayMessage()`.
 `ServerSearchDialog.readableFailure(Throwable)` is the shared renderer, re-exported as
-`ServerDialog.readableFailure`. `MainWindow` handles `CONFLICT` specially and offers
+`ServerManagerDialog.readableFailure`. `MainWindow` handles `CONFLICT` specially and offers
 reload-or-force.
 
 ## 4. Existing HTTP infrastructure
@@ -201,7 +202,7 @@ growing `ServerAuthentication` or adding another `instanceof` branch in `newClie
 `newClient()` already has that `instanceof BasicServerAuthentication` special case.
 
 `PluginSettingsStore` is keyed by **plugin id**, not by server, and `PluginManagerDialog`
-is the only writer. `FhirServerService` never consults it, and `ServerDialog` cannot enter
+is the only writer. `FhirServerService` never consults it, and `ServerManagerDialog` cannot enter
 credentials ("the server layer currently supports anonymous access only", per its own
 javadoc). So saved credentials are stored but not yet wired into a read or a write.
 
@@ -262,6 +263,34 @@ composites, `_sort` and `_include` are not modelled.
 *The assessment below is the one made at `a63dff8`. Gaps 1, 2, 4 and 13 were closed in
 phases 2, 3 and 4 — see sections 12 and 13 for what was actually done. The rest stand.*
 
+### Closed since this assessment was written
+
+The list is a snapshot from `a63dff8` and **no longer describes the current code**. The
+following gaps have since been closed; each is struck through in place below and the
+resolution is recorded in `docs/plans/REST-Integration-Progress.md`.
+
+| Gap | Closed by | Now |
+|---|---|---|
+| 2 — timeouts ignored | Phase 3/4 | `timeoutMillis` is honoured through the HAPI client factory |
+| 3 — no response-header or status access | Phase 3 | The transport exposes status and headers |
+| 4 — `OperationOutcome` never parsed | Phase 5 | `ServerOperationException` carries it, and `ServerErrors` renders it |
+| 6 — no cancellation | Phase 6 | `BackgroundTasks` supports cooperative cancellation |
+| 7 — no bearer / OAuth / SMART | Phase 5 | `BearerServerAuthentication` exists; OAuth/SMART still do not |
+| 8 — credentials not wired in | Phase 5, then the server manager | `ServerCredentials` reads the encrypted store; `ServerManagerDialog` collects them per server |
+| 9 — `openVendorTool` a stub | this branch | The menu item and the stub are **removed** rather than made real |
+| 10 — `vendorActions()` too coarse | Phase 5/6 | `ServerOperation` models a callable operation with parameters and a declared result |
+| 11 — vendor plugins carry no behaviour | Phases 5–7 | All three plugins now declare operations |
+| 15 — `FhirServerManager` in-memory only | Phase 7 | `load` / `save` against `server-definitions.properties`, plus `replace` for editing |
+| 16 — `PluginSettingsStore` keyed by plugin | this branch | Keyed per server by a stable generated id |
+| 18 — no operation discovery/invocation UI | Phase 6 | `ServerOperationDialog` + form + result classification |
+| 19 — duplicated background plumbing | Phase 6 | `BackgroundTasks` replaced the copies |
+| 20 — no cancellation or progress | Phase 6 | Cooperative cancellation and a busy state |
+| 21 — `openVendorTool` leaks a class name | this branch | Gone with the method |
+
+**Still open:** 5 (TLS truststore), 12 (detection heuristics), 14 (`extraHeaders` not
+persisted), 17 (`loadsOnStart` not acted on), and OAuth/SMART from gap 7. See the user
+guide's *Known gaps* for the user-facing list.
+
 Ordered roughly by how much they block the later phases.
 
 **Transport and protocol**
@@ -272,30 +301,30 @@ Ordered roughly by how much they block the later phases.
    a thin, UI-neutral, vendor-agnostic request/response model (method, path, query,
    headers, body, content type, accept, status, response headers, body, error) that sits
    *above* HAPI — not a second HTTP stack. Phase 2 must decide this explicitly.
-2. **Timeouts are ignored.** `timeoutMillis()` is on the configuration and read by nobody.
-3. **No response-header or status access** outside HAPI's exception types.
-4. **No `OperationOutcome` is ever parsed or surfaced.** `convertFailure` keeps only the
+2. ~~**Timeouts are ignored.** `timeoutMillis()` is on the configuration and read by nobody.~~ *- closed; see the table above.*
+3. ~~**No response-header or status access** outside HAPI's exception types.~~ *- closed; see the table above.*
+4. ~~**No `OperationOutcome` is ever parsed or surfaced.** `convertFailure` keeps only the~~ *- closed; see the table above.*
    HTTP status and writes its own generic message, so the server's `issue[].diagnostics`
    are lost. This is the most repeated requirement across the whole plan.
 5. **No TLS truststore support** for servers behind a corporate CA.
-6. **No cancellation** on any in-flight server operation.
+6. ~~**No cancellation** on any in-flight server operation.~~ *- closed; see the table above.*
 
 **Authentication**
 
-7. **No bearer, OAuth 2.0 or SMART on FHIR.** `ServerAuthentication` cannot express them.
-8. **Saved credentials are not wired in.** `PluginSettingsStore` is never consulted by
-   `FhirServerService`, and `ServerDialog` collects no credentials.
+7. ~~**No bearer, OAuth 2.0 or SMART on FHIR.** `ServerAuthentication` cannot express them.~~ *- closed; see the table above.*
+8. ~~**Saved credentials are not wired in.** `PluginSettingsStore` is never consulted by~~ *- closed; see the table above.*
+   `FhirServerService`, and `ServerManagerDialog` collects no credentials.
 
 **Plugin / vendor layer**
 
-9. **`openVendorTool` is a stub, and `MainWindow` does not even call it.** The private
+9. ~~**`openVendorTool` is a stub, and `MainWindow` does not even call it.** The private~~ *- closed; see the table above.*
    `MainWindow.openVendorTool(server, action)` only writes a status line. The declaration
    side (`vendorActions()`) is live and listed under *Tools -> Server Tools...*; the
    execution side does nothing.
-10. **`vendorActions()` is coarse.** It models a whole screen, not a callable operation
+10. ~~**`vendorActions()` is coarse.** It models a whole screen, not a callable operation~~ *- closed; see the table above.*
     with parameters. The plan's UI wants parameterised, result-bearing operations that are
     discoverable, invokable and displayable.
-11. **Vendor plugins carry no vendor behaviour.** `SmileCdrPlugin` and `FirelyPlugin` only
+11. ~~**Vendor plugins carry no vendor behaviour.** `SmileCdrPlugin` and `FirelyPlugin` only~~ *- closed; see the table above.*
     override `id` / `displayName` / `supports` / `testConnection` / `capabilities` and wrap
     the result in a tagged `ServerCapabilities` subclass. Neither reads its own
     configuration interface: `FirelyConfiguration.apiKeyAuthentication()` and
@@ -313,22 +342,22 @@ Ordered roughly by how much they block the later phases.
 
 **State and persistence**
 
-15. **`FhirServerManager` is in-memory only** — `add` / `remove` / `setActive`, no load or
+15. ~~**`FhirServerManager` is in-memory only** — `add` / `remove` / `setActive`, no load or~~ *- closed; see the table above.*
     save. Every configured server is lost on restart. Its own javadoc flags this and
     points at a `FhirServerRepository` that does not exist.
-16. **`PluginSettingsStore` is keyed by plugin id, not by server**, so multiple servers on
+16. ~~**`PluginSettingsStore` is keyed by plugin id, not by server**, so multiple servers on~~ *- closed; see the table above.*
     one plugin (or one server switching plugins) cannot be represented.
 17. **`loadsOnStart` is written but never acted on** — nothing in `MainWindow` reads it to
     auto-add a server at start-up.
 
 **UI**
 
-18. **No generic operation discovery/invocation UI.** *Tools -> Server Tools...* is a
+18. ~~**No generic operation discovery/invocation UI.** *Tools -> Server Tools...* is a~~ *- closed; see the table above.*
     `ChoiceDialog` of labels; there is no parameter model, no result rendering and no
     `OperationOutcome` display.
-19. **Duplicated background-task plumbing** across three dialogs plus `MainWindow`.
-20. **No request cancellation or progress reporting** beyond a busy label.
-21. **`MainWindow.openVendorTool` leaks an implementation detail** into the status bar: it
+19. ~~**Duplicated background-task plumbing** across three dialogs plus `MainWindow`.~~ *- closed; see the table above.*
+20. ~~**No request cancellation or progress reporting** beyond a busy label.~~ *- closed; see the table above.*
+21. ~~**`MainWindow.openVendorTool` leaks an implementation detail** into the status bar: it~~ *- closed; see the table above.*
     prints `action.getClass().getName()`.
 
 **Quality issues found while reading (not phase-1 work)**
@@ -342,7 +371,7 @@ Ordered roughly by how much they block the later phases.
     qualified in the signature instead of importing it.
 25. `SmileCdrPluginTest.java.hold` is an 11-byte file containing the word `placeholder` —
     Smile CDR has **no** test coverage. Neither do the vendor-action path,
-    `PluginJarScanner`, `ServerDialog`, `ServerSearchDialog`, `OpenFromServerDialog` or
+    `PluginJarScanner`, `ServerManagerDialog`, `ServerSearchDialog`, `OpenFromServerDialog` or
     `PluginManagerDialog`.
 
 ## 9. Recommended extension points
@@ -377,7 +406,7 @@ endpoints* — is already honoured. Everything below extends the existing seams.
    `FileSupport` and the temp-file-plus-atomic-move pattern already in
    `PluginSettingsStore`.
 8. **Extract the background-task pattern** (`Task` + daemon thread + `Platform.runLater` +
-   the `Attempt<T>` record) into one small helper used by `ServerDialog`,
+   the `Attempt<T>` record) into one small helper used by `ServerManagerDialog`,
    `ServerSearchDialog`, `OpenFromServerDialog` and `MainWindow`. Add cancellation while
    doing so.
 9. **Extend `SearchCriterion`** with modifier/prefix/chain kinds as new cases, keeping
@@ -556,10 +585,15 @@ on.
 
 ### What Phase 3 deliberately did not do
 
-`ServerDialog` still collects no credentials — a credential entry UI is Phase 6 work. The
+`ServerManagerDialog` still collects no credentials — a credential entry UI is Phase 6 work. The
 `Authorization` header is not logged or displayed anywhere. No vendor endpoints, no
 Smile/Firely APIs, and `PluginSettingsStore`'s file format and plugin-id keying are
 untouched.
+
+> **Superseded.** Accurate as of Phase 3. Since then `ServerManagerDialog` has collected
+> credentials per server (anonymous, Basic, bearer), `PluginSettingsStore` is keyed per
+> server rather than by plugin id, and the vendor endpoints are declared by all three
+> plugins. `Authorization` is still never logged or displayed.
 
 ### Verification
 
@@ -723,8 +757,9 @@ capability wrappers.
 ### What Phase 4 deliberately did not do
 
 - No migration of the HAPI path, and no second FHIR parser.
-- No credential collection in `ServerDialog` and no SMART/OAuth flow — still Phase 6 work,
+- No credential collection in `ServerManagerDialog` and no SMART/OAuth flow — still Phase 6 work,
   and still a static bearer token only.
+  *Superseded: credentials are collected per server now; SMART/OAuth still do not exist.*
 - No UI: no paging buttons, no operation picker, no capability gating in the dialogs.
 - `SearchCriterion` is still a name/value pair — modifiers, prefixes, chains, `_sort` and
   `_include` are untouched.

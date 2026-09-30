@@ -667,7 +667,7 @@ Stated plainly, so nothing here reads as working when it does not.
 | Not built yet | What you get instead |
 |---|---|
 | **Vendor screens** (*Tools → Server Tools...*) | Removed. The only screen it could offer was never implemented, so the menu item was removed rather than left doing nothing. Those endpoints are reachable as individual operations under **Run Server Operation...**. |
-| **Smile CDR's Admin JSON API** | User, session and partition management sit on a separate port that the viewer cannot address yet. The reindex operations, which are on the FHIR endpoint, do work. See [Phase 8](../plans/08_SECOND_BASE_URL_FOR_ADMIN_APIS.md). |
+| **Smile CDR's Admin JSON API** | User, session and partition management sit on a separate port that the viewer cannot address yet. The reindex operations, which are on the FHIR endpoint, do work. See [Phase 9](../plans/09_SECOND_BASE_URL_FOR_ADMIN_APIS.md). |
 | **Bulk jobs are started, not finished** | `$export` and `$import` return `202` with a polling URL. The screen shows that acknowledgement; it does not follow the job to completion. |
 | **Writing conformance resources** | Firely's administration API allows it; the viewer deliberately offers those searches read-only. |
 | **FHIRPath patch** | The three body-shaped patch formats only. A FHIRPath patch is a `Parameters` resource, and sending it as a merge patch would be wrong. |
