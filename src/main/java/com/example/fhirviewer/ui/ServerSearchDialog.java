@@ -118,9 +118,9 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         serverBox.getItems().setAll(serverManager.servers());
         serverBox.getSelectionModel().selectFirst();
         renderServerNames();
+        typeBox.setEditable(true);
         typeBox.setDisable(true);
         typeBox.setPromptText("Load capabilities first");
-
 
         connectButton.getStyleClass().add("button-ghost");
         connectButton.setTooltip(new Tooltip("Read the server's CapabilityStatement to list its resource types."));
@@ -247,8 +247,9 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             }
         }
         if (last.resourceType() != null && !last.resourceType().isBlank()) {
-            // The type list is filled from the server's capabilities, which may not have
-            // loaded yet; the editable box keeps the value either way.
+            // Verified: this works on a non-editable box too, so do not read it as the
+            // reason a type went missing. What actually threw the restored value away was
+            // selectFirst() in loadCapabilities() - see simulateCapabilitiesArriving.
             typeBox.setValue(last.resourceType());
         }
         List<SearchCriterion> criteria = last.criteria();
@@ -336,15 +337,7 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
                 return;
             }
             ServerCapabilities capabilities = attempt.value();
-            typeBox.getItems().setAll(capabilities.resourceTypes());
-            if (!typeBox.getItems().isEmpty()) {
-                typeBox.getSelectionModel().selectFirst();
-                typeBox.setDisable(false);
-                searchButton.setDisable(false);
-            } else {
-                typeBox.setDisable(true);
-                searchButton.setDisable(true);
-            }
+            simulateCapabilitiesArriving(capabilities.resourceTypes());
             statusLabel.getStyleClass().remove("status-error");
             statusLabel.setText("FHIR " + capabilities.fhirVersion() + ", "
                     + capabilities.resourceTypes().size() + " resource types"
@@ -499,5 +492,36 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         statusLabel.getStyleClass().remove("status-error");
         statusLabel.getStyleClass().add("status-error");
         statusLabel.setText(message);
+    }
+
+    /** The resource type currently in the form, for tests. */
+    String typeBoxValue() {
+        return typeBox.getValue();
+    }
+
+    /**
+     * Runs the part of {@link #loadCapabilities()} that runs once the types are known, so a
+     * test can check what happens to the form when they arrive.
+     *
+     * <p>Package-private and on purpose: the ordering here is the bug - the type list is
+     * filled from the server shortly after the form is built, and anything the user did in
+     * between has to survive it. Testing that requires driving the callback, and a test
+     * that reaches for the ComboBox directly would not exercise the ordering at all.</p>
+     */
+    void simulateCapabilitiesArriving(List<String> resourceTypes) {
+        typeBox.getItems().setAll(resourceTypes);
+        if (typeBox.getItems().isEmpty()) {
+            typeBox.setDisable(true);
+            searchButton.setDisable(true);
+            return;
+        }
+        boolean kept = memory.last() != null && memory.last().resourceType() != null
+                && !memory.last().resourceType().isBlank()
+                && typeBox.getValue() != null;
+        if (!kept) {
+            typeBox.getSelectionModel().selectFirst();
+        }
+        typeBox.setDisable(false);
+        searchButton.setDisable(false);
     }
 }

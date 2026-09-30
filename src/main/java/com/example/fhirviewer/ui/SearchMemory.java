@@ -38,9 +38,17 @@ public final class SearchMemory {
             criteria = List.copyOf(Objects.requireNonNullElse(criteria, List.of()));
         }
 
-        /** True when there is enough here to run a search again. */
+        /**
+         * True when there is enough here to restore the form.
+         *
+         * <p>Only the resource type is required. A search with no parameters — asking for
+         * every Patient, say — is a perfectly ordinary search, and refusing to remember it
+         * meant the most common way to browse came back blank. An empty criteria list is
+         * restored as an empty criteria list, which is a state the user chose rather than a
+         * form that silently failed to come back.</p>
+         */
         public boolean isComplete() {
-            return resourceType != null && !resourceType.isBlank() && !criteria.isEmpty();
+            return resourceType != null && !resourceType.isBlank();
         }
     }
 
@@ -54,9 +62,9 @@ public final class SearchMemory {
     /**
      * Records a search.
      *
-     * <p>Ignored when there is nothing to record. A search with no criteria is a legitimate
-     * thing to run — it browses the whole type — but remembering an empty one would restore
-     * a blank form and look like the feature had silently stopped working.</p>
+     * <p>Ignored only when there is no resource type, which is not a search at all. A search
+     * with no parameters is remembered, because browsing a whole resource type is how the
+     * screens are most often used.</p>
      */
     public void remember(Search search) {
         if (search != null && search.isComplete()) {

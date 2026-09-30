@@ -640,6 +640,59 @@ class ServerUiSmokeTest {
     }
 
     @Test
+    @DisplayName("The last search survives reopening the search screen")
+    void lastSearchSurvivesReopening() throws Exception {
+        // The bug this replaces, reported as "when I search and then open in viewer, the
+        // search UI clears". Three separate faults, none of which the earlier tests could see
+        // because none of them reopened the dialog:
+        //
+        //  1. isComplete() demanded at least one criterion, so a plain browse - every
+        //     Patient, no filter - was never remembered. That is the commonest search there
+        //     is, and it came back blank.
+        //  2. The resource type is restored into a ComboBox whose items are filled from the
+        //     server's capabilities. Set-value alone is not enough, because that filling
+        //     runs shortly afterwards.
+        //  3. When the types did arrive, selectFirst() threw the remembered type away and
+        //     replaced it with the first in the list - which is what the user saw.
+        //
+        // So restore the form, then let capabilities land on top of it, and require the
+        // remembered type to survive - which is the sequence a user actually goes through.
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search(null, "Observation",
+                List.of(new SearchCriterion("status", "final")), 20));
+
+        runOnFxThread(() -> {
+            ServerSearchDialog reopened = new ServerSearchDialog(service, new FhirServerManager(),
+                    null, themeManager, memory);
+            assertEquals("Observation", reopened.typeBoxValue(),
+                    "the remembered resource type did not come back");
+
+            // Capabilities loading afterwards must not quietly replace it with the first
+            // item in the list, which is what the user had to ask about.
+            reopened.simulateCapabilitiesArriving(List.of("Patient", "Observation", "Practitioner"));
+            assertEquals("Observation", reopened.typeBoxValue(),
+                    "loading capabilities discarded the remembered resource type");
+            reopened.close();
+        });
+    }
+
+    @Test
+    @DisplayName("A search with no parameters is remembered")
+    void searchWithoutParametersIsRemembered() {
+        // Browsing a whole resource type is the most ordinary thing this screen does, and
+        // it used to be the one thing that could never be restored.
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search("Demo", "Patient", List.of(), 20));
+        assertNotNull(memory.last(), "an unfiltered search was not remembered");
+        assertEquals("Patient", memory.last().resourceType());
+
+        // A search with no resource type is not a search at all, and still is not recorded.
+        SearchMemory empty = new SearchMemory();
+        empty.remember(new SearchMemory.Search("Demo", null, List.of(), 20));
+        assertNull(empty.last(), "a search with no resource type should not be remembered");
+    }
+
+    @Test
     @DisplayName("The search screens are wide enough for the editor's buttons")
     void searchScreensAreWideEnough() throws Exception {
         // The editor's widest row is "Parameters" / "Search string" plus its two buttons.
