@@ -7,7 +7,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,11 +42,11 @@ import com.example.fhirviewer.server.PluginConfig;
 import com.example.fhirviewer.server.PluginLoader;
 import com.example.fhirviewer.server.PluginSettingsStore;
 import com.example.fhirviewer.server.ServerCredentials;
+import com.example.fhirviewer.server.ServerCredentialSaver;
 import com.example.fhirviewer.server.ServerPassphrase;
 import com.example.fhirviewer.server.ServerDefinition;
 import com.example.fhirviewer.server.ServerOperationException;
 import com.example.fhirviewer.server.ServerOrigin;
-import com.example.fhirviewer.server.ServerVendorAction;
 import com.example.fhirviewer.server.ServerWriteResult;
 import com.example.fhirviewer.util.FileSupport;
 
@@ -572,9 +571,6 @@ public class MainWindow {
         MenuItem managePlugins = new MenuItem("Server Plugins...");
         managePlugins.setOnAction(event -> managePlugins());
 
-        MenuItem serverTools = new MenuItem("Server Tools...");
-        serverTools.setOnAction(event -> openServerTools());
-
         // Phase 6. Both are generic: the operation list comes from the active plugin, so a
         // future vendor's operations appear here without this menu knowing they exist.
         MenuItem serverStatus = new MenuItem("Server Status and Capabilities...");
@@ -607,7 +603,7 @@ public class MainWindow {
         return new Menu("Tools", null, validate, new SeparatorMenuItem(), searchServer,
                 refreshFromServer, patchOnServer,
                 deleteFromServer, new SeparatorMenuItem(), manageServers, managePlugins,
-                new SeparatorMenuItem(), serverStatus, runOperation, serverTools);
+                new SeparatorMenuItem(), serverStatus, runOperation);
     }
 
     private Menu buildHelpMenu() {
@@ -1418,23 +1414,30 @@ public class MainWindow {
         }
     }
 
-    /** Adds a FHIR server through the server dialog and keeps it for this session. */
+    /**
+     * Opens the server manager, which adds, edits and removes configured servers.
+     *
+     * <p>Returns no result and applies every change immediately, so there is nothing to
+     * unwrap here. What the user did comes back on the dialog instead, because the dialog
+     * mutates the manager directly and the caller still has to say something useful and
+     * refresh the menu state that depends on how many servers there are.</p>
+     */
     private void manageServers() {
-        ServerDialog dialog = new ServerDialog(serverService, themeManager);
+        ServerManagerDialog dialog = new ServerManagerDialog(serverService, serverManager,
+                new ServerCredentialSaver(
+                        new PluginSettingsStore(pluginSettingsFile()), serverPassphrase));
         dialog.initOwner(stage);
-        dialog.showAndWait().ifPresent(definition -> {
-            boolean stored = serverManager.add(definition);
-            if (stored) {
-                persistServers();
-            }
-            setStatus(stored
-                    ? "Server " + definition.name() + " (" + definition.baseUrl() + ") added; use Tools >"
-                            + " Search FHIR Server to search it."
-                    : "A server named " + definition.name() + " is already configured.");
-            // The File menu's server items enable on the configured-server count, so the
-            // state has to be refreshed even when nothing was added.
-            updateEditActions();
-        });
+        applyDialogTheme(dialog.getDialogPane());
+        dialog.showAndWait();
+
+        ServerManagerDialog.Result result = dialog.result();
+        if (result.changed()) {
+            persistServers();
+            setStatus(result.message());
+        }
+        // The File and Tools menu items enable on the configured-server count, so the state
+        // is refreshed even when the user closed without changing anything.
+        updateEditActions();
     }
 
     /**
@@ -1739,72 +1742,6 @@ public class MainWindow {
         }, "server-reload");
         worker.setDaemon(true);
         worker.start();
-    }
-
-    /**
-     * Lists the server-specific tools the loaded servers' plugins offer
-     * ({@link com.example.fhirviewer.server.FhirServerPlugin#vendorActions()}) and listed
-     * here against the loaded servers, so a server with no extra screens never appears.
-     * The screens themselves are stubs: opening one reports that it is not implemented yet,
-     * which is honest about where the feature stands rather than opening an empty window.</p>
-     */
-    private void openServerTools() {
-        List<FhirServerConfiguration> servers = serverManager.servers();
-        if (servers.isEmpty()) {
-            setStatus("No FHIR server is configured. Use Tools > FHIR Servers... to add one.");
-            return;
-        }
-
-        FhirServerPluginRegistry registry = serverService.registry();
-        ChoiceDialog<String> choice = new ChoiceDialog<>();
-        choice.setTitle("Server Tools");
-        choice.setHeaderText("Server-specific tools");
-        Map<String, OfferedAction> offered = new LinkedHashMap<>();
-
-        for (FhirServerConfiguration server : servers) {
-            FhirServerPlugin plugin = registry.pluginFor(server);
-            if (plugin == null) {
-                continue;
-            }
-            for (ServerVendorAction action : plugin.vendorActions()) {
-                // The label names the server as well as the action, so the same action
-                // offered by two servers stays distinguishable in the list.
-                String label = server.name() + " \u2014 " + action.label()
-                        + (action.isAvailable() ? "" : " (" + action.enabledHint() + ")");
-                choice.getItems().add(label);
-                offered.put(label, new OfferedAction(server, action));
-            }
-        }
-
-        if (offered.isEmpty()) {
-            setStatus("None of the configured servers offers extra tools.");
-            return;
-        }
-
-        setStatus("Select a server tool ...");
-        choice.showAndWait().ifPresent(selected -> {
-            OfferedAction chosen = offered.get(selected);
-            if (chosen != null) {
-                openVendorTool(chosen.server(), chosen.action());
-            }
-        });
-    }
-
-    /** A vendor action together with the server that offered it. */
-    private record OfferedAction(FhirServerConfiguration server, ServerVendorAction action) {
-    }
-
-    /**
-     * Opens one vendor screen, reporting honestly when the plugin has not built it yet.
-     */
-    private void openVendorTool(FhirServerConfiguration server, ServerVendorAction action) {
-        if (!action.isAvailable()) {
-            setStatus(action.label() + " is not available: " + action.enabledHint());
-            return;
-        }
-        setStatus(action.label() + " for " + server.name()
-                + " is not implemented yet. The plugin exposes it as "
-                + action.getClass().getName() + ".");
     }
 
     /**

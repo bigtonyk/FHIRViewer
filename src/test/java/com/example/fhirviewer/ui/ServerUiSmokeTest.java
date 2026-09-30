@@ -1,8 +1,8 @@
 package com.example.fhirviewer.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.GraphicsEnvironment;
@@ -22,6 +22,7 @@ import com.example.fhirviewer.server.FhirServerConfiguration;
 import com.example.fhirviewer.server.FhirServerManager;
 import com.example.fhirviewer.server.FhirServerPluginRegistry;
 import com.example.fhirviewer.server.FhirServerService;
+import com.example.fhirviewer.server.ServerAuthKind;
 import com.example.fhirviewer.server.ServerDefinition;
 import com.example.fhirviewer.server.ServerOrigin;
 
@@ -204,63 +205,158 @@ class ServerUiSmokeTest {
     }
 
     @Test
-    @DisplayName("The add-server screen returns its definition when Save is pressed")
-    void addScreenReturnsADefinition() throws Exception {
-        // The bug this guards: the dialog registered its own "Save" ButtonType but
+    @DisplayName("The server manager adds a server when Save is pressed")
+    void managerAddsAServer() throws Exception {
+        // The bug this replaces: the add dialog registered its own "Save" ButtonType but
         // compared the result converter against ButtonType.OK, a different object the pane
         // never received. Every press therefore produced null, the window added no server,
         // and every Tools item that needed one quietly did nothing.
         //
-        // The screen built perfectly, which is why every other test here passed while the
-        // whole server feature was dead. Only asking the converter about the button the
-        // pane really holds could have caught it.
-        AtomicReference<ServerDefinition> returned = new AtomicReference<>();
+        // That was only catchable by pressing the real button. The screen built perfectly,
+        // which is why every other test here passed while the whole server feature was dead.
+        FhirServerManager fresh = new FhirServerManager();
+        ServerDefinition added = ServerDefinition.named("Canned", "https://example.org/fhir")
+                .build();
+
         runOnFxThread(() -> {
-            ServerDialog dialog = new ServerDialog(service, themeManager);
-            dialog.textFieldsByPrompt().forEach(field -> {
-                if (field.getPromptText().contains("My HAPI Server")) {
-                    field.setText("Canned");
-                } else {
-                    field.setText(server.baseUrl());
-                }
-            });
-            returned.set(dialog.resultFor("Save"));
+            ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
+            dialog.addButton().fire();
+            dialog.form().nameField().setText(added.name());
+            dialog.form().urlField().setText(added.baseUrl());
+            dialog.saveButton().fire();
+            dialog.close();
         });
-        assertNotNull(returned.get(),
-                "pressing Save must return the definition the user described, or no server"
-                        + " is ever added and every server feature stays dead");
-        assertEquals("Canned", returned.get().name());
-        assertEquals(server.baseUrl(), returned.get().baseUrl());
+
+        assertEquals(1, fresh.servers().size(),
+                "pressing Save must add the server the user described, or no server is ever"
+                        + " added and every server feature stays dead");
+        assertEquals(added.name(), fresh.servers().get(0).name());
+        assertEquals(added.baseUrl(), fresh.servers().get(0).baseUrl());
     }
 
     @Test
-    @DisplayName("The add-server screen returns nothing when Cancel is pressed")
-    void addScreenReturnsNothingOnCancel() throws Exception {
-        AtomicReference<ServerDefinition> returned = new AtomicReference<>();
+    @DisplayName("The server manager edits the selected server instead of adding another")
+    void managerEditsTheSelectedServer() throws Exception {
+        // The reason the manager exists. Adding a second entry with a corrected URL would
+        // leave the broken one configured, and the user would have to delete it by hand.
+        FhirServerManager fresh = new FhirServerManager();
+        fresh.add(ServerDefinition.named("Original", "https://old.example.org/fhir").build());
+
         runOnFxThread(() -> {
-            ServerDialog dialog = new ServerDialog(service, themeManager);
-            returned.set(dialog.resultFor("Cancel"));
+            ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
+            dialog.serverList().getSelectionModel().selectFirst();
+            dialog.form().urlField().setText("https://new.example.org/fhir");
+            dialog.saveButton().fire();
+            dialog.close();
         });
-        assertNull(returned.get(), "Cancel must not hand back a definition");
+
+        assertEquals(1, fresh.servers().size(),
+                "editing must replace the server, not add a second one beside it");
+        assertEquals("https://new.example.org/fhir", fresh.servers().get(0).baseUrl());
     }
 
     @Test
-    @DisplayName("The add-server screen refuses to return a definition it cannot build")
-    void addScreenRefusesAnIncompleteDefinition() throws Exception {
-        AtomicReference<Throwable> thrown = new AtomicReference<>();
+    @DisplayName("The server manager deletes the selected server")
+    void managerDeletesTheSelectedServer() throws Exception {
+        FhirServerManager fresh = new FhirServerManager();
+        fresh.add(ServerDefinition.named("Doomed", "https://gone.example.org/fhir").build());
+        fresh.add(ServerDefinition.named("Kept", "https://kept.example.org/fhir").build());
+
         runOnFxThread(() -> {
-            ServerDialog dialog = new ServerDialog(service, themeManager);
-            // Empty fields: the model layer must refuse rather than the dialog handing
-            // back something unusable and the window adding a broken server.
-            try {
-                thrown.set(null);
-                dialog.resultFor("Save");
-            } catch (IllegalArgumentException expected) {
-                thrown.set(expected);
-            }
+            ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
+            dialog.serverList().getSelectionModel().selectFirst();
+            dialog.deleteButton().fire();
+            dialog.close();
         });
-        assertNotNull(thrown.get(),
-                "a blank name must be refused, not stored as a server that cannot be reached");
+
+        assertEquals(1, fresh.servers().size(), "the selected server must be removed");
+        assertEquals("Kept", fresh.servers().get(0).name(),
+                "the wrong server was deleted; selection order is configuration order");
+    }
+
+    // MARKER_MORE_MANAGER_TESTS
+    @Test
+    @DisplayName("The server manager lists the servers already configured")
+    void managerListsConfiguredServers() throws Exception {
+        // Without this the list starts empty every time and the user has no way to reach a
+        // server they added earlier - which was the gap that made editing impossible.
+        FhirServerManager fresh = new FhirServerManager();
+        fresh.add(ServerDefinition.named("One", "https://one.example.org/fhir").build());
+        fresh.add(ServerDefinition.named("Two", "https://two.example.org/fhir").build());
+
+        AtomicReference<ServerManagerDialog> built = new AtomicReference<>();
+        runOnFxThread(() -> {
+            built.set(new ServerManagerDialog(service, fresh, null));
+            built.get().close();
+        });
+
+        assertEquals(2, built.get().serverList().getItems().size(),
+                "the manager must show the servers already configured");
+    }
+
+    @Test
+    @DisplayName("The server manager refuses to save a server it cannot build")
+    void managerRefusesAnIncompleteServer() throws Exception {
+        FhirServerManager fresh = new FhirServerManager();
+
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
+            dialog.addButton().fire();
+            // Fields left blank: the model layer must refuse rather than the dialog
+            // adding a server that cannot be reached.
+            dialog.saveButton().fire();
+            assertTrue(fresh.servers().isEmpty(),
+                    "a blank name must be refused, not stored as an unreachable server");
+            assertTrue(dialog.statusText().toLowerCase().contains("name"),
+                    "the user must be told which field is wrong, but was told: "
+                            + dialog.statusText());
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("Save and Delete are disabled until a server is selected")
+    void managerDisablesActionsWithoutASelection() throws Exception {
+        AtomicReference<ServerManagerDialog> built = new AtomicReference<>();
+        runOnFxThread(() -> {
+            built.set(new ServerManagerDialog(service, new FhirServerManager(), null));
+            built.get().close();
+        });
+
+        assertTrue(built.get().saveButton().isDisabled(),
+                "Save with nothing selected would silently do nothing");
+        assertTrue(built.get().deleteButton().isDisabled(),
+                "Delete with nothing selected would silently do nothing");
+        assertFalse(built.get().addButton().isDisabled(),
+                "Add is how a first server gets configured, so it must always be available");
+    }
+
+    @Test
+    @DisplayName("Choosing an authentication kind reveals the fields it needs")
+    void managerRevealsTheFieldsTheAuthKindNeeds() throws Exception {
+        AtomicReference<ServerManagerDialog> built = new AtomicReference<>();
+        runOnFxThread(() -> {
+            built.set(new ServerManagerDialog(service, new FhirServerManager(), null));
+            built.get().close();
+        });
+        ServerManagerDialog dialog = built.get();
+
+        runOnFxThread(() -> {
+            assertFalse(dialog.form().userField().isVisible(),
+                    "anonymous access has no user name to type");
+
+            dialog.form().authBox().getSelectionModel().select(ServerAuthKind.BASIC);
+            assertTrue(dialog.form().userField().isVisible(),
+                    "Basic needs a user name, so hiding the field would make it unsettable");
+            assertTrue(dialog.form().secretField().isVisible(),
+                    "Basic needs a password");
+
+            dialog.form().authBox().getSelectionModel().select(ServerAuthKind.BEARER);
+            assertFalse(dialog.form().userField().isVisible(),
+                    "a bearer token stands alone and has no user name");
+            assertTrue(dialog.form().secretField().isVisible(),
+                    "Bearer still needs its token");
+        });
     }
 
     @Test

@@ -147,6 +147,70 @@ public final class FhirServerManager {
         new ServerDefinitionStore(storeFile).write(definitions(), active);
     }
 
+    /**
+     * The configured servers, narrowed to those a list can hold and edit.
+     *
+     * <p>{@link #servers()} is typed to the interface because a plugin may supply its own
+     * configuration type. A list that can only be edited back into a {@link ServerDefinition}
+     * cannot offer an entry it is unable to load, so anything else is left out and named in
+     * the count the caller reports. In practice every server comes from this application's
+     * own dialog, so the two are the same list.</p>
+     *
+     * @return the editable servers, in configuration order
+     */
+    public synchronized List<ServerDefinition> definitionsForDisplay() {
+        List<ServerDefinition> editable = new ArrayList<>();
+        for (FhirServerConfiguration server : servers) {
+            if (server instanceof ServerDefinition definition) {
+                editable.add(definition);
+            }
+        }
+        return List.copyOf(editable);
+    }
+
+    /**
+     * Replaces one configured server with an edited version of itself, keeping its position.
+     *
+     * <p>Exists so a server can be edited without the user having to delete and re-add it,
+     * which would lose its place in the list, its active selection, and — for a resource read
+     * from it — the link back to where that resource came from. Matching is by identity
+     * rather than by name so a rename is an edit rather than a delete and an add.</p>
+     *
+     * <p>When the active server is the one being replaced, the replacement becomes active.
+     * Leaving the stale entry active would mean the menu reported one URL while requests
+     * went to another.</p>
+     *
+     * @param existing the server to replace, as it was handed out by {@link #servers()}
+     * @param edited   its edited form; must differ in something, or nothing happens
+     * @return {@code true} when an entry was replaced
+     */
+    public synchronized boolean replace(FhirServerConfiguration existing,
+            FhirServerConfiguration edited) {
+        Objects.requireNonNull(existing, "existing");
+        Objects.requireNonNull(edited, "edited");
+        List<FhirServerConfiguration> updated = new ArrayList<>();
+        boolean found = false;
+        for (FhirServerConfiguration server : servers) {
+            if (server == existing) {
+                updated.add(edited);
+                found = true;
+            } else {
+                updated.add(server);
+            }
+        }
+        if (!found) {
+            return false;
+        }
+        boolean wasActive = active == existing;
+        servers.clear();
+        servers.addAll(updated);
+        if (wasActive) {
+            active = edited;
+        }
+        log.info("replaced FHIR server {} with {}", existing.name(), edited.name());
+        return true;
+    }
+
     /** The configured servers narrowed to the persistable ones, in configuration order. */
     private List<ServerDefinition> definitions() {
         List<ServerDefinition> persistable = new ArrayList<>(servers.size());

@@ -31,6 +31,80 @@ class ServerDefinitionPersistenceTest {
     Path directory;
 
     @Test
+    @DisplayName("Editing a server keeps it in the same place in the list")
+    void replaceKeepsPosition() {
+        // Editing by delete-then-add would reorder the list, and would briefly leave the
+        // server unconfigured. A user with three servers would lose track of which is which.
+        FhirServerManager manager = new FhirServerManager();
+        manager.add(ServerDefinition.named("First", "https://one.example.org/fhir").build());
+        ServerDefinition second = ServerDefinition.named("Second",
+                "https://two.example.org/fhir").build();
+        manager.add(second);
+        manager.add(ServerDefinition.named("Third", "https://three.example.org/fhir").build());
+
+        assertTrue(manager.replace(second,
+                ServerDefinition.named("Second", "https://moved.example.org/fhir").build()));
+
+        assertEquals(List.of("First", "Second", "Third"),
+                manager.servers().stream().map(FhirServerConfiguration::name).toList());
+        assertEquals("https://moved.example.org/fhir", manager.servers().get(1).baseUrl());
+    }
+
+    @Test
+    @DisplayName("Editing the active server keeps it active")
+    void replaceKeepsTheActiveServerActive() {
+        // Otherwise the menu would report the old server's name while requests went to the
+        // new URL - the worst kind of silent mismatch.
+        FhirServerManager manager = new FhirServerManager();
+        ServerDefinition active = ServerDefinition.named("Active",
+                "https://old.example.org/fhir").build();
+        manager.add(active);
+        manager.setActive(active);
+
+        ServerDefinition edited = ServerDefinition.named("Renamed",
+                "https://new.example.org/fhir").build();
+        manager.replace(active, edited);
+
+        assertTrue(manager.active().isPresent(), "the active server must still be set");
+        assertEquals("Renamed", manager.active().get().name());
+        assertEquals("https://new.example.org/fhir", manager.active().get().baseUrl());
+    }
+
+    @Test
+    @DisplayName("Replacing a server that is not configured changes nothing")
+    void replaceIgnoresAnUnknownServer() {
+        FhirServerManager manager = new FhirServerManager();
+        manager.add(ServerDefinition.named("Real", "https://real.example.org/fhir").build());
+
+        boolean replaced = manager.replace(
+                ServerDefinition.named("Ghost", "https://ghost.example.org/fhir").build(),
+                ServerDefinition.named("Other", "https://other.example.org/fhir").build());
+
+        assertFalse(replaced, "an unknown server must not be replaced");
+        assertEquals(1, manager.servers().size());
+        assertEquals("Real", manager.servers().get(0).name());
+    }
+
+    @Test
+    @DisplayName("An edited server survives a save and a load")
+    void editedServerSurvivesARestart() throws IOException {
+        Path file = directory.resolve("server-definitions.properties");
+        FhirServerManager before = new FhirServerManager();
+        ServerDefinition original = ServerDefinition.named("Before",
+                "https://old.example.org/fhir").build();
+        before.add(original);
+        before.replace(original, ServerDefinition.named("After",
+                "https://new.example.org/fhir").build());
+        before.save(file);
+
+        FhirServerManager after = new FhirServerManager();
+        assertEquals(1, after.load(file));
+
+        assertEquals("After", after.servers().get(0).name());
+        assertEquals("https://new.example.org/fhir", after.servers().get(0).baseUrl());
+    }
+
+    @Test
     @DisplayName("A configured server survives a save and a load")
     void serverSurvivesARestart() throws IOException {
         Path file = directory.resolve("server-definitions.properties");

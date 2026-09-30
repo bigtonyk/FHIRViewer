@@ -20,7 +20,7 @@ describing an ideal.
 7. [Refresh, Patch and Delete](#7-refresh-patch-and-delete)
 8. [Server Status and Capabilities](#8-server-status-and-capabilities)
 9. [Running server operations](#9-running-server-operations)
-10. [Server Tools and Server Plugins](#10-server-tools-and-server-plugins)
+10. [Server Plugins](#10-server-plugins)
 11. [What each plugin supports](#11-what-each-plugin-supports)
 12. [Reading error messages](#12-reading-error-messages)
 13. [Where your settings live](#13-where-your-settings-live)
@@ -60,51 +60,85 @@ appear in the menus without the application changing.
 
 **Tools → FHIR Servers...**
 
-The dialog asks for five things:
+The dialog has a list of the servers you have already configured on the left,
+and the details of the selected one on the right. Four buttons sit under the
+form.
+
+| Button | What it does |
+|---|---|
+| **Add** | Clears the form so you can describe a new server. Nothing is created until you press **Save**. |
+| **Save** | Adds the server, or updates the one selected. Takes effect immediately — there is no separate OK. |
+| **Delete** | Removes the selected server from the list. |
+| **Test connection** | Fetches the server's `CapabilityStatement` and reports whether it is reachable. Works on whatever the form currently holds, so you can test before saving. |
+
+To correct a server that is already there: select it, change what needs
+changing, press **Save**. Editing replaces the server rather than adding a
+second one, so you do not end up with a stale copy to clean up.
+
+The form asks for:
 
 | Field | What to enter |
 |---|---|
-| **Server name** | Any label you like. It is how you tell your servers apart, and it is the identity the viewer matches on, so names must be unique. |
-| **FHIR base URL** | The server's FHIR root, e.g. `https://example.com/fhir` or `http://localhost:8080/fhir`. Must start with `http://` or `https://`. Trailing slashes are removed for you. |
+| **Name** | Any label you like. It is how you tell your servers apart, and it is the identity the viewer matches on, so names must be unique. |
+| **Base URL** | The server's FHIR root, e.g. `https://example.com/fhir` or `http://localhost:8080/fhir`. Must start with `http://` or `https://`. Trailing slashes are removed for you. |
 | **FHIR version** | `R4` is the only choice currently. |
-| **Integration** | Which plugin serves this server — see [What each plugin supports](#11-what-each-plugin-supports). Choose the vendor plugin when one is listed for your product. |
-| **Authentication** | Currently shown as "None (anonymous)". See [Credentials](#3-credentials). |
+| **Server type** | Which plugin serves this server — see [What each plugin supports](#11-what-each-plugin-supports). Choose the vendor plugin when one is listed for your product. |
+| **Authentication** | Anonymous, user name and password, or a bearer token. See [Credentials](#3-credentials). |
 
-Press **Test connection** to have the viewer fetch the server's
-`CapabilityStatement` and report whether it is reachable. The result appears
-in the dialog; the window does not freeze while the request is in flight.
+Servers are **saved as soon as you change them**, so they are still there next
+time you start the application. You do not need to press Save on the main
+window as well.
 
-Then press **Save**. The server is added and saved immediately, so it is still
-there next time you start the application.
+If **Save** appears to do nothing, read the message under the form: an empty
+name or a base URL without a scheme is refused there rather than being stored.
 
-If **Save** appears to do nothing, check the message at the bottom of the
-dialog: an empty name or a base URL without a scheme is refused there rather
-than being stored.
+### Which server is active?
 
-### The server list
-
-**Tools → FHIR Servers...** only adds servers. To see what is configured, open
-**Tools → Server Status and Capabilities...**, which lists every configured
-server and marks the active one.
+The dialog shows every configured server but does not choose between them. To
+see which one is active, open **Tools → Server Status and Capabilities...**.
 
 ---
 
 ## 3. Credentials
 
-The add-server dialog cannot store credentials. That is not an oversight to
-work around — credentials belong to the *plugin*, and one plugin can serve
-several servers. They are set once per plugin:
+Choose an authentication kind in the server dialog's form:
 
-**Tools → Server Plugins... → Settings**, for the plugin that serves your
-server. Enter a user name and password, and a passphrase of your choosing.
+| Kind | What it asks for | What is sent |
+|---|---|---|
+| **None (anonymous)** | Nothing | No `Authorization` header |
+| **User name and password** | A user name and a password | An HTTP Basic `Authorization` header |
+| **Bearer token** | A token | `Authorization: Bearer <token>` |
 
-- The password is **encrypted** before it is written to disk, using that
-  passphrase. It is never stored as plain text.
-- The passphrase is **not stored anywhere**. It is held for the session only
-  and cleared when the application closes, so you will be asked for it again
-  next time.
-- The user name and base URL *are* stored in the clear, because they are not
-  secret and you may need to read them.
+The form only shows the fields a kind actually needs, so a bearer token does
+not ask for a user name and anonymous hides both.
+
+**A password is encrypted before it is written to disk**, using a passphrase you
+choose. The passphrase is **not stored anywhere** — it is held for the session
+and cleared when the application closes. The user name and base URL *are* stored
+in the clear, because they are not secret and you may need to read them.
+
+### Set a passphrase first
+
+The passphrase is set once, in **Tools → Server Plugins... → Settings**, and is
+shared with the plugin settings. Enter a server password before any passphrase
+exists and the viewer **refuses to store it** rather than writing something that
+could never be decrypted:
+
+> *Set a passphrase in Tools > Server Plugins... first, then enter the password
+> again. It cannot be saved without one.*
+
+A password that is stored but unreadable would look saved and never work, which
+is the hardest kind of failure to diagnose — so the viewer tells you instead.
+
+### Leaving a password blank when editing
+
+The password field is never echoed back, so it is always blank when you open a
+server that has one. **A blank field means "leave the stored password alone"**,
+not "clear it" — otherwise correcting a URL would quietly sign you out of your
+own server.
+
+To actually remove a stored password, set the kind to **None (anonymous)** and
+press **Save**.
 
 ### If you have saved a password but not unlocked it
 
@@ -120,8 +154,7 @@ are locked, or that the server requires authentication. Unlock them in
 
 Nothing is lost and nothing is exposed. The stored password simply fails to
 decrypt, requests fall back to anonymous, and the reason is written to the log
-without the passphrase or the password. Re-enter the correct passphrase in
-
+without the passphrase or the password.
 
 ---
 
@@ -463,32 +496,31 @@ offers to write it.
 
 ---
 
-## 10. Server Tools and Server Plugins
-
-### Tools → Server Tools...
-
-Lists the **vendor-specific screens** a plugin offers — whole extra screens,
-distinct from operations.
-
-Expect little here, and read this before reporting it as broken:
-
-- **Standard FHIR REST** and **Smile CDR** declare no vendor tools, so the
-  viewer says *"None of the configured servers offers extra tools."* That is
-  correct, not a failure.
-- **Firely Server** offers *Firely Administration...*. Selecting it reports
-  that the screen is not implemented yet. Firely's administration endpoints
-  are reachable through **Tools → Run Server Operation...** instead.
+## 10. Server Plugins
 
 ### Tools → Server Plugins...
 
 Manages the integrations themselves:
 
-- **Settings** — base URL, user name, password and load-on-start for a plugin.
-  This is where credentials are set; see [Credentials](#3-credentials).
+- **Settings** — base URL, user name, password, load-on-start, and the
+  **passphrase** that encrypts stored passwords. This is where the passphrase
+  is set; see [Credentials](#3-credentials).
 - **Discovery** — scan a folder for plugin jars and load them.
 - **Configuration** — enable or disable plugins at start-up.
 
 The plugin configuration is a plain text file you can edit by hand.
+
+### There is no "Server Tools" menu any more
+
+An earlier version had **Tools → Server Tools...**, which listed the
+vendor-specific *screens* a plugin offers. It was removed because it could not
+do anything: the only screen it could offer was not implemented, and every
+other plugin declared none. A menu item that opens a picker and then reports
+"not implemented" is worse than no menu item at all.
+
+The operations those vendor endpoints expose are still reachable, individually,
+under **Tools → Run Server Operation...** — see
+[Firely Server operations](#firely-server-operations).
 
 ---
 
@@ -581,7 +613,7 @@ refused with a message at the bottom of the dialog.
 
 **"None of the configured servers offers extra tools."**
 Correct for a Standard REST or Smile CDR server. See
-[Server Tools](#10-server-tools-and-server-plugins).
+Server Tools, which has been removed (see [section 10](#10-server-plugins)).
 
 **A search returns nothing.**
 Check the resource type. A server that supports `Patient` may not support
@@ -626,7 +658,7 @@ Stated plainly, so nothing here reads as working when it does not.
 
 | Not built yet | What you get instead |
 |---|---|
-| **Vendor screens** (*Tools → Server Tools...*) | Firely's *Administration* screen is declared but reports "not implemented". Its endpoints are reachable as individual operations under **Run Server Operation...**. |
+| **Vendor screens** (*Tools → Server Tools...*) | Removed. The only screen it could offer was never implemented, so the menu item was removed rather than left doing nothing. Those endpoints are reachable as individual operations under **Run Server Operation...**. |
 | **Smile CDR's Admin JSON API** | User, session and partition management sit on a separate port that the viewer cannot address yet. The reindex operations, which are on the FHIR endpoint, do work. See [Phase 8](../plans/08_SECOND_BASE_URL_FOR_ADMIN_APIS.md). |
 | **Bulk jobs are started, not finished** | `$export` and `$import` return `202` with a polling URL. The screen shows that acknowledgement; it does not follow the job to completion. |
 | **Writing conformance resources** | Firely's administration API allows it; the viewer deliberately offers those searches read-only. |
