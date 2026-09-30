@@ -26,6 +26,32 @@ public final class SearchRequest {
         this.resourceType = resourceType;
         this.criteria = List.copyOf(Objects.requireNonNull(criteria, "criteria"));
         this.pageSize = pageSize;
+        rejectMixedCriteria();
+    }
+
+    /**
+     * Refuses a request holding both a raw search string and name/value pairs.
+     *
+     * <p>Both kinds are sent by different routes — a raw string goes on the query line
+     * untouched, a pair is built by the plugin — so a request carrying both has no single
+     * correct answer. Silently dropping one kind would return a search the user did not
+     * ask for, and a raw search with nothing applied returns <em>everything</em>, which is
+     * the worst outcome available. Refusing at construction means the question never arises
+     * where it is expensive to get wrong.</p>
+     */
+    private void rejectMixedCriteria() {
+        boolean raw = criteria.stream().anyMatch(SearchCriterion::isRaw);
+        boolean exact = criteria.stream().anyMatch(criterion -> !criterion.isRaw());
+        if (raw && exact) {
+            throw new IllegalArgumentException(
+                    "A search is either a raw search string or a list of parameters, not both."
+                            + " Use the raw form to send everything in one string.");
+        }
+    }
+
+    /** True when every criterion is a raw search string rather than a name/value pair. */
+    public boolean isRawSearch() {
+        return !criteria.isEmpty() && criteria.stream().allMatch(SearchCriterion::isRaw);
     }
 
     /** The FHIR resource type to search, for example <code>Patient</code>. */
