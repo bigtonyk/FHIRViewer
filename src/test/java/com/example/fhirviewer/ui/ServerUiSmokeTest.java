@@ -458,6 +458,48 @@ class ServerUiSmokeTest {
     }
 
     @Test
+    @DisplayName("The Firely plugin reaches the running application")
+    void firelyReachesTheApplication() throws Exception {
+        // Investigating "the Firely operation list only shows 2 operations" turned up two
+        // things that look identical and are not:
+        //
+        //  - FirelyPlugin is deliberately absent from the META-INF/services file. It is
+        //    loaded from configuration instead, so a user can switch it off without
+        //    changing the class path. Adding it to the service file would be wrong, and
+        //    defeats the deny list.
+        //  - The application builds its registry with PluginLoader.load(), which combines
+        //    both, so Firely *is* available.
+        //
+        // The actual cause is the form: the "Server type" list defaults to its first entry,
+        // and the first entry is the standard plugin. A server added for a Firely endpoint
+        // without changing that is saved as standard-rest and shows the standard
+        // operations - with nothing on screen to say the plugin had not been chosen.
+        //
+        // This test pins the first half, so the service file is not "fixed" later by
+        // someone who has not found this.
+        AtomicReference<List<String>> loaded = new AtomicReference<>();
+        runOnFxThread(() -> loaded.set(
+                com.example.fhirviewer.server.PluginLoader.load().plugins().stream()
+                        .map(com.example.fhirviewer.server.FhirServerPlugin::id).toList()));
+
+        assertTrue(loaded.get().contains("firely"),
+                "Firely must reach the application through PluginLoader; found "
+                        + loaded.get());
+        assertTrue(loaded.get().contains("smile-cdr"), "found " + loaded.get());
+        assertTrue(loaded.get().contains("standard-rest"), "found " + loaded.get());
+    }
+
+    @Test
+    @DisplayName("Firely stays out of the service file on purpose")
+    void firelyIsNotInTheServiceFile() throws Exception {
+        // Kept deliberately: it is loaded from configuration so the user can disable it
+        // without touching the class path.
+        assertFalse(com.example.fhirviewer.server.PluginLoader.discoverableIds()
+                        .contains(com.example.fhirviewer.server.FirelyPlugin.class.getName()),
+                "Firely belongs in the config file, not service discovery");
+    }
+
+    @Test
     @DisplayName("The operation screen's server selector is actually on screen")
     void theServerSelectorIsOnScreen() throws Exception {
         // The server box was created, populated, given a cell factory, wired to reload the

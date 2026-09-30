@@ -80,6 +80,14 @@ they cannot see layout, and the last three commits changed a lot of layout.
 on the FHIR endpoint and already work), and phases 29 and 30, which are review activities
 rather than code.
 
+Phase 30 is now done - see `Phase-30-Security-Review.md`.
+
+**Newly planned:** `10_STANDARD_OPERATIONS_AND_INPUT_UI.md`. A standard FHIR server offers
+only `$export` and `$import`; the specification's operations are declared nowhere in the
+codebase. This is not an authentication limitation - discovery applies no auth filter at all.
+The plan covers declaring them, verifying each against a live server, the input UI needed to
+make `$validate` and friends usable, and why a Firely server can end up served as a plain one.
+
 ## Notes
 
 (append observations here as work proceeds)
