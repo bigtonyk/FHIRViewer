@@ -112,6 +112,10 @@ Choose an authentication kind in the server dialog's form:
 The form only shows the fields a kind actually needs, so a bearer token does
 not ask for a user name and anonymous hides both.
 
+**Each server keeps its own credentials.** Two servers of the same type — two
+Firely servers, or two standard FHIR servers — can each have a different user
+name and password, and neither overwrites the other.
+
 **A password is encrypted before it is written to disk**, using a passphrase you
 choose. The passphrase is **not stored anywhere** — it is held for the session
 and cleared when the application closes. The user name and base URL *are* stored
@@ -139,6 +143,10 @@ own server.
 
 To actually remove a stored password, set the kind to **None (anonymous)** and
 press **Save**.
+
+Credentials follow the **server**, not the URL or the name. Renaming a server or
+correcting its address keeps the password you already saved, because those are
+the edits people make when something is not working.
 
 ### If you have saved a password but not unlocked it
 

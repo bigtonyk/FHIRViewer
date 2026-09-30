@@ -17,15 +17,30 @@ import java.util.Properties;
 import java.util.Set;
 
 /**
- * Reads and writes each plugin's saved connection settings, keeping passwords encrypted at rest.
+ * Reads and writes saved connection settings, keeping passwords encrypted at rest.
  *
- * <p>The file is a properties file keyed by plugin id:</p>
+ * <p>The file is a properties file keyed by
+ * {@link FhirServerConfiguration#credentialKey()}, which for a server this application
+ * created is a generated id:</p>
  * <pre>
- * firely.baseUrl=https://firely.example.com/fhir
- * firely.userName=alice
- * firely.password=v1$&lt;salt&gt;$&lt;iv&gt;$&lt;ciphertext&gt;
+ * 3f1c...e7.baseUrl=https://firely.example.com/fhir
+ * 3f1c...e7.userName=alice
+ * 3f1c...e7.password=v1$&lt;salt&gt;$&lt;iv&gt;$&lt;ciphertext&gt;
  * firely.loadOnStart=true
  * </pre>
+ *
+ * <p><b>Credentials are keyed per server, not per plugin.</b> One plugin can serve
+ * several servers, and keying by plugin id meant the second server's password replaced
+ * the first's: both were configured correctly and one of them silently began signing
+ * in as nobody, with nothing on screen to say why. A generated id also survives a
+ * rename or a base-URL edit, which are the changes a user makes when a connection
+ * is failing and exactly when the password is most needed. The id is shown
+ * truncated above; the file holds it whole.</p>
+ *
+ * <p>An entry keyed by a plugin id is still read as a fallback, provided its saved
+ * base URL matches, so a file written before per-server keys existed keeps
+ * working. The URL check stays deliberately strict, because a credential must never
+ * be sent to a host it was not saved for.</p>
  *
  * <p>The password is the only secret: it is encrypted with {@link SecretBox} under a
  * passphrase the user supplies. The base URL, user name and the load-on-start flag are
@@ -100,7 +115,7 @@ public final class PluginSettingsStore {
      * actually saved for: a user who points the same plugin at a second server, or who
      * changes the URL, gets anonymous access rather than a password sent somewhere it
      * was never meant to go. Sending a credential to the wrong host is not a recoverable
-     * mistake, so the check is deliberately strict — trailing slashes and case in the
+     * mistake, so the check is deliberately strict â€” trailing slashes and case in the
      * scheme and host are ignored, nothing else is.
      *
      * @param server the server the application is about to talk to
@@ -109,8 +124,28 @@ public final class PluginSettingsStore {
         if (server == null) {
             return null;
         }
-        PluginSettings settings = read(server.pluginId());
-        return describesSameServer(settings, server) ? settings : null;
+        Map<String, PluginSettings> all = readAll();
+        PluginSettings keyed = all.get(credentialKeyOf(server));
+        if (keyed != null) {
+            return keyed;
+        }
+        // Nothing under the server's own key: accept a plugin-keyed entry only when its
+        // saved base URL matches. That is how a file written before keys existed still
+        // works, and the URL check stays deliberately strict, because a credential must
+        // never be sent to a host it was not saved for.
+        PluginSettings legacy = all.get(pluginIdOf(server));
+        return describesSameServer(legacy, server) ? legacy : null;
+    }
+
+    /** The key a server's credentials are filed under, never blank. */
+    private static String credentialKeyOf(FhirServerConfiguration server) {
+        String key = server.credentialKey();
+        return key == null || key.isBlank() ? pluginIdOf(server) : key.trim();
+    }
+
+    private static String pluginIdOf(FhirServerConfiguration server) {
+        String id = server.pluginId();
+        return id == null ? "" : id.trim();
     }
 
     /**
@@ -191,26 +226,27 @@ public final class PluginSettingsStore {
     }
 
     /**
-     * Saves settings for one plugin, encrypting the password under the passphrase.
+     * Saves settings under their own key, encrypting the password under the passphrase.
      *
      * <p>An empty password clears the stored secret, which is how a user goes back to
      * anonymous access.</p>
+     *
+     * <p>Filed under {@link PluginSettings#key()} rather than the plugin id, so two servers
+     * served by one plugin each keep their own credentials.</p>
      */
     public void save(PluginSettings settings, String passphrase) throws IOException, SecretBoxException {
         Objects.requireNonNull(settings, "settings");
         Map<String, PluginSettings> all = readAll();
         String password = settings.password();
-        if (password != null && !password.isEmpty()) {
-            all.put(settings.pluginId(), new PluginSettings(
-                    settings.pluginId(),
-                    settings.baseUrl(),
-                    settings.userName(),
-                    secretBox.encrypt(passphrase, password)));
-        } else {
-            // Anonymous: keep the URL and user name, drop the secret entirely.
-            all.put(settings.pluginId(), new PluginSettings(
-                    settings.pluginId(), settings.baseUrl(), settings.userName(), null));
-        }
+        String encrypted = password == null || password.isEmpty()
+                ? null
+                : secretBox.encrypt(passphrase, password);
+        all.put(settings.key(), new PluginSettings(
+                settings.pluginId(),
+                settings.baseUrl(),
+                settings.userName(),
+                encrypted,
+                settings.key()));
         writeAll(all);
     }
 
@@ -257,6 +293,9 @@ public final class PluginSettingsStore {
     private void writeAll(Map<String, PluginSettings> all) throws IOException {
         Properties properties = readProperties();
         for (Map.Entry<String, PluginSettings> entry : all.entrySet()) {
+            // The map key is authoritative: it is the key the entry was filed under, and
+            // reusing entry.getKey() rather than settings.key() keeps a hand-edited or
+            // legacy entry writing back to the place it was read from.
             String id = entry.getKey();
             PluginSettings settings = entry.getValue();
             put(properties, id + BASE_URL_SUFFIX, settings.baseUrl());

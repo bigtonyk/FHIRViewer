@@ -82,12 +82,15 @@ public final class ServerCredentialSaver {
         String effectiveUser = user == null || user.isBlank() ? null : user.trim();
         boolean wantsSecret = kind != null && !kind.isAnonymous();
         boolean hasSecret = secret != null && !secret.isBlank();
+        // The server's own key, not its plugin id: one plugin can serve several servers, and
+        // saving by plugin id meant each server's password replaced the previous one's.
+        String key = server.credentialKey();
         try {
             if (!wantsSecret) {
                 // Anonymous: keep the URL and the user name for reference, drop the secret.
                 // This is also how a user clears a password they no longer want stored.
                 store.save(new PluginSettings(server.pluginId(), server.baseUrl(),
-                        effectiveUser, null), secretOf());
+                        effectiveUser, null, key), secretOf());
                 return Outcome.CLEARED;
             }
             if (!hasSecret) {
@@ -101,14 +104,14 @@ public final class ServerCredentialSaver {
                 }
                 return Outcome.SAVED;
             }
-            String key = secretOf();
-            if (key == null || key.isEmpty()) {
+            String secretKey = secretOf();
+            if (secretKey == null || secretKey.isEmpty()) {
                 // A password nobody can decrypt is worse than none: it would be stored,
                 // look saved, and never work.
                 return Outcome.NEEDS_PASSPHRASE;
             }
             store.save(new PluginSettings(server.pluginId(), server.baseUrl(),
-                    effectiveUser, secret), key);
+                    effectiveUser, secret, key), secretKey);
             return Outcome.SAVED;
         } catch (IOException | SecretBoxException e) {
             return Outcome.FAILED;

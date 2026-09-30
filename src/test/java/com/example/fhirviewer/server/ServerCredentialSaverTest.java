@@ -42,6 +42,99 @@ class ServerCredentialSaverTest {
     }
 
     @Test
+    @DisplayName("Two servers on one plugin keep their own credentials")
+    void twoServersOnOnePluginKeepSeparateCredentials() throws Exception {
+        // The bug this fixes. Settings were keyed by plugin id, so the second server's save
+        // replaced the first's outright. Both servers were configured correctly and one of
+        // them silently started signing in as nobody.
+        PluginSettingsStore store = store();
+        ServerCredentialSaver saver = new ServerCredentialSaver(store, unlocked());
+        ServerDefinition first = ServerDefinition.named("Prod",
+                "https://prod.example.org/fhir")
+                .pluginId(StandardFhirRestPlugin.PLUGIN_ID).build();
+        ServerDefinition second = ServerDefinition.named("Test",
+                "https://test.example.org/fhir")
+                .pluginId(StandardFhirRestPlugin.PLUGIN_ID).build();
+
+        saver.save(first, ServerAuthKind.BASIC, "alice", "prod-password");
+        saver.save(second, ServerAuthKind.BASIC, "bob", "test-password");
+
+        // Read back through the store the way ServerCredentials does, not through the
+        // objects that were just written, so this is a real round trip.
+        assertEquals("alice", store.readForServer(first).userName(),
+                "the first server's credentials were overwritten by the second's");
+        assertEquals("bob", store.readForServer(second).userName());
+
+        // And they must actually unlock to different passwords, not merely be reported
+        // correctly: same user name twice would pass the check above.
+        assertEquals("prod-password",
+                store.unlockForServer(first, "a passphrase").password());
+        assertEquals("test-password",
+                store.unlockForServer(second, "a passphrase").password());
+    }
+
+    @Test
+    @DisplayName("Editing a server keeps the credentials it already had")
+    void editingAServerKeepsItsCredentials() throws Exception {
+        // The id is what credentials are filed under, so an edit that generated a fresh one
+        // would orphan the password - and a user correcting a URL is exactly who needs it.
+        PluginSettingsStore store = store();
+        ServerCredentialSaver saver = new ServerCredentialSaver(store, unlocked());
+        ServerDefinition original = ServerDefinition.named("Prod",
+                "https://old.example.org/fhir")
+                .pluginId(StandardFhirRestPlugin.PLUGIN_ID).build();
+        saver.save(original, ServerAuthKind.BASIC, "alice", "prod-password");
+
+        // What the form does on Save: rebuild the definition, carrying the id across.
+        ServerDefinition edited = ServerDefinition.named("Production",
+                        "https://new.example.org/fhir")
+                .pluginId(StandardFhirRestPlugin.PLUGIN_ID)
+                .id(original.id())
+                .build();
+
+        assertEquals(original.id(), edited.id(),
+                "an edit must not change the server's identity, or its credentials are lost");
+        assertEquals("prod-password", store.unlockForServer(edited, "a passphrase").password(),
+                "renaming and re-pointing a server must not sign the user out of it");
+    }
+
+    @Test
+    @DisplayName("A server keeps its identity across a save and a load")
+    void identitySurvivesARestart() throws IOException {
+        // Without this the id would be regenerated on every start, and every saved password
+        // would be orphaned the first time the application was reopened.
+        java.nio.file.Path file = directory.resolve("server-definitions.properties");
+        FhirServerManager before = new FhirServerManager();
+        before.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
+        before.save(file);
+
+        FhirServerManager after = new FhirServerManager();
+        after.load(file);
+
+        ServerDefinition reloaded = after.definitionsForDisplay().get(0);
+        assertEquals(before.definitionsForDisplay().get(0).id(), reloaded.id(),
+                "a server's identity must survive a restart, or its credentials are orphaned");
+    }
+
+    @Test
+    @DisplayName("Two servers that share a plugin are stored as separate entries")
+    void twoServersAreStoredSeparately() throws IOException {
+        // The file itself, not the API: one entry per server is what makes the read above
+        // possible, and a hand-inspectable file is the point of the format.
+        PluginSettingsStore store = store();
+        ServerCredentialSaver saver = new ServerCredentialSaver(store, unlocked());
+        saver.save(ServerDefinition.named("Prod", "https://prod.example.org/fhir")
+                        .pluginId(StandardFhirRestPlugin.PLUGIN_ID).build(),
+                ServerAuthKind.BASIC, "alice", "p1");
+        saver.save(ServerDefinition.named("Test", "https://test.example.org/fhir")
+                        .pluginId(StandardFhirRestPlugin.PLUGIN_ID).build(),
+                ServerAuthKind.BASIC, "bob", "p2");
+
+        assertEquals(2, store.readAll().size(),
+                "each server needs its own entry; one entry means one server lost its login");
+    }
+
+    @Test
     @DisplayName("Anonymous saves nothing and clears any stored secret")
     void anonymousClearsTheSecret() throws IOException {
         PluginSettingsStore store = store();

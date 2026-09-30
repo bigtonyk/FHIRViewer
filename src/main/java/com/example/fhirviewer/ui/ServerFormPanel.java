@@ -203,17 +203,27 @@ final class ServerFormPanel {
     }
 
     /**
-     * Builds the definition this form describes.
+     * Builds the definition this form describes, carrying over the previous server's id.
      *
+     * <p>The id is what credentials are filed under, so it has to survive an edit. A form
+     * that rebuilt the definition from scratch would generate a new id, and every password
+     * the user had saved for this server would be silently orphaned — the server would keep
+     * working anonymously and the user would have no idea why.</p>
+     *
+     * @param previous the server being edited, or {@code null} when adding a new one
      * @throws IllegalArgumentException when a field is missing or the URL is unusable; the
      *                                  message is written to be shown to the user as-is
      */
-    ServerDefinition toDefinition() {
+    ServerDefinition toDefinition(ServerDefinition previous) {
         FhirServerPlugin plugin = pluginBox.getSelectionModel().getSelectedItem();
-        return ServerDefinition.named(nameField.getText(), urlField.getText())
+        ServerDefinition.Builder builder = ServerDefinition.named(
+                        nameField.getText(), urlField.getText())
                 .fhirVersion(selected(versionBox.getSelectionModel().getSelectedItem(), "R4"))
-                .pluginId(plugin == null ? "" : plugin.id())
-                .build();
+                .pluginId(plugin == null ? "" : plugin.id());
+        if (previous != null) {
+            builder.id(previous.id());
+        }
+        return builder.build();
     }
 
     /** Enables every control, or locks the form while a connection test is running. */

@@ -240,17 +240,20 @@ public class ServerManagerDialog extends Dialog<Void> {
     }
 
     private void onSave() {
+        // Captured before the save, because editing replaces the server this is derived
+        // from and the id has to be carried across or the credentials are orphaned.
+        ServerDefinition previous = editing;
         ServerDefinition definition;
         try {
-            definition = form.toDefinition();
+            definition = form.toDefinition(previous);
         } catch (IllegalArgumentException e) {
             setStatus(e.getMessage());
             return;
         }
-        boolean isNew = editing == null;
+        boolean isNew = previous == null;
         boolean stored = isNew
                 ? serverManager.add(definition)
-                : serverManager.replace(editing, definition);
+                : serverManager.replace(previous, definition);
         if (!stored) {
             setStatus("A server named " + definition.name() + " is already configured.");
             return;
@@ -305,7 +308,7 @@ public class ServerManagerDialog extends Dialog<Void> {
     private void onTestConnection() {
         ServerDefinition candidate;
         try {
-            candidate = form.toDefinition();
+            candidate = form.toDefinition(editing);
         } catch (IllegalArgumentException e) {
             setStatus(e.getMessage());
             return;

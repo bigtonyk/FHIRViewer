@@ -152,6 +152,10 @@ public final class ServerDefinitionStore {
         ServerDefinition.Builder builder = null;
         try {
             builder = ServerDefinition.named(name, baseUrl);
+            // Restored so a server keeps its identity - and therefore its credentials -
+            // across a restart. A file written before ids existed has none, and the builder
+            // then keeps the id it generated, so those servers load as they always did.
+            builder.id(trimmed(properties.getProperty(key + "id")));
             String fhirVersion = trimmed(properties.getProperty(key + "fhirVersion"));
             if (fhirVersion != null) {
                 builder.fhirVersion(fhirVersion);
@@ -228,6 +232,7 @@ public final class ServerDefinitionStore {
                 }
                 String key = BLOCK_PREFIX + index++ + ".";
                 properties.setProperty(key + "name", definition.name());
+                properties.setProperty(key + "id", definition.id());
                 properties.setProperty(key + "baseUrl", definition.baseUrl());
                 properties.setProperty(key + "fhirVersion", definition.fhirVersion());
                 properties.setProperty(key + "pluginId", definition.pluginId());
