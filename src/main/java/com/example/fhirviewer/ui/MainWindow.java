@@ -149,6 +149,12 @@ public class MainWindow {
     private final FhirServerManager serverManager = new FhirServerManager();
 
     /**
+     * The last search, so both search screens reopen showing it. A search that had to be
+     * typed again after opening a result was the complaint that led to this.
+     */
+    private final SearchMemory searchMemory = new SearchMemory();
+
+    /**
      * Decides and performs every write to a FHIR server.
      *
      * <p>Held as a field so the File menu action and the conflict handler share one
@@ -1483,7 +1489,7 @@ public class MainWindow {
             setStatus("No FHIR server is configured. Use Tools > FHIR Servers... to add one.");
             return;
         }
-        ServerSearchDialog dialog = new ServerSearchDialog(serverService, serverManager, fhirService, themeManager);
+        ServerSearchDialog dialog = new ServerSearchDialog(serverService, serverManager, fhirService, themeManager, searchMemory);
         dialog.initOwner(stage);
         dialog.showAndWait().ifPresent(resource -> {
             if (!confirmUnsavedChanges("displaying a resource from a server")) {
@@ -1518,7 +1524,7 @@ public class MainWindow {
         FhirServerConfiguration preselect = displayedOrigin == null ? null
                 : serverFor(displayedOrigin);
         OpenFromServerDialog dialog =
-                new OpenFromServerDialog(serverService, serverManager, preselect);
+                new OpenFromServerDialog(serverService, serverManager, preselect, searchMemory);
         dialog.initOwner(stage);
         dialog.showAndWait().ifPresent(outcome -> {
             ServerOrigin origin = ServerOrigin.of(

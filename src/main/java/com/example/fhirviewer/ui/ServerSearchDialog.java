@@ -1,6 +1,7 @@
 package com.example.fhirviewer.ui;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 
@@ -77,6 +78,9 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
     private final ComboBox<com.example.fhirviewer.server.FhirServerConfiguration> serverBox = new ComboBox<>();
     private final ComboBox<String> typeBox = new ComboBox<>();
     private final SearchCriteriaEditor criteriaEditor = new SearchCriteriaEditor();
+
+    /** What was searched for last, so this screen comes back as it was left. */
+    private final SearchMemory memory;
     private final Button connectButton = new Button("Load capabilities");
     private final Button searchButton = new Button("Search");
     private final Button nextButton = new Button("Next page");
@@ -100,7 +104,9 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             FhirServerService serverService,
             FhirServerManager serverManager,
             com.example.fhirviewer.service.FhirService fhirService,
-            ThemeManager themeManager) {
+            ThemeManager themeManager,
+            SearchMemory memory) {
+        this.memory = Objects.requireNonNull(memory, "memory");
         this.serverService = serverService;
         this.serverManager = serverManager;
         this.fhirService = fhirService;
@@ -211,6 +217,49 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             IBaseResource resource = openType.equals(button) ? selectedResource() : null;
             return resource == null ? null : asLoadedResource(resource);
         });
+
+        restoreLastSearch();
+    }
+
+    /**
+     * Puts the last search back into the form, so coming back to this screen after opening
+     * a result shows what was searched for rather than an empty one.
+     *
+     * <p>Only the form is restored. The results are not re-fetched: doing that would spend a
+     * network request and could pull a page the user did not ask for again. Pressing Search
+     * runs it again.</p>
+     *
+     * <p>A remembered server that is no longer configured is skipped rather than forced —
+     * a renamed or deleted server should leave the rest of the form usable.</p>
+     */
+    private void restoreLastSearch() {
+        SearchMemory.Search last = memory.last();
+        if (last == null) {
+            return;
+        }
+        if (last.serverName() != null) {
+            for (com.example.fhirviewer.server.FhirServerConfiguration server
+                    : serverBox.getItems()) {
+                if (server.name().equals(last.serverName())) {
+                    serverBox.getSelectionModel().select(server);
+                    break;
+                }
+            }
+        }
+        if (last.resourceType() != null && !last.resourceType().isBlank()) {
+            // The type list is filled from the server's capabilities, which may not have
+            // loaded yet; the editable box keeps the value either way.
+            typeBox.setValue(last.resourceType());
+        }
+        List<SearchCriterion> criteria = last.criteria();
+        if (criteria.isEmpty()) {
+            return;
+        }
+        if (criteria.stream().allMatch(SearchCriterion::isRaw)) {
+            criteriaEditor.setRaw(criteria.get(0).value());
+        } else {
+            criteriaEditor.setParameters(criteria);
+        }
     }
 
     private GridPane criteriaGrid() {
@@ -324,6 +373,9 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             }
             lastRequest = new SearchRequest(resourceType, criteria, PAGE_SIZE);
             lastPageToken = null;
+            // So reopening this screen after opening a result shows the same search again.
+            memory.remember(new SearchMemory.Search(server.name(), resourceType, criteria,
+                    PAGE_SIZE));
         }
         if (lastRequest == null) {
             reportFailure("Search for something first.");

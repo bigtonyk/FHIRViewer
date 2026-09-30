@@ -211,7 +211,7 @@ class ServerUiSmokeTest {
     void buildsTheOpenScreen() throws Exception {
         runOnFxThread(() -> {
             OpenFromServerDialog dialog = new OpenFromServerDialog(service, manager,
-                    manager.servers().get(0));
+                    manager.servers().get(0), new SearchMemory());
             dialog.close();
         });
     }
@@ -663,13 +663,13 @@ class ServerUiSmokeTest {
         assertTrue(available.get() > 0, "could not measure the editor's buttons");
 
         runOnFxThread(() -> {
-            ServerSearchDialog search = new ServerSearchDialog(service, new FhirServerManager(), null, themeManager);
+            ServerSearchDialog search = new ServerSearchDialog(service, new FhirServerManager(), null, themeManager, new SearchMemory());
             assertTrue(search.getDialogPane().getMinWidth() >= available.get(),
                     "the search dialog is " + search.getDialogPane().getMinWidth()
                             + "px but its buttons need " + available.get());
             search.close();
 
-            OpenFromServerDialog open = new OpenFromServerDialog(service, new FhirServerManager(), null);
+            OpenFromServerDialog open = new OpenFromServerDialog(service, new FhirServerManager(), null, new SearchMemory());
             assertTrue(open.getDialogPane().getMinWidth() >= available.get(),
                     "the open dialog is " + open.getDialogPane().getMinWidth()
                             + "px but its buttons need " + available.get());

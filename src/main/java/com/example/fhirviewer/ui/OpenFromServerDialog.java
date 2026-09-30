@@ -93,6 +93,9 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     private final TextField typeField = new TextField();
     private final TextField idField = new TextField();
     private final SearchCriteriaEditor criteriaEditor = new SearchCriteriaEditor();
+
+    /** What was searched for last, so this screen comes back as it was left. */
+    private final SearchMemory memory;
     private final ListView<String> typeList = new ListView<>();
     private final TableView<IBaseResource> results = new TableView<>();
     private final Label status = new Label(" ");
@@ -114,9 +117,10 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     private Region busyRegion;
 
     public OpenFromServerDialog(FhirServerService serverService, FhirServerManager serverManager,
-            FhirServerConfiguration preselected) {
+            FhirServerConfiguration preselected, SearchMemory memory) {
         this.serverService = Objects.requireNonNull(serverService, "serverService");
         this.serverManager = Objects.requireNonNull(serverManager, "serverManager");
+        this.memory = Objects.requireNonNull(memory, "memory");
 
         setTitle("Open from Server");
         setResizable(true);
@@ -132,6 +136,47 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         progress.setVisible(false);
         getDialogPane().setContent(buildContent());
         initServers(preselected);
+        restoreLastSearch();
+    }
+
+    /**
+     * Puts the last search back into the form, so coming back to this screen after opening
+     * a result shows what was searched for rather than an empty one.
+     *
+     * <p>Only the form is restored — the results are not re-fetched, because doing that
+     * would spend a network request for a page the user did not ask for again. Pressing
+     * Search runs it again.</p>
+     *
+     * <p>A preselected server still wins over the remembered one: the caller passed that
+     * deliberately, usually because the open resource came from it, and silently overriding
+     * an explicit choice would be worse than not remembering anything.</p>
+     */
+    private void restoreLastSearch() {
+        SearchMemory.Search last = memory.last();
+        if (last == null) {
+            return;
+        }
+        if (serverBox.getSelectionModel().getSelectedItem() == null
+                && last.serverName() != null) {
+            for (FhirServerConfiguration server : serverBox.getItems()) {
+                if (server.name().equals(last.serverName())) {
+                    serverBox.getSelectionModel().select(server);
+                    break;
+                }
+            }
+        }
+        if (last.resourceType() != null && !last.resourceType().isBlank()) {
+            typeField.setText(last.resourceType());
+        }
+        List<SearchCriterion> criteria = last.criteria();
+        if (criteria.isEmpty()) {
+            return;
+        }
+        if (criteria.stream().allMatch(SearchCriterion::isRaw)) {
+            criteriaEditor.setRaw(criteria.get(0).value());
+        } else {
+            criteriaEditor.setParameters(criteria);
+        }
     }
 
     private void initServers(FhirServerConfiguration preselected) {
@@ -384,6 +429,8 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
             return;
         }
         SearchRequest request = new SearchRequest(type, criteria, PAGE_SIZE);
+        // So reopening this screen after opening a result shows the same search again.
+        memory.remember(new SearchMemory.Search(server.name(), type, criteria, PAGE_SIZE));
         setBusy(true, "Searching " + type + " ...");
         run(() -> new Attempt<>(serverService.search(server, request), null), attempt -> {
             setBusy(false, null);
