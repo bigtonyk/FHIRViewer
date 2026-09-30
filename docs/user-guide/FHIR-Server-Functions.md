@@ -182,15 +182,35 @@ Type the resource type and id — `Patient` and `123`, for example — and press
 
 ### B. Search for a resource
 
-The same dialog, **File → Open from FHIR Server...**, has a **Parameter** and
-a **Value** field. Enter a resource type, optionally one search parameter, and
-press **Search**.
+The same dialog, **File → Open from FHIR Server...**, searches in two ways. Choose
+**Parameters** or **Search string** at the top.
 
-- Leaving both parameter and value blank asks the server for everything of
-  that type, which is a legitimate way to browse.
-- Supplying one without the other is refused. A bare `name=` matches nothing
-  on most servers and everything on some, so it is better to be told than to
-  guess.
+**Parameters** takes any number of name and value rows. Press **Add parameter**
+for another, **Remove last** to drop one. Enter a resource type and press
+**Search**.
+
+- Leaving a row blank asks the server for everything of that type, which is a
+  legitimate way to browse.
+- A value with no name is refused. A bare `name=` matches nothing on most
+  servers and everything on some, so it is better to be told than to guess.
+
+**Search string** takes one line, sent to the server exactly as typed. Use this
+when you already have the search written down — copied from a browser address
+bar, a specification example or a colleague.
+
+- Prefixes (`name:exact`), modifiers (`name:contains`), chained parameters
+  (`subject.name`), `_sort`, `_count` and anything the server adds all work,
+  because the viewer does not try to interpret it.
+- You may paste `Patient?name=Smith`, `?name=Smith` or just `name=Smith`. The
+  resource type comes from the **Type** field; everything after the question
+  mark is sent as typed.
+- Nothing is escaped twice, so a value you have already encoded stays as it
+  is.
+- An empty search string is refused rather than run, because a search with
+  nothing applied returns *every* resource of the type.
+
+Switching between the two clears the other, so a half-typed parameter cannot
+be sent as a search you did not write.
 
 Results appear in a table showing the **type**, **id** and **version** of
 each. Select a row and press **Read** to open it.
@@ -679,7 +699,6 @@ Stated plainly, so nothing here reads as working when it does not.
 | **Bulk jobs are started, not finished** | `$export` and `$import` return `202` with a polling URL. The screen shows that acknowledgement; it does not follow the job to completion. |
 | **Writing conformance resources** | Firely's administration API allows it; the viewer deliberately offers those searches read-only. |
 | **FHIRPath patch** | The three body-shaped patch formats only. A FHIRPath patch is a `Parameters` resource, and sending it as a merge patch would be wrong. |
-| **More than one search parameter** | The search screens take one parameter and value. Leave both blank to browse a type. |
 | **A raw REST console** | Deliberately excluded. Arbitrary GET/POST/PUT/DELETE would need its own authentication, error mapping and paging. Use the operation screen. |
 | **Extra request headers per server** | Not persisted. A header *value* is a secret, and `ServerDefinition` has no way to hold one. |
 | **Transaction bundles** | No multi-resource write. Write one resource at a time. |

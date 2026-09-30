@@ -2,6 +2,9 @@
 
 ## Goal
 
+> **Partly done.** The search screens now take several parameters and offer a raw search
+> string; see *Done so far* below. Declaring the specification's operations is **not** started.
+
 Declare the operations the FHIR specification defines, so a plain FHIR server offers
 more than bulk export and import — and make the screen that runs them usable for the
 operations that need input.
@@ -16,6 +19,56 @@ Triggered by two observations while using the operation screen:
 - **The screen cannot take real input.** There is a free-text request body and
   auto-generated fields for declared parameters, but nothing that makes composing an
   operation call practical.
+
+## Done so far
+
+### Search: several parameters, and a raw search string
+
+Both search screens (`ServerSearchDialog` and `OpenFromServerDialog`) previously took one
+name/value pair. `SearchCriteriaEditor` replaces that pair with two ways to describe a
+search:
+
+- **Parameters** — any number of name/value rows, added and removed with buttons. A blank
+  row means "no filter", which is how you browse a whole resource type.
+- **Search string** — one field, sent to the server exactly as typed.
+
+The raw form exists because a search is often *written down* — copied from a browser address
+bar, a specification example or a colleague — and prefixes (`name:exact`), modifiers
+(`name:contains`), chains (`subject.name`), `_sort`, `_count` and vendor extensions all
+work, because nothing parses it. You may paste `Patient?name=Smith`, `?name=Smith` or just
+`name=Smith`; the type and the question mark are stripped and the rest kept as typed.
+
+Three decisions worth recording:
+
+1. **Raw searches take a different route**, not a normal criterion. They are assembled into
+   the path and sent through `JdkHttpRestClient`, because HAPI's query builder cannot put
+   text on a query string untouched: splitting on `&` would double-encode any value the user
+   had already escaped, and `withAdditionalParameter` would wrap the whole thing in a
+   parameter of its own. `RawSearchTest` asserts on the request line the server actually
+   received, including that `%20` is not turned into `%2520`.
+2. **The two kinds cannot be mixed.** `SearchRequest` refuses a request holding both, because
+   they travel by different routes and have no single correct answer. This matters: with raw
+   criteria skipped by the normal path, a mixed request would have been sent with *nothing
+   applied* — returning every resource of the type. An empty raw search is refused for the
+   same reason.
+3. **Switching mode clears the other one**, so a half-typed parameter cannot be carried into a
+   raw search.
+
+Two behaviours the tests pinned that were not obvious:
+
+- The structured path renders `matchesExactly()` as `name%3Aexact=value`. That is HAPI being
+  explicit about the modifier, and is correct — the raw path is what sends a search *without*
+  that normalisation.
+- The editor's `applyMode` runs last and was re-enabling Remove on a single row, where there
+  is nothing left to remove.
+
+### The Firely operation-count question
+
+Answered while writing this plan and kept for the record: it was **not** an authentication
+limitation — `supportedOperations` applies no auth filter at all — and the real cause was the
+*Server type* list defaulting to the standard plugin. See *Step 3*.
+
+---
 
 ## Why it is not an authentication limitation
 
@@ -71,9 +124,9 @@ On `StandardFhirRestPlugin`, so both vendor plugins inherit them.
 
 ### Deliberately excluded
 
-- **Anything needing a parameter the UI cannot express.** `$search` in particular:
-  several parameters at once is a different screen, and declaring an operation the form
-  can only half-fill is worse than not declaring it.
+- **Anything needing a parameter the UI still cannot express.** `$search` in particular now that
+  the search screens take several parameters, it is a POST body carrying a search, which
+  the operation body area can express but the generated form cannot prefill.
 - **Operations behind extensions** — too variable across servers to be useful.
 
 ### Verification

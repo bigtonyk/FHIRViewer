@@ -17,6 +17,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
@@ -75,8 +76,7 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
 
     private final ComboBox<com.example.fhirviewer.server.FhirServerConfiguration> serverBox = new ComboBox<>();
     private final ComboBox<String> typeBox = new ComboBox<>();
-    private final TextField parameterField = new TextField();
-    private final TextField valueField = new TextField();
+    private final SearchCriteriaEditor criteriaEditor = new SearchCriteriaEditor();
     private final Button connectButton = new Button("Load capabilities");
     private final Button searchButton = new Button("Search");
     private final Button nextButton = new Button("Next page");
@@ -114,8 +114,7 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         renderServerNames();
         typeBox.setDisable(true);
         typeBox.setPromptText("Load capabilities first");
-        parameterField.setPromptText("e.g. name");
-        valueField.setPromptText("e.g. Smith");
+
 
         connectButton.getStyleClass().add("button-ghost");
         connectButton.setTooltip(new Tooltip("Read the server's CapabilityStatement to list its resource types."));
@@ -219,8 +218,12 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         int row = 0;
         addRow(grid, row++, "Server", serverBox);
         addRow(grid, row++, "Resource type", typeBox);
-        addRow(grid, row++, "Search parameter", parameterField);
-        addRow(grid, row++, "Value", valueField);
+        // Replaces the single name/value pair. The editor holds both the parameter rows and
+        // the raw search-string mode, so the two screens cannot drift into disagreeing
+        // about what a valid search is.
+        Region editor = criteriaEditor.build();
+        grid.add(editor, 0, row++);
+        GridPane.setColumnSpan(editor, 2);
         grid.add(actions, 1, row);
         return grid;
     }
@@ -353,14 +356,14 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
     }
 
     /**
-     * The criteria from the two fields; empty when the user left both blank.
+     * The criteria the user described; empty when a parameter search is left blank.
      *
-     * <p>Delegates to {@link SearchCriteriaBuilder} so this screen and
-     * {@code OpenFromServerDialog} cannot disagree about what a valid criterion is.</p>
+     * <p>Delegates to the shared editor so this screen and {@code OpenFromServerDialog}
+     * cannot disagree about what a valid search is.</p>
      */
     private List<SearchCriterion> criteria() {
         try {
-            return SearchCriteriaBuilder.from(parameterField.getText(), valueField.getText());
+            return criteriaEditor.criteria();
         } catch (IllegalArgumentException e) {
             reportFailure(e.getMessage());
             return null;

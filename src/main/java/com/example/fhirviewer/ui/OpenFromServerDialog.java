@@ -92,8 +92,7 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     private final ComboBox<FhirServerConfiguration> serverBox = new ComboBox<>();
     private final TextField typeField = new TextField();
     private final TextField idField = new TextField();
-    private final TextField parameterField = new TextField();
-    private final TextField valueField = new TextField();
+    private final SearchCriteriaEditor criteriaEditor = new SearchCriteriaEditor();
     private final ListView<String> typeList = new ListView<>();
     private final TableView<IBaseResource> results = new TableView<>();
     private final Label status = new Label(" ");
@@ -167,8 +166,6 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     private Region buildContent() {
         typeField.setPromptText("Resource type, for example Patient");
         idField.setPromptText("Resource id");
-        parameterField.setPromptText("Search parameter, e.g. name");
-        valueField.setPromptText("Value to match, e.g. Smith");
 
         readButton.setDefaultButton(true);
         readButton.setOnAction(event -> readTypedResource());
@@ -196,10 +193,10 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         query.add(typeField, 1, 1);
         query.add(new Label("Id:"), 0, 2);
         query.add(idField, 1, 2);
-        query.add(new Label("Parameter:"), 0, 3);
-        query.add(parameterField, 1, 3);
-        query.add(new Label("Value:"), 0, 4);
-        query.add(valueField, 1, 4);
+        // Spans both columns: the editor carries its own labels, mode switch and rows.
+        Region editor = criteriaEditor.build();
+        query.add(editor, 1, 3);
+        GridPane.setColumnSpan(editor, 2);
         ColumnConstraints grow = new ColumnConstraints();
         grow.setHgrow(Priority.ALWAYS);
         query.getColumnConstraints().addAll(new ColumnConstraints(), grow);
@@ -379,7 +376,7 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         }
         List<SearchCriterion> criteria;
         try {
-            criteria = SearchCriteriaBuilder.from(parameterField.getText(), valueField.getText());
+            criteria = criteriaEditor.criteria();
         } catch (IllegalArgumentException e) {
             reportFailure(e.getMessage());
             return;

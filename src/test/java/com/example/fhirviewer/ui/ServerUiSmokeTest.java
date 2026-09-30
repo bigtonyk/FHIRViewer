@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.GraphicsEnvironment;
@@ -24,6 +25,8 @@ import com.example.fhirviewer.server.FhirServerManager;
 import com.example.fhirviewer.server.FhirServerPluginRegistry;
 import com.example.fhirviewer.server.FhirServerService;
 import com.example.fhirviewer.server.ServerAuthKind;
+import com.example.fhirviewer.server.SearchCriterion;
+import com.example.fhirviewer.server.SearchRequest;
 import com.example.fhirviewer.server.ServerDefinition;
 import com.example.fhirviewer.server.ServerOrigin;
 
@@ -497,6 +500,118 @@ class ServerUiSmokeTest {
         assertFalse(com.example.fhirviewer.server.PluginLoader.discoverableIds()
                         .contains(com.example.fhirviewer.server.FirelyPlugin.class.getName()),
                 "Firely belongs in the config file, not service discovery");
+    }
+
+    @Test
+    @DisplayName("Several parameters can be entered at once")
+    void severalParametersCanBeEntered() throws Exception {
+        // The screen took exactly one parameter before; this is the change.
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            editor.nameFieldAt(0).setText("family");
+            editor.valueFieldAt(0).setText("Smith");
+            editor.addButton().fire();
+            editor.nameFieldAt(1).setText("given");
+            editor.valueFieldAt(1).setText("John");
+            editor.addButton().fire();
+            editor.nameFieldAt(2).setText("birthdate");
+            editor.valueFieldAt(2).setText("1990-01-01");
+
+            assertEquals(3, editor.rowCount(), "every added row must be there");
+            List<SearchCriterion> criteria = editor.criteria();
+            assertEquals(3, criteria.size(), "all three should be sent: " + criteria);
+            assertEquals("family", criteria.get(0).name());
+            assertEquals("Smith", criteria.get(0).value());
+            assertEquals("birthdate", criteria.get(2).name());
+            assertEquals("1990-01-01", criteria.get(2).value());
+        });
+    }
+
+    @Test
+    @DisplayName("A row can be removed again")
+    void aRowCanBeRemoved() throws Exception {
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            editor.addButton().fire();
+            editor.addButton().fire();
+            assertEquals(3, editor.rowCount());
+            editor.removeButton().fire();
+            assertEquals(2, editor.rowCount());
+        });
+    }
+
+    @Test
+    @DisplayName("The last remaining row cannot be removed")
+    void theLastRowCannotBeRemoved() throws Exception {
+        // Removing the only row would leave nothing to type into, with no way back except
+        // reloading the dialog.
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            assertTrue(editor.removeButton().isDisabled(),
+                    "there must always be somewhere to type");
+        });
+    }
+
+    @Test
+    @DisplayName("A raw search string is offered as an alternative to parameters")
+    void rawModeIsOffered() throws Exception {
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            assertFalse(editor.isRawMode(), "parameters is the default");
+
+            editor.rawMode().fire();
+            assertTrue(editor.isRawMode(), "choosing Search string must switch the mode");
+            editor.rawField().setText("name:contains=Smith&_sort=-birthdate");
+
+            List<SearchCriterion> criteria = editor.criteria();
+            assertEquals(1, criteria.size(), "a raw search is one criterion");
+            assertTrue(criteria.get(0).isRaw());
+            assertEquals("name:contains=Smith&_sort=-birthdate", criteria.get(0).value());
+        });
+    }
+
+    @Test
+    @DisplayName("Switching to raw mode drops the parameters rather than mixing them")
+    void switchingModeDoesNotMixKinds() throws Exception {
+        // A half-typed parameter silently carried into a raw search would send a search the
+        // user did not write. SearchRequest refuses a mixed request; the editor makes sure it
+        // cannot build one.
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            editor.nameFieldAt(0).setText("family");
+            editor.valueFieldAt(0).setText("Smith");
+            editor.rawMode().fire();
+            editor.rawField().setText("given=John");
+
+            List<SearchCriterion> criteria = editor.criteria();
+            assertEquals(1, criteria.size(), "only the raw string should remain: " + criteria);
+            assertTrue(criteria.get(0).isRaw());
+            // And it must be a request the model will actually accept.
+            new SearchRequest("Patient", criteria, 20);
+        });
+    }
+
+    @Test
+    @DisplayName("A blank row means browse every resource of the type")
+    void aBlankRowIsNoCriteria() throws Exception {
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            assertTrue(editor.criteria().isEmpty(),
+                    "leaving the row blank is how you ask for the whole type");
+        });
+    }
+
+    @Test
+    @DisplayName("A value with no parameter name is refused")
+    void aValueWithNoNameIsRefused() throws Exception {
+        // "name=" matches nothing on most servers and everything on some, which is worse
+        // than being told the row is half-finished.
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            editor.valueFieldAt(0).setText("Smith");
+            assertThrows(IllegalArgumentException.class, editor::criteria,
+                    "a value with no name should be refused");
+        });
     }
 
     @Test
