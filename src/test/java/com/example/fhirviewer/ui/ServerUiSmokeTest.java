@@ -28,6 +28,8 @@ import com.example.fhirviewer.server.ServerDefinition;
 import com.example.fhirviewer.server.ServerOrigin;
 
 import javafx.application.Platform;
+import javafx.geometry.Bounds;
+import javafx.scene.Scene;
 import javafx.scene.Node;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.HBox;
@@ -333,6 +335,47 @@ class ServerUiSmokeTest {
                 "Delete with nothing selected would silently do nothing");
         assertFalse(built.get().addButton().isDisabled(),
                 "Add is how a first server gets configured, so it must always be available");
+    }
+
+    @Test
+    @DisplayName("The configured-server list is actually visible once laid out")
+    void theListIsActuallyVisible() throws Exception {
+        // The tests above check properties. This one checks the symptom a user reports:
+        // "the list doesn't show". It lays the dialog out at a realistic window size and
+        // measures what the list ended up with, so a layout that is structurally correct but
+        // collapses to nothing still fails here.
+        //
+        // That collapse is what happened: a preferred width of MAX_VALUE on the status line
+        // made the whole chain of containers unbounded, and the list was squeezed to nothing
+        // beside it. Nothing about the population code was wrong.
+        FhirServerManager fresh = new FhirServerManager();
+        fresh.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
+        fresh.add(ServerDefinition.named("Test", "https://test.example.org/fhir").build());
+
+        AtomicReference<double[]> bounds = new AtomicReference<>();
+        AtomicReference<Integer> rows = new AtomicReference<>(0);
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
+            // The DialogPane is already the root of the dialog's own scene, so it cannot be
+            // made the root of another. Wrapping it in a container lets it be laid out at a
+            // known size without disturbing that.
+            javafx.scene.layout.StackPane host = new javafx.scene.layout.StackPane(
+                    dialog.getDialogPane());
+            Scene scene = new Scene(host, 900, 500);
+            scene.getRoot().applyCss();
+            scene.getRoot().layout();
+            Bounds laidOut = dialog.serverList().getBoundsInParent();
+            bounds.set(new double[] { laidOut.getWidth(), laidOut.getHeight() });
+            rows.set(dialog.serverList().getItems().size());
+            dialog.close();
+        });
+
+        assertEquals(2, rows.get(), "both configured servers should be in the list");
+        assertTrue(bounds.get()[0] >= 120,
+                "the list collapsed to " + bounds.get()[0]
+                        + "px wide, so the user cannot see or select anything");
+        assertTrue(bounds.get()[1] >= 60,
+                "the list is only " + bounds.get()[1] + "px tall, which cannot show two rows");
     }
 
     @Test
