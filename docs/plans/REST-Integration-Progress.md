@@ -38,7 +38,7 @@ work can be resumed without re-reading the plan.
 | 25 | UI Error Handling | **done** |
 | 26 | Logging and Diagnostics | **partial** — logged throughout; no diagnostics doc |
 | 27 | Plugin Developer API | **partial** — loader, registry and a mock plugin in tests; no published guide |
-| 28 | Testing | **done** — 499 tests, offline, `@TempDir` + localhost `HttpServer` |
+| 28 | Testing | **done** — 539 tests, offline, `@TempDir` + localhost `HttpServer` |
 | 29 | Backward Compatibility | **not started** |
 | 30 | Security Review | **not started** |
 
@@ -46,6 +46,34 @@ work can be resumed without re-reading the plan.
 
 Delivered against `docs/plans/Phase-7-Open-Save-from-FHIR-Server.md`. All six steps are
 done; see the note at the end of this file for what changed.
+
+### Where the whole integration actually stands
+
+Recorded here so the table above cannot drift from reality again.
+
+**Working and tested:** the REST core and transport; three plugins (standard, Smile, Firely)
+all declaring operations; read, search, create, update, patch and delete; server status and
+capabilities; the generic operation screen; the server manager with per-server
+authentication; and persistence of both servers and credentials across restarts.
+
+**Deliberately not built**, each stated in the user guide's *Known gaps* rather than left to
+discover: a raw REST console, transaction bundles, conditional create, `$everything`,
+subscriptions, multi-parameter search, and a FHIRPath patch.
+
+**Genuinely outstanding:**
+
+| | Why it matters |
+|---|---|
+| **Phase 30 — security review** | Not started, and the one I would weigh most heavily: this branch can write to clinical systems and that capability has never been reviewed for security. |
+| **Phase 29 — backward compatibility** | Not started. A review activity, not code. |
+| **Phase 8 — second base URL** | Planned, not built. Needed for Smile's Admin JSON API only; its reindex operations already work. |
+| `SmileCdrPluginTest.java.hold` | Disabled, so Smile's connection and detection half is untested. Its operation declarations are covered separately. |
+| **Phase 26 — diagnostics doc** | Partial. Logging is thorough; there is no written diagnostic guide. |
+| **Phase 27 — plugin developer guide** | Partial. The loader, registry and a worked example exist in tests; nothing is published for a third-party author. |
+
+**Not yet done by anyone:** the dialogs have never been looked at in a running window. The
+tests press real buttons on a real toolkit, and that is how two real bugs were caught — but
+they cannot see layout, and the last three commits changed a lot of layout.
 
 **Still open across the plan as a whole:** `08_SECOND_BASE_URL_FOR_ADMIN_APIS.md`
 (a second base URL, needed for Smile CDR's **Admin JSON API** — its reindex operations are
@@ -90,10 +118,9 @@ gained First / Previous / Last pagination from the Bundle's own links.
 Also fixed while writing `ServerOperationForm`: its first version checked for a required
 body without ever being given the body, so no operation requiring one could run.
 
-**A note for Phase 7:** `openVendorTool` is still a stub, so *Tools → Server Tools...*
-still reports that a vendor screen is not built. The generic operation screen is the
-supported path for a vendor endpoint in the meantime, and Phase 7 should decide whether
-vendor actions become entries in that list rather than a separate menu.
+**A note for Phase 7:** `openVendorTool` was still a stub at this point, so
+*Tools > Server Tools...* reported that a vendor screen was not built. Resolved later — see
+*Server management: list, add, edit, delete* below. The menu item is now removed.
 
 **Not done, deliberately:**
 
@@ -141,7 +168,7 @@ Steps 1–6 of `docs/plans/Phase-7-Open-Save-from-FHIR-Server.md` are complete. 
 - `withPlaceholder(ListView)` could not be reused for the new `TableView`; the results
   table got its own, since neither control has a placeholder API of its own.
 
-**Tests:** 499 passing, up from 468. New: `ServerDefinitionPersistenceTest` (11),
+**Tests:** 499 passing at the end of this phase, up from 468. New: `ServerDefinitionPersistenceTest` (11),
 `ServerResourceCoordinatorTest` (14), `SearchCriteriaBuilderTest` (4), and two more
 JavaFX smoke tests building the new dialogs on a real toolkit. All offline.
 
@@ -198,3 +225,73 @@ looked entirely plausible and failed on every real server:
 `$cql` returns `501 Not Implemented` against the public `server.fire.ly`, which is the DQM
 module simply not being deployed there rather than a wrong path. No declared path returns
 `404` on either test server.
+
+### Server management: list, add, edit, delete
+
+Reported as five separate problems: *Server Tools* did nothing, a configured server could
+not be edited, authentication stopped at anonymous, and the add dialog's messages were cut
+off with the fields not growing when the window was resized. Persistence to config was
+already working from Phase 7 and was verified rather than rebuilt.
+
+**`ServerDialog` is gone**, replaced by `ServerManagerDialog`: a list of configured servers
+on the left, the selected server's form on the right, and Add / Save / Delete / Test
+connection. Everything applies immediately, so there is no result to unwrap and no Cancel
+that would have to roll back three kinds of change; what the user did comes back on the
+dialog instead. `ServerFormPanel` holds the fields, so the field set and the list logic can
+change independently.
+
+- **Editing** goes through a new `FhirServerManager.replace`, which keeps the server in
+  place and keeps the active selection pointing at it. Delete-then-add would have reordered
+  the list and briefly left the server unconfigured.
+- **Authentication** is per server: anonymous, HTTP Basic, or a bearer token. The form only
+  shows the fields a kind needs. `ServerCredentialSaver` keeps the secret and the passphrase
+  out of the dialog entirely, and refuses to store a password when no passphrase is set — a
+  password nobody can decrypt looks saved and never works.
+- **A blank password field means "leave the stored one alone"**, not "clear it". A password
+  field is never echoed back, so treating blank as empty would sign the user out of their own
+  server every time they corrected a URL. Removing a password means choosing Anonymous.
+- **Layout**: the form sits in a `ScrollPane` that fits to width, so fields grow with the
+  window, and the status line wraps at full width instead of being truncated at the label
+  column.
+
+**A test caught a real bug**: pressing Add cleared the editing reference, which also
+disabled Save — so the first server could never be added at all. Fixed with a separate
+`addingNew` flag, because Add *starts* the job and Save *finishes* it.
+
+### Credentials are now filed per server, not per plugin
+
+The settings file was keyed by **plugin id**, so `save()` overwrote outright. Two servers
+of the same type could not have separate logins: saving the second server's password
+replaced the first's, and the first then silently signed in as nobody, with nothing on
+screen to say why.
+
+Keyed now by `FhirServerConfiguration.credentialKey()`, which `ServerDefinition` overrides
+with a **generated id**. Generated rather than derived because a name- or URL-derived key
+breaks when a user edits either, and correcting a URL is exactly what someone does when a
+connection is failing — the password would be lost at the moment it was most needed.
+
+Three supporting pieces, each of which would otherwise have silently reintroduced the bug:
+
+- the id is **persisted** in `server-definitions.properties`, or a restart would orphan every
+  password;
+- the **form carries it across an edit**, or pressing Save would re-generate it;
+- the interface method **defaults to the base URL**, so a plugin's own configuration type
+  keeps working with nothing added to it.
+
+A plugin-keyed entry is still read as a fallback **when its saved base URL matches**, so a
+file written before this change keeps working. The URL check stays strict, because a
+credential must never be sent to a host it was not saved for.
+
+### Removed: Tools → Server Tools
+
+`openVendorTool` always reported `UNSUPPORTED`, so the item could only open a picker and
+then say the screen was not implemented; only Firely declared a vendor action at all, and
+every other plugin declared none. A menu item that cannot do anything is worse than no
+menu item, so it is gone along with the handler and the `OfferedAction` record. The
+endpoints remain reachable individually under **Run Server Operation...**, and
+`FhirServerPlugin.vendorActions()` remains as the seam a future vendor screen would use.
+
+**Tests:** 539 passing. New for this work: `ServerCredentialSaverTest` (8), plus five in
+`ServerUiSmokeTest` driving the manager's real buttons, and four in
+`ServerDefinitionPersistenceTest` for `replace`. Verified the credential tests fail against
+the old keying rather than assuming they would. All offline.
