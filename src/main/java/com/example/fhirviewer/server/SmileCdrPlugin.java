@@ -2,11 +2,14 @@ package com.example.fhirviewer.server;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.hl7.fhir.r4.model.CapabilityStatement;
+
+import com.example.fhirviewer.server.rest.RestMethod;
 
 import ca.uhn.fhir.context.FhirContext;
 
@@ -155,13 +158,114 @@ public class SmileCdrPlugin extends StandardFhirRestPlugin {
     }
 
     /**
+     * Smile CDR's reindexing operations.
+     *
+     * <p><b>These run on the FHIR endpoint itself</b>, not on Smile's JSON Admin API. That
+     * is the whole reason they can be declared at all: the Admin API lives on a separate
+     * port (typically 9000, against a FHIR endpoint on 8000), and this application resolves
+     * operation paths against the single base URL the user configured, so anything under
+     * {@code admin-json} would 404. See {@code docs/plans/09_SECOND_BASE_URL_FOR_ADMIN_APIS.md}.
+     * The reindex family is <em>not</em> affected, because Smile exposes it as a normal FHIR
+     * operation — which also corrects an earlier assumption in that plan that Smile had no
+     * addressable operations at all.</p>
+     *
+     * <p>From Smile's "Search Parameter Reindexing" documentation. Shapes taken from the
+     * documented example URLs verbatim, because the difference between {@code $reindex} and
+     * {@code $reindex-dryrun} is the difference between changing the server's index and only
+     * reporting what would change.</p>
+     */
+    private static final List<ServerOperation> SMILE_OPERATIONS = List.of(
+            ServerOperation.builder("$reindex", RestMethod.POST, "$reindex")
+                    .displayName("Re-index resources (system)")
+                    .description("Re-indexes the resources named by 'url', or every"
+                            + " resource when no url is given. Answers 202 Accepted with a"
+                            + " Content-Location to poll; the completed job reports a Bundle"
+                            + " summarising what changed. Slow — run it in a quiet period.")
+                    .category(ServerOperation.Category.ADMINISTRATION)
+                    .requiresAuthentication()
+                    .queryParameter("url", "A search to select what to re-index, for example"
+                            + " Patient?. Re-indexes everything when omitted.", false)
+                    .queryParameter("partitionId", "Restrict the job to a tenant partition."
+                            + " Repeatable; use _ALL for every partition.", false)
+                    .returns(ServerOperation.ResultKind.BUNDLE)
+                    .build(),
+            ServerOperation.builder("reindex-instance", RestMethod.POST,
+                            "{resourceType}/{id}/$reindex")
+                    .displayName("Re-index one resource")
+                    .description("Re-indexes a single resource so a new or changed"
+                            + " SearchParameter takes effect for it. Answers 202 Accepted"
+                            + " with a Content-Location to poll. Use this to test a search"
+                            + " parameter before re-indexing everything.")
+                    .category(ServerOperation.Category.ADMINISTRATION)
+                    .requiresAuthentication()
+                    .pathParameter("resourceType", "The resource type, for example Observation.")
+                    .pathParameter("id", "The logical id of the resource to re-index.")
+                    .returns(ServerOperation.ResultKind.BUNDLE)
+                    .build(),
+            ServerOperation.builder("reindex-dryrun", RestMethod.GET,
+                            "{resourceType}/{id}/$reindex-dryrun")
+                    .displayName("Preview a re-index (dry run)")
+                    .description("Simulates the re-index of one resource and reports which"
+                            + " search parameters would change, without altering the server."
+                            + " Safe to run at any time. Requires the FHIR Storage (RDBMS)"
+                            + " module; a server without it answers that the operation is"
+                            + " unknown.")
+                    .category(ServerOperation.Category.ADMINISTRATION)
+                    .requiresAuthentication()
+                    .pathParameter("resourceType", "The resource type, for example Observation.")
+                    .pathParameter("id", "The logical id of the resource to preview.")
+                    .returns(ServerOperation.ResultKind.FHIR_RESOURCE)
+                    .build(),
+            ServerOperation.builder("$mark-all-resources-for-reindexing", RestMethod.GET,
+                            "$mark-all-resources-for-reindexing")
+                    .displayName("Mark all resources for re-indexing (deprecated)")
+                    .description("Marks every resource as needing re-indexing, to be picked"
+                            + " up later. Deprecated by Smile in favour of $reindex, which"
+                            + " gives better control and a viewable job; offered only for"
+                            + " servers still relying on it.")
+                    .category(ServerOperation.Category.ADMINISTRATION)
+                    .requiresAuthentication()
+                    .returns(ServerOperation.ResultKind.OPERATION_OUTCOME)
+                    .build());
+
+    /**
+     * Smile CDR's operations, which is what the generic operation screen lists for a
+     * Smile server.
+     *
+     * <p>Declared as data like every other plugin's, and all of it sits on the FHIR
+     * endpoint, so it is reachable with the base URL the user already configured.</p>
+     *
+     * <p>Concatenated with {@code super} so the inherited bulk export and import stay on the
+     * list. A Smile server supports both, and overriding without them would quietly remove
+     * them.</p>
+     */
+    @Override
+    public List<ServerOperation> availableOperations() {
+        return Stream.concat(super.availableOperations().stream(),
+                SMILE_OPERATIONS.stream()).toList();
+    }
+
+    /**
+     * Smile CDR's extra operations are reachable through the generic operation screen, so
+     * there is no vendor screen to declare.
+     *
+     * <p>Returning the inherited empty list is honest here: unlike Firely, Smile's
+     * additions are all callable endpoints rather than a whole administrative UI, so there
+     * is nothing for a vendor screen to open.</p>
+     */
+    @Override
+    public List<ServerVendorAction> vendorActions() {
+        return List.of();
+    }
+
+    /**
      * A {@link ServerCapabilities} wrapper that tags the result as coming from
      * a Smile CDR server, so the UI can show Smile-specific options.
      */
     public static final class SmileServerCapabilities extends ServerCapabilities {
 
         public SmileServerCapabilities(ServerCapabilities delegate) {
-            super(delegate.fhirVersion(), delegate.resourceTypes(), delegate.pagingSupported());
+            super(delegate);
         }
 
         /** True — this capability set was produced for a Smile CDR server. */

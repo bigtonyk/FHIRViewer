@@ -13,6 +13,10 @@ import java.util.Objects;
  *
  * <p>{@link #toString()} deliberately never reveals the password, because authentication
  * objects end up in log lines and error messages.</p>
+ *
+ * <p>The {@code Authorization} value reaches the network through
+ * {@link #requestHeaders()}, which is how this mechanism is applied without the client
+ * wiring having to know it exists.</p>
  */
 public final class BasicServerAuthentication implements ServerAuthentication {
 
@@ -58,6 +62,11 @@ public final class BasicServerAuthentication implements ServerAuthentication {
     @Override
     public boolean isAnonymous() {
         return false;
+    }
+
+    @Override
+    public RequestHeaders requestHeaders() {
+        return RequestHeaders.of(RequestHeaders.AUTHORIZATION, authorizationHeaderValue());
     }
 
     /** The user name sent to the server. */

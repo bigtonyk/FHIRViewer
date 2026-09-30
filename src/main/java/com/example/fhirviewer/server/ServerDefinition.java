@@ -13,6 +13,7 @@ import java.util.Objects;
  */
 public final class ServerDefinition implements FhirServerConfiguration {
 
+    private final String id;
     private final String name;
     private final String baseUrl;
     private final String fhirVersion;
@@ -20,11 +21,39 @@ public final class ServerDefinition implements FhirServerConfiguration {
     private final int timeoutMillis;
 
     private ServerDefinition(Builder builder) {
+        this.id = builder.id;
         this.name = builder.name;
         this.baseUrl = builder.baseUrl;
         this.fhirVersion = builder.fhirVersion;
         this.pluginId = builder.pluginId;
         this.timeoutMillis = builder.timeoutMillis;
+    }
+
+    /**
+     * A stable identifier for this server, assigned when it is first created.
+     *
+     * <p>Not shown to the user and not derived from anything they can edit. It exists so
+     * that credentials can be filed against <em>this server</em> rather than against the
+     * plugin that happens to serve it: several servers can share one plugin, and keying by
+     * plugin meant the second server's password silently replaced the first's.</p>
+     *
+     * <p>Stable across renames and base-URL edits, which a name- or URL-derived key would
+     * not be. Correcting a URL is exactly what a user does when a connection is failing, and
+     * losing the password at that moment would turn a connection problem into an
+     * authentication one.</p>
+     */
+    public String id() {
+        return id;
+    }
+
+    /**
+     * Where this server's credentials are filed, overriding the URL-derived default.
+     *
+     * <p>See {@link #id()} for why this is not derived from the name or the URL.</p>
+     */
+    @Override
+    public String credentialKey() {
+        return id;
     }
 
     @Override
@@ -90,6 +119,7 @@ public final class ServerDefinition implements FhirServerConfiguration {
     /** Builds immutable {@link ServerDefinition} instances with validation. */
     public static final class Builder {
 
+        private String id;
         private String name;
         private String baseUrl;
         private String fhirVersion = "R4";
@@ -97,8 +127,28 @@ public final class ServerDefinition implements FhirServerConfiguration {
         private int timeoutMillis;
 
         private Builder(String name, String baseUrl) {
+            // Generated here rather than in the constructor of ServerDefinition so that a
+            // definition rebuilt from saved properties keeps the id it was saved with; the
+            // setter below refuses to overwrite it with a different one.
+            this.id = java.util.UUID.randomUUID().toString();
             name(name);
             baseUrl(baseUrl);
+        }
+
+        /**
+         * Restores the identifier a saved server had.
+         *
+         * <p>Accepts a blank or absent value by keeping the generated one, so a settings
+         * file written before ids existed still loads rather than being rejected. A
+         * <em>different</em> non-blank value is accepted too, which is what restoring from
+         * disk means; the generated value is only replaced when something was actually
+         * supplied.</p>
+         */
+        public Builder id(String id) {
+            if (id != null && !id.isBlank()) {
+                this.id = id.trim();
+            }
+            return this;
         }
 
         /** A short human readable label shown in the server list. */

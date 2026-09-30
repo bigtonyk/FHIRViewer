@@ -1,0 +1,108 @@
+BRANCH: server-rest-integration
+MAIN server classes: 31
+MAIN server tests: 7
+rest subpkg: False
+
+--- server class names ---
+AnonymousServerAuthentication.java
+BasicServerAuthentication.java
+ConnectionResult.java
+FhirServerConfiguration.java
+FhirServerManager.java
+FhirServerPlugin.java
+FhirServerPluginRegistry.java
+FhirServerService.java
+FirelyConfiguration.java
+FirelyPlugin.java
+PluginConfig.java
+PluginJarScanner.java
+PluginLoader.java
+PluginSettings.java
+PluginSettingsStore.java
+SearchCriterion.java
+SearchRequest.java
+SearchResultPage.java
+SecretBox.java
+SecretBoxException.java
+ServerAuthentication.java
+ServerCapabilities.java
+ServerDefinition.java
+ServerOperationException.java
+ServerOrigin.java
+ServerSession.java
+ServerVendorAction.java
+ServerWriteResult.java
+SmileCdrConfiguration.java
+SmileCdrPlugin.java
+StandardFhirRestPlugin.java
+
+--- server test names ---
+FirelyPluginTest.java
+PluginLoaderTest.java
+PluginSettingsStoreTest.java
+ServerModelTest.java
+ServerOriginTest.java
+ServerWriteTest.java
+StandardFhirRestPluginTest.java
+BRANCH: server-rest-integration
+--- server main ---
+AnonymousServerAuthentication.java
+BasicServerAuthentication.java
+ConnectionResult.java
+FhirServerConfiguration.java
+FhirServerManager.java
+FhirServerPlugin.java
+FhirServerPluginRegistry.java
+FhirServerService.java
+FirelyConfiguration.java
+FirelyPlugin.java
+PluginConfig.java
+PluginJarScanner.java
+PluginLoader.java
+PluginSettings.java
+PluginSettingsStore.java
+SearchCriterion.java
+SearchRequest.java
+SearchResultPage.java
+SecretBox.java
+SecretBoxException.java
+ServerAuthentication.java
+ServerCapabilities.java
+ServerDefinition.java
+ServerOperationException.java
+ServerOrigin.java
+ServerSession.java
+ServerVendorAction.java
+ServerWriteResult.java
+SmileCdrConfiguration.java
+SmileCdrPlugin.java
+StandardFhirRestPlugin.java
+--- server test ---
+FirelyPluginTest.java
+PluginLoaderTest.java
+PluginSettingsStoreTest.java
+ServerModelTest.java
+ServerOriginTest.java
+ServerWriteTest.java
+SmileCdrPluginTest.java.hold
+StandardFhirRestPluginTest.java
+--- ui ---
+AboutInfo.java
+AddChildDialog.java
+BundleView.java
+DetailsView.java
+ElementNavigationTarget.java
+FhirPathView.java
+IgPackageDialog.java
+JsonView.java
+MainWindow.java
+OpenFromServerDialog.java
+PluginManagerDialog.java
+PrettyView.java
+ResourceTreeView.java
+ServerDialog.java
+ServerSearchDialog.java
+StatusView.java
+ThemeManager.java
+XmlView.java
+

@@ -37,4 +37,26 @@ public interface FhirServerConfiguration {
      * as name/value pairs. Never {@code null}; may be empty.
      */
     java.util.Map<String, String> extraHeaders();
+
+    /**
+     * Where this server's saved credentials are filed.
+     *
+     * <p>Distinct from {@link #pluginId()} on purpose. Several servers can be served by one
+     * plugin, and keying credentials by plugin meant the second server's password silently
+     * replaced the first's — the user configured both correctly and one of them stopped
+     * working with no message explaining why.</p>
+     *
+     * <p>The default keys on the base URL, which is enough to tell two servers apart and
+     * needs nothing added to a plugin. {@link ServerDefinition} overrides it with a stable
+     * generated id, because a URL-derived key breaks when a user edits a URL — and editing
+     * a URL is exactly what someone does when a connection is failing, so the password
+     * would be lost at the moment it was most likely to be needed.</p>
+     *
+     * <p>Never {@code null}; a configuration that cannot name itself falls back to its
+     * plugin id, which is the older and less precise behaviour rather than a new failure
+     * mode.</p>
+     */
+    default String credentialKey() {
+        return baseUrl() == null || baseUrl().isBlank() ? pluginId() : baseUrl().trim();
+    }
 }
