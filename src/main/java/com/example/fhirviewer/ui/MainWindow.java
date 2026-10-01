@@ -154,6 +154,15 @@ public class MainWindow {
      */
     private final SearchMemory searchMemory = new SearchMemory();
 
+/**
+ * What each server advertises, shared by the two search screens.
+ *
+ * <p>Session-scoped and not persisted: a capability statement describes the software, not
+ * the data, so it holds for as long as the viewer runs. Sharing it means opening one screen
+ * after the other does not re-read the same CapabilityStatement twice.</p>
+ */
+private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilitiesCache();
+
     /**
      * Decides and performs every write to a FHIR server.
      *
@@ -1489,7 +1498,7 @@ public class MainWindow {
             setStatus("No FHIR server is configured. Use Tools > FHIR Servers... to add one.");
             return;
         }
-        ServerSearchDialog dialog = new ServerSearchDialog(serverService, serverManager, fhirService, themeManager, searchMemory);
+        ServerSearchDialog dialog = new ServerSearchDialog(serverService, serverManager, fhirService, themeManager, searchMemory, capabilitiesCache);
         dialog.initOwner(stage);
         dialog.showAndWait().ifPresent(resource -> {
             if (!confirmUnsavedChanges("displaying a resource from a server")) {
@@ -1524,7 +1533,7 @@ public class MainWindow {
         FhirServerConfiguration preselect = displayedOrigin == null ? null
                 : serverFor(displayedOrigin);
         OpenFromServerDialog dialog =
-                new OpenFromServerDialog(serverService, serverManager, preselect, searchMemory);
+                new OpenFromServerDialog(serverService, serverManager, preselect, searchMemory, capabilitiesCache);
         dialog.initOwner(stage);
         dialog.showAndWait().ifPresent(outcome -> {
             ServerOrigin origin = ServerOrigin.of(

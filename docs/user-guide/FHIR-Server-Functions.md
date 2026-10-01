@@ -178,7 +178,8 @@ without the passphrase or the password.
 **File → Open from FHIR Server...**
 
 Type the resource type and id — `Patient` and `123`, for example — and press
-**Read**. This is the fastest route when you already know what you want.
+**Open in viewer**. This is the fastest route when you already know what you
+want.
 
 ### B. Search for a resource
 
@@ -213,7 +214,7 @@ Switching between the two clears the other, so a half-typed parameter cannot
 be sent as a search you did not write.
 
 Results appear in a table showing the **type**, **id** and **version** of
-each. Select a row and press **Read** to open it.
+each. Select a row and press **Open in viewer** to open it.
 
 The version column matters: it is the version the viewer will check against
 when you save. Being able to see it before you open the resource is the
@@ -248,9 +249,13 @@ ready to edit — only the results are missing.
 
 ### Loading types
 
-**Load types** in the Open-from-Server dialog asks the server which resource
-types it supports and lists them. Clicking one fills the type field. You can
-always type a type instead — the list is a convenience, not a limit.
+**Load capabilities** asks the server which resource types it supports and
+fills the type box's drop-down. Pick one from the list, or always type a type
+instead — the list is a convenience, not a limit.
+
+The answer is remembered for as long as the viewer is open, so the button is
+only needed the first time you use a server. Press it again after the server
+has been upgraded and you want its new resource types.
 
 
 ---

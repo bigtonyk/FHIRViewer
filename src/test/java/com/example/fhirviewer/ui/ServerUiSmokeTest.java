@@ -811,6 +811,114 @@ class ServerUiSmokeTest {
     }
 
     @Test
+    @DisplayName("Open from Server has one Open button and a type drop-down")
+    void openFromServerHasOneOpenButtonAndATypeDropDown() throws Exception {
+        // Two defects reported together. There were two buttons labelled "Read" where only
+        // the dialog pane's was wired to the result converter, so one of them did nothing -
+        // and "Load types" filled a separate ListView, not the type box, so the box itself
+        // stayed a plain text field and looked as though the load had failed.
+        //
+        // Asserted through the controls themselves rather than by walking the scene graph:
+        // the pane's button bar is only built when the dialog is shown, and showing a modal
+        // dialog on the JavaFX thread deadlocks the test.
+        runOnFxThread(() -> {
+            OpenFromServerDialog dialog = new OpenFromServerDialog(service, manager, null,
+                    new SearchMemory());
+
+            assertNotNull(dialog.openButtonForTest(),
+                    "the dialog pane's Open button is missing");
+            assertEquals("Open in viewer", dialog.openButtonForTest().getText(),
+                    "the Open button should be named to match the search screen");
+            assertEquals("Load capabilities", dialog.loadCapabilitiesButton().getText(),
+                    "the button should be named to match the search screen");
+
+            // No second, look-alike button in the content. This is the one that did nothing.
+            for (javafx.scene.Node node : findNodes(
+                    (javafx.scene.Parent) dialog.getDialogPane().getContent(),
+                    n -> n instanceof Button)) {
+                String text = ((Button) node).getText();
+                assertFalse("Read".equals(text),
+                        "the duplicate 'Read' button is still present: it is not wired to "
+                                + "the result converter, so it does nothing");
+            }
+
+            assertTrue(dialog.typeBox().isEditable(),
+                    "the type box must be editable so a type can still be typed");
+
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("Reopening does not re-read capabilities when the types are already known")
+    void reopeningSkipsCapabilitiesWhenTypesAreKnown() throws Exception {
+        // Reopening was spending a round trip on the CapabilityStatement every time. The
+        // advertised types have not changed, and Load capabilities still re-reads on
+        // demand, so this asks for the behaviour the user asked for: no repeat read.
+        AtomicInteger requests = new AtomicInteger();
+        server.onRequest(ignored -> requests.set(ignored));
+        FhirServerManager rest = new FhirServerManager();
+        rest.add(ServerDefinition.named("Rest", server.baseUrl()).build());
+        FhirServerService restService = new FhirServerService(standardRegistry());
+        // One cache for both dialogs, as MainWindow does, plus a search to restore.
+        ServerCapabilitiesCache cache = new ServerCapabilitiesCache();
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search("Rest", "Patient",
+                List.of(new SearchCriterion("family", "Smith")), 20));
+
+        runOnFxThread(() -> {
+            ServerSearchDialog first = new ServerSearchDialog(restService, rest, null,
+                    themeManager, memory, cache);
+            first.setRememberedTypeForTest("Patient");
+            first.close();
+        });
+        Thread.sleep(2500);
+        int afterFirst = requests.get();
+        assertTrue(afterFirst >= 2,
+                "the first dialog should have read the CapabilityStatement and searched; sent "
+                        + afterFirst + " request(s)");
+
+        // Second dialog, same session and the same cache: the types are already known, so
+        // only the search is re-run - one request, not two.
+        runOnFxThread(() -> {
+            ServerSearchDialog second = new ServerSearchDialog(restService, rest, null,
+                    themeManager, memory, cache);
+            second.setRememberedTypeForTest("Patient");
+            second.close();
+        });
+        Thread.sleep(2500);
+        assertEquals(1, requests.get() - afterFirst,
+                "reopening with the types already known should spend one request on the "
+                        + "search, not a second one re-reading the CapabilityStatement");
+    }
+
+    /** Every node in the tree matching the predicate, including the root. */
+    private static List<javafx.scene.Node> findNodes(javafx.scene.Parent root,
+            java.util.function.Predicate<javafx.scene.Node> match) {
+        List<javafx.scene.Node> found = new java.util.ArrayList<>();
+        java.util.ArrayDeque<javafx.scene.Node> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            javafx.scene.Node node = queue.poll();
+            if (match.test(node)) {
+                found.add(node);
+            }
+            if (node instanceof javafx.scene.Parent parent) {
+                parent.getChildrenUnmodifiable().forEach(queue::add);
+            }
+        }
+        return found;
+    }
+
+    /** The single node matching the predicate. */
+    private static javafx.scene.Node single(javafx.scene.Parent root,
+            java.util.function.Predicate<javafx.scene.Node> match) {
+        List<javafx.scene.Node> found = findNodes(root, match);
+        assertEquals(1, found.size(), "expected exactly one matching node, found " + found.size());
+        return found.get(0);
+    }
+
+    @Test
     @DisplayName("Opening with nothing remembered makes no requests")
     void openingWithNothingRememberedIsQuiet() throws Exception {
         // The other half of that change: a first-time user must not pay for two network

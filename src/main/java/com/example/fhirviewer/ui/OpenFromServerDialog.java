@@ -28,7 +28,6 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
-import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
@@ -90,22 +89,46 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     private final FhirServerManager serverManager;
 
     private final ComboBox<FhirServerConfiguration> serverBox = new ComboBox<>();
-    private final TextField typeField = new TextField();
+    /**
+     * The resource type.
+     *
+     * <p>An editable combo rather than a plain text field plus a separate list of types, so
+     * it behaves like the search screen's type box: the server's advertised types appear in
+     * the drop-down, and anything else can still be typed. That is the whole capability of
+     * the old separate list, and having two places to choose a type made the screen read as
+     * though the list were broken.</p>
+     */
+    private final ComboBox<String> typeBox = new ComboBox<>();
     private final TextField idField = new TextField();
     private final SearchCriteriaEditor criteriaEditor = new SearchCriteriaEditor();
 
     /** What was searched for last, so this screen comes back as it was left. */
     private final SearchMemory memory;
-    private final ListView<String> typeList = new ListView<>();
+    /**
+     * What each server advertises, shared across dialogs and outliving this one.
+     *
+     * <p>A fresh screen has an empty type box every time, so whether the types are already
+     * known cannot be decided from this dialog alone.</p>
+     */
+    private final ServerCapabilitiesCache capabilitiesCache;
     private final TableView<IBaseResource> results = new TableView<>();
     private final Label status = new Label(" ");
-    private final Button loadTypes = new Button("Load types");
-    private final Button readButton = new Button("Read");
+    private final Button loadCapabilities = new Button("Load capabilities");
     private final Button searchButton = new Button("Search");
     private final ProgressIndicator progress = new ProgressIndicator(18);
 
-    /** The dialog's own Read button, so a background result can be returned from it. */
-    private final ButtonType readType;
+    /**
+     * The dialog's own Open button, so a background result can be returned from it.
+     *
+     * <p>A {@link ButtonType} on the dialog pane, not a button in the content: the pane's
+     * button is the one wired to the result converter, so it is the one that actually opens
+     * something. Having a second, look-alike "Read" button in the content meant two buttons
+     * with the same name where only one worked.</p>
+     */
+    private final ButtonType openType;
+
+    /** The pane's Open button, looked up once so its enabled state can follow the selection. */
+    private Button openButton;
 
     /** The pending outcome, filled in by the background callbacks and returned on close. */
     private Outcome outcome;
@@ -118,9 +141,22 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
 
     public OpenFromServerDialog(FhirServerService serverService, FhirServerManager serverManager,
             FhirServerConfiguration preselected, SearchMemory memory) {
+        this(serverService, serverManager, preselected, memory, new ServerCapabilitiesCache());
+    }
+
+    /**
+     * Creates the dialog with a cache of what servers advertise.
+     *
+     * <p>Shared with the search screen through {@code MainWindow}, so the two do not each
+     * re-read a CapabilityStatement the other has already read.</p>
+     */
+    public OpenFromServerDialog(FhirServerService serverService, FhirServerManager serverManager,
+            FhirServerConfiguration preselected, SearchMemory memory,
+            ServerCapabilitiesCache capabilitiesCache) {
         this.serverService = Objects.requireNonNull(serverService, "serverService");
         this.serverManager = Objects.requireNonNull(serverManager, "serverManager");
         this.memory = Objects.requireNonNull(memory, "memory");
+        this.capabilitiesCache = Objects.requireNonNull(capabilitiesCache, "capabilitiesCache");
 
         setTitle("Open from Server");
         setResizable(true);
@@ -128,11 +164,20 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         // was clipped at the old width.
         getDialogPane().setMinWidth(880);
         getDialogPane().setMinHeight(520);
-        readType = new ButtonType("Read", ButtonBar.ButtonData.OK_DONE);
-        getDialogPane().getButtonTypes().addAll(readType, ButtonType.CANCEL);
-        // The Read result arrives asynchronously, so the button only closes the dialog
+        openType = new ButtonType("Open in viewer", ButtonBar.ButtonData.OK_DONE);
+        getDialogPane().getButtonTypes().addAll(openType, ButtonType.CANCEL);
+        // The Open result arrives asynchronously, so the button only closes the dialog
         // and the converter hands back whatever the background call produced.
-        setResultConverter(dialogButton -> readType.equals(dialogButton) ? outcome : null);
+        setResultConverter(dialogButton -> openType.equals(dialogButton) ? outcome : null);
+        // The pane's Open button. Nothing opens until a result is chosen or a type and id
+        // are typed, so it starts disabled rather than as a button that appears to work and
+        // then reports nothing to do.
+        Node openNode = getDialogPane().lookupButton(openType);
+        if (openNode instanceof Button open) {
+            openButton = open;
+            open.getStyleClass().add("button-primary");
+            open.setDisable(true);
+        }
         progress.setVisible(false);
         getDialogPane().setContent(buildContent());
         initServers(preselected);
@@ -169,7 +214,7 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
             }
         }
         if (last.resourceType() != null && !last.resourceType().isBlank()) {
-            typeField.setText(last.resourceType());
+            typeBox.setValue(last.resourceType());
         }
         // Not "return" when there are no criteria: browsing a whole resource type is a
         // search with no parameters, and returning here skipped the re-read below.
@@ -193,7 +238,7 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
      */
     private void rerunRememberedSearch() {
         FhirServerConfiguration server = serverBox.getValue();
-        String type = typeField.getText() == null ? "" : typeField.getText().trim();
+        String type = currentType();
         if (server == null || type.isEmpty()) {
             return;
         }
@@ -209,8 +254,8 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         }
         if (serverBox.getValue() == null) {
             status.setText("No servers are loaded. Add one first.");
-            readButton.setDisable(true);
-            loadTypes.setDisable(true);
+            openButton.setDisable(true);
+            loadCapabilities.setDisable(true);
         } else {
             serverBox.setCellFactory(view -> new ListCell<>() {
                 @Override
@@ -221,7 +266,10 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
             });
         }
         serverBox.valueProperty().addListener((obs, old, current) -> {
-            typeList.getItems().clear();
+            // The advertised types belong to the server that was selected before, so they
+            // are dropped when it changes. The type itself is kept: it is usually the same
+            // on the new server, and clearing it would silently change what is searched.
+            typeBox.getItems().clear();
             status.setText(" ");
         });
     }
@@ -232,11 +280,15 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     }
 
     private Region buildContent() {
-        typeField.setPromptText("Resource type, for example Patient");
+        // Editable, and editable on purpose: the server's advertised types are the
+        // convenience, not a limit. This is the same control the search screen uses.
+        typeBox.setEditable(true);
+        typeBox.setPromptText("Resource type, for example Patient");
         idField.setPromptText("Resource id");
 
-        readButton.setDefaultButton(true);
-        readButton.setOnAction(event -> readTypedResource());
+        loadCapabilities.getStyleClass().add("button-ghost");
+        loadCapabilities.setOnAction(event -> loadCapabilities());
+        searchButton.getStyleClass().add("button-primary");
         searchButton.setOnAction(event -> search());
 
         // The cancel button is looked up by ButtonType (and cast back to Button), the
@@ -258,7 +310,7 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         query.add(new Label("Server:"), 0, 0);
         query.add(serverBox, 1, 0);
         query.add(new Label("Type:"), 0, 1);
-        query.add(typeField, 1, 1);
+        query.add(typeBox, 1, 1);
         query.add(new Label("Id:"), 0, 2);
         query.add(idField, 1, 2);
         // Spans both columns: the editor carries its own labels, mode switch and rows.
@@ -269,27 +321,24 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         grow.setHgrow(Priority.ALWAYS);
         query.getColumnConstraints().addAll(new ColumnConstraints(), grow);
 
-        HBox actions = new HBox(8, loadTypes, searchButton, readButton);
+        // One action row. There is deliberately no "Read" button here: the dialog pane's
+        // "Open in viewer" is the one wired to the result converter, so a second
+        // same-named button in the content meant two Read buttons where only one worked.
+        HBox actions = new HBox(8, loadCapabilities, searchButton);
         actions.setPadding(new Insets(0, 12, 0, 12));
         actions.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
 
-        typeField.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
-            if (event.getCode() == javafx.scene.input.KeyCode.ENTER) {
-                readTypedResource();
-            }
-        });
+        // Enter in the type box opens, as the default button used to.
+        typeBox.getEditor().addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED,
+                event -> {
+                    if (event.getCode() == javafx.scene.input.KeyCode.ENTER) {
+                        readTypedResource();
+                    }
+                });
 
-        // A type can be picked from the list or typed; either way the Read button
-        // needs both, so a list selection only fills the type field.
-        typeList.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
-            if (selected != null) {
-                typeField.setText(selected);
-            }
-        });
-        typeList.setPrefHeight(180);
         // Search can only be offered once there is a type to search, whether it was
-        // typed or picked from the list.
-        typeField.textProperty().addListener((obs, old, text) -> searchButton.setDisable(
+        // typed or picked from the list. An editable combo's editor is the text field.
+        typeBox.valueProperty().addListener((obs, old, text) -> searchButton.setDisable(
                 busy || text == null || text.isBlank()));
 
         HBox statusBar = new HBox(8, progress, status);
@@ -297,17 +346,19 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         statusBar.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
         busyRegion = statusBar;
 
-        // Query, then the type list, then the actions: the left column answers "which
-        // resource", and the results table on the right answers "which one".
-        VBox left = new VBox(8, query, withPlaceholder(typeList), actions);
+        // The query form above, the actions below. There is no separate list of resource types:
+        // they now live in the type box's drop-down, so a second list beside it was
+        // redundant, and on a small window the two competed for the same space and the
+        // table's text overlapped the form.
+        VBox left = new VBox(8, query, actions);
         VBox.setVgrow(query, Priority.NEVER);
-        left.setPrefWidth(380);
+        left.setPrefWidth(420);
 
         BorderPane pane = new BorderPane();
         pane.setLeft(left);
         pane.setCenter(withTablePlaceholder(resultsTable()));
         pane.setBottom(statusBar);
-        keepLabelsVisible(readButton, loadTypes, searchButton);
+        keepLabelsVisible(loadCapabilities, searchButton);
         return pane;
     }
 
@@ -332,9 +383,48 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
                         ? "" : nullToEmpty(data.getValue().getMeta().getVersionId())));
         version.setPrefWidth(90);
         results.getColumns().setAll(type, id, version);
+        // Open is enabled by a selected row, or by a typed type and id, since either is
+        // enough to open something.
         results.getSelectionModel().selectedItemProperty().addListener(
-                (obs, old, selected) -> readButton.setDisable(busy || selected == null));
+                (obs, old, selected) -> updateOpenButton());
         return results;
+    }
+
+    /** The pane's Open button, for tests. */
+    Button openButtonForTest() {
+        return openButton;
+    }
+
+    /** The Load capabilities button, for tests. */
+    Button loadCapabilitiesButton() {
+        return loadCapabilities;
+    }
+
+    /** The resource type box, for tests. */
+    ComboBox<String> typeBox() {
+        return typeBox;
+    }
+
+    /** Enables Open when a row is chosen or both a type and an id are given. */
+    private void updateOpenButton() {
+        if (openButton == null) {
+            return;
+        }
+        boolean enough = results.getSelectionModel().getSelectedItem() != null
+                || (!currentType().isEmpty() && !currentId().isEmpty());
+        openButton.setDisable(busy || !enough);
+    }
+
+    /** The type currently in the box, trimmed; never null. */
+    private String currentType() {
+        String text = typeBox.getValue();
+        return text == null ? "" : text.trim();
+    }
+
+    /** The id currently in the box, trimmed; never null. */
+    private String currentId() {
+        String text = idField.getText();
+        return text == null ? "" : text.trim();
     }
 
     /**
@@ -357,33 +447,12 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         return stack;
     }
 
-    /**
-     * Wraps a list in a stack with a centred hint shown while the list is empty.
-     *
-     * <p>{@code ListView} has no placeholder API of its own, and an empty list on a
-     * dialog reads as "broken" rather than "nothing loaded yet", so the hint is an
-     * ordinary label kept in sync with the list contents.</p>
-     */
-    private static Region withPlaceholder(ListView<String> list) {
-        Label hint = new Label("Server resource types appear here.");
-        hint.setWrapText(true);
-        hint.setStyle("-fx-text-fill: -fx-text-base-color; -fx-opacity: 0.6;");
-        hint.setMouseTransparent(true);
-
-        StackPane stack = new StackPane(list, hint);
-        stack.setAlignment(Pos.CENTER);
-        Runnable sync = () -> hint.setVisible(list.getItems().isEmpty());
-        list.getItems().addListener((javafx.collections.ListChangeListener<String>) change -> sync.run());
-        sync.run();
-        return stack;
-    }
-
-    /** Reads the typed type/id, so a user who knows the id never needs the list. */
+    /** Reads the typed type/id, so a user who knows the id never needs to search. */
     private void readTypedResource() {
         FhirServerConfiguration server = serverBox.getValue();
         IBaseResource selected = results.getSelectionModel().getSelectedItem();
-        String type = typeField.getText() == null ? "" : typeField.getText().trim();
-        String id = idField.getText() == null ? "" : idField.getText().trim();
+        String type = currentType();
+        String id = currentId();
         if (selected == null && (server == null || type.isEmpty() || id.isEmpty())) {
             status.setText("Choose a server, select a search result, or give both a type and an id.");
             return;
@@ -437,7 +506,7 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
      */
     private void search() {
         FhirServerConfiguration server = serverBox.getValue();
-        String type = typeField.getText() == null ? "" : typeField.getText().trim();
+        String type = currentType();
         if (server == null || type.isEmpty()) {
             status.setText("Choose a server and a resource type to search.");
             return;
@@ -466,24 +535,40 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         });
     }
 
-    /** Loads the resource types the selected server advertises. */
-    private void loadTypes() {
+    /** Loads the resource types the selected server advertises into the type box. */
+    private void loadCapabilities() {
         FhirServerConfiguration server = serverBox.getValue();
         if (server == null) {
             return;
         }
-        setBusy(true, "Loading resource types ...");
+        ServerCapabilities cached = capabilitiesCache.get(server.baseUrl());
+        if (cached != null) {
+            // Already known from the search screen or an earlier visit; see
+            // ServerCapabilitiesCache for why a capability statement is not re-read.
+            applyCapabilities(server, cached);
+            return;
+        }
+        setBusy(true, "Reading capabilities of " + server.name() + " ...");
         run(() -> new Attempt<>(serverService.capabilities(server), null), attempt -> {
             setBusy(false, null);
             if (!attempt.succeeded()) {
                 reportFailure(attempt.failure());
                 return;
             }
-            ServerCapabilities capabilities = attempt.value();
-            typeList.getItems().setAll(capabilities.resourceTypes());
-            status.setText(capabilities.resourceTypes().size() + " resource type(s) advertised by "
-                    + server.name() + ".");
+            capabilitiesCache.put(server.baseUrl(), attempt.value());
+            applyCapabilities(server, attempt.value());
         });
+    }
+
+    /** Fills the type box, without replacing a type that is already chosen. */
+    private void applyCapabilities(FhirServerConfiguration server, ServerCapabilities capabilities) {
+        List<String> advertised = capabilities.resourceTypes();
+        typeBox.getItems().setAll(advertised);
+        if (currentType().isEmpty() && !advertised.isEmpty()) {
+            typeBox.getSelectionModel().selectFirst();
+        }
+        status.setText("FHIR " + capabilities.fhirVersion() + ", " + advertised.size()
+                + " resource types advertised by " + server.name() + ".");
     }
 
     private void reportFailure(String message) {
@@ -501,12 +586,11 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         if (busyRegion != null) {
             busyRegion.setVisible(true);
         }
-        loadTypes.setDisable(nowBusy);
-        // Search needs a type; Read needs either a selected result or a typed id, so
+        loadCapabilities.setDisable(nowBusy);
+        // Search needs a type; Open needs either a selected result or a typed id, so
         // its enablement follows the selection rather than the server box.
-        searchButton.setDisable(nowBusy || typeField.getText() == null
-                || typeField.getText().isBlank());
-        readButton.setDisable(nowBusy || results.getSelectionModel().getSelectedItem() == null);
+        searchButton.setDisable(nowBusy || currentType().isEmpty());
+        updateOpenButton();
         if (message != null) {
             status.setText(message);
         }

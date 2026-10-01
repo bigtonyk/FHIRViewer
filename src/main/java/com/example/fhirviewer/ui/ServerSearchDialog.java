@@ -81,6 +81,15 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
 
     /** What was searched for last, so this screen comes back as it was left. */
     private final SearchMemory memory;
+    /**
+     * What each server advertises, shared across dialogs.
+     *
+     * <p>Outlives this dialog on purpose: a fresh screen has an empty type box every time,
+     * so a check inside the dialog could never tell a first read from a repeat one. The
+     * session-scoped instance handed to the constructor without one is private to this
+     * dialog, which is fine for a single screen and useless for two.</p>
+     */
+    private final ServerCapabilitiesCache capabilitiesCache;
     private final Button connectButton = new Button("Load capabilities");
     private final Button searchButton = new Button("Search");
     private final Button nextButton = new Button("Next page");
@@ -106,7 +115,25 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             com.example.fhirviewer.service.FhirService fhirService,
             ThemeManager themeManager,
             SearchMemory memory) {
+        this(serverService, serverManager, fhirService, themeManager, memory,
+                new ServerCapabilitiesCache());
+    }
+
+    /**
+     * Creates the dialog with a cache of what servers advertise.
+     *
+     * <p>The cache is shared by {@code MainWindow} so that reopening this screen does not
+     * re-read a CapabilityStatement it has already read.</p>
+     */
+    public ServerSearchDialog(
+            FhirServerService serverService,
+            FhirServerManager serverManager,
+            com.example.fhirviewer.service.FhirService fhirService,
+            ThemeManager themeManager,
+            SearchMemory memory,
+            ServerCapabilitiesCache capabilitiesCache) {
         this.memory = Objects.requireNonNull(memory, "memory");
+        this.capabilitiesCache = Objects.requireNonNull(capabilitiesCache, "capabilitiesCache");
         this.serverService = serverService;
         this.serverManager = serverManager;
         this.fhirService = fhirService;
@@ -288,11 +315,20 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         }
         statusLabel.getStyleClass().remove("status-error");
         statusLabel.setText("Restoring your last search on " + serverBox.getValue().name() + " ...");
-        loadCapabilities(() -> {
-            // Runs after the types land, so the type is not replaced by the first in the
-            // list - see simulateCapabilitiesArriving.
+        // Only read the CapabilityStatement when the type list is empty. Reopening the
+        // screen is not a request to re-read it: the advertised types have not changed,
+        // and every reopen was spending a round trip to fetch a list already in hand.
+        // Load capabilities still re-reads on demand, so a server that has gained a
+        // resource type can still be picked up.
+        if (typeBox.getItems().isEmpty()) {
+            loadCapabilities(() -> {
+                // Runs after the types land, so the type is not replaced by the first in
+                // the list - see simulateCapabilitiesArriving.
+                search(null);
+            });
+        } else {
             search(null);
-        });
+        }
     }
 
     private GridPane criteriaGrid() {
@@ -373,6 +409,16 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         if (server == null) {
             return;
         }
+        com.example.fhirviewer.server.ServerCapabilities cached =
+                capabilitiesCache.get(server.baseUrl());
+        if (cached != null) {
+            // Known already: a capability statement describes the software, not the data,
+            // so it does not change while the viewer is running. Apply it and go straight
+            // to the search rather than spending a round trip to fetch what is in hand.
+            applyCapabilities(cached);
+            afterwards.run();
+            return;
+        }
         setBusy(true, "Reading capabilities of " + server.baseUrl() + " ...");
         run(() -> new Attempt<>(serverService.capabilities(server), null), attempt -> {
             setBusy(false, null);
@@ -380,16 +426,26 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
                 reportFailure(attempt.failure());
                 return;
             }
-            ServerCapabilities capabilities = attempt.value();
-            simulateCapabilitiesArriving(capabilities.resourceTypes());
-            statusLabel.getStyleClass().remove("status-error");
-            statusLabel.setText("FHIR " + capabilities.fhirVersion() + ", "
-                    + capabilities.resourceTypes().size() + " resource types"
-                    + (capabilities.pagingSupported() ? ", paging supported." : "."));
+            capabilitiesCache.put(server.baseUrl(), attempt.value());
+            applyCapabilities(attempt.value());
             if (afterwards != null) {
                 afterwards.run();
             }
         });
+    }
+
+    /**
+     * Fills the type box from what the server advertised.
+     *
+     * <p>Does not overwrite a type that is already chosen: the list arriving is the reason
+     * the default would be wrong, not a reason to replace what the user asked for.</p>
+     */
+    private void applyCapabilities(ServerCapabilities capabilities) {
+        simulateCapabilitiesArriving(capabilities.resourceTypes());
+        statusLabel.getStyleClass().remove("status-error");
+        statusLabel.setText("FHIR " + capabilities.fhirVersion() + ", "
+                + capabilities.resourceTypes().size() + " resource types"
+                + (capabilities.pagingSupported() ? ", paging supported." : "."));
     }
 
     /**
@@ -564,6 +620,14 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
     /** The resource type currently in the form, for tests. */
     String typeBoxValue() {
         return typeBox.getValue();
+    }
+
+    /**
+     * Seeds the type box as if it had been restored, for tests that need the restore path
+     * to find a type already in place.
+     */
+    void setRememberedTypeForTest(String type) {
+        typeBox.setValue(type);
     }
 
     /**
