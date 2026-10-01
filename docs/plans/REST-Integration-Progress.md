@@ -38,8 +38,8 @@ work can be resumed without re-reading the plan.
 | 25 | UI Error Handling | **done** |
 | 26 | Logging and Diagnostics | **partial** — logged throughout; no diagnostics doc |
 | 27 | Plugin Developer API | **partial** — loader, registry and a mock plugin in tests; no published guide |
-| 28 | Testing | **done** — 539 tests, offline, `@TempDir` + localhost `HttpServer` |
-| 29 | Backward Compatibility | **not started** |
+| 28 | Testing | **done** — 613 tests, offline, `@TempDir` + localhost `HttpServer` |
+| 29 | Backward Compatibility | **done** — see `Phase-29-Backward-Compatibility.md` |
 | 30 | Security Review | **done** — 10 items inspected, 8 clean, 3 findings; 1 fixed. See `Phase-30-Security-Review.md` |
 
 ### Phase 7 — Open from / Save to a FHIR Server
@@ -65,8 +65,9 @@ subscriptions, multi-parameter search, and a FHIRPath patch.
 | | Why it matters |
 |---|---|
 | **Phase 30 — security review** | **Done** — see `Phase-30-Security-Review.md`. Ten items inspected, eight clean, three findings; the one medium finding (credentials silently sent over plain HTTP) is fixed. It was written by the author of the code it reviews, so a second reader is still worth having. |
-| **Phase 29 — backward compatibility** | Not started. A review activity, not code. |
-| **Phase 9 — second base URL** | Planned, not built. Needed for Smile's Admin JSON API only; its reindex operations already work. |
+| **Phase 29 — backward compatibility** | **Done** — see `Phase-29-Backward-Compatibility.md`. Nothing broke. The proof is a compile: `LegacyPlugin` implements only what the interface required before the REST work, so a method that lost its default fails the build. The one finding: a plugin-keyed credential fallback existed with no test. |
+| **Phase 9 — second base URL** | **Done** — an optional `administrationBaseUrl()` on the configuration, a flag on the request rather than a path convention, and one field in the add-server form. Nine Smile JSON Admin API operations declared; **documentation-derived and unverified**, which is recorded in the code beside them. |
+| **Phase 10 — standard operations and input UI** | **Mostly done** — see `10_STANDARD_OPERATIONS_AND_INPUT_UI.md`. Sixteen specification operations declared, so a plain server offers 18 rather than 2; the operation screen has a named body, a content-type selector, and pre-fills from the resource already open; the status screen names the plugin serving each server. Two of its "make it honest" items remain: offering the detected plugin when a server is added, and marking operations the server does not advertise. |
 | `SmileCdrPluginTest.java.hold` | Disabled, so Smile's connection and detection half is untested. Its operation declarations are covered separately. |
 | **Phase 26 — diagnostics doc** | Partial. Logging is thorough; there is no written diagnostic guide. |
 | **Phase 27 — plugin developer guide** | Partial. The loader, registry and a worked example exist in tests; nothing is published for a third-party author. |
