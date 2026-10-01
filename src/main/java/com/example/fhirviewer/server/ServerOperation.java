@@ -42,6 +42,23 @@ public final class ServerOperation {
     private final List<ServerOperationParameter> parameters;
     private final BodyRequirement bodyRequirement;
     private final String bodyContentType;
+    /**
+     * Every content type this operation will accept a body as, the first being the default.
+     *
+     * <p>Usually one entry. More than one means the caller may choose, which is what the
+     * content-type selector on the operation screen offers.</p>
+     */
+    private final List<String> acceptedBodyTypes;
+
+    /**
+     * The content types this operation accepts a body as, the default first.
+     *
+     * <p>Never empty when the operation takes a body at all; empty when it takes none, which
+     * is what the screen uses to decide whether to offer a body area.</p>
+     */
+    public List<String> acceptedBodyTypes() {
+        return acceptedBodyTypes;
+    }
     private final ResultKind expectedResult;
     private final boolean requiresAuthentication;
     /**
@@ -68,6 +85,7 @@ public final class ServerOperation {
         this.parameters = List.copyOf(builder.parameters);
         this.bodyRequirement = builder.bodyRequirement;
         this.bodyContentType = builder.bodyContentType;
+        this.acceptedBodyTypes = List.copyOf(builder.acceptedBodyTypes);
         this.expectedResult = builder.expectedResult;
         this.requiresAuthentication = builder.requiresAuthentication;
         this.administration = builder.administration;
@@ -315,6 +333,7 @@ public final class ServerOperation {
         private String description = "";
         private Category category = Category.VENDOR;
         private BodyRequirement bodyRequirement = BodyRequirement.NONE;
+        private final List<String> acceptedBodyTypes = new java.util.ArrayList<>();
         private String bodyContentType;
         private ResultKind expectedResult = ResultKind.ANY;
         private boolean requiresAuthentication;
@@ -353,6 +372,7 @@ public final class ServerOperation {
         public Builder requiresBody(String contentType) {
             this.bodyRequirement = BodyRequirement.REQUIRED;
             this.bodyContentType = contentType;
+            this.acceptedBodyTypes.add(contentType);
             return this;
         }
 
@@ -360,6 +380,22 @@ public final class ServerOperation {
         public Builder acceptsBody(String contentType) {
             this.bodyRequirement = BodyRequirement.OPTIONAL;
             this.bodyContentType = contentType;
+            this.acceptedBodyTypes.add(contentType);
+            return this;
+        }
+
+        /**
+         * Declares a further content type this operation also accepts.
+         *
+         * <p>{@link #requiresBody} and {@link #acceptsBody} set the one the body defaults to.
+         * This adds another the caller may choose, which is what lets an operation that takes
+         * either JSON or XML be sent as XML - the content-type selector offers exactly the
+         * list returned by {@link ServerOperation#acceptedBodyTypes()}.</p>
+         */
+        public Builder alsoAcceptsBody(String contentType) {
+            if (contentType != null && !contentType.isBlank()) {
+                this.acceptedBodyTypes.add(contentType);
+            }
             return this;
         }
 

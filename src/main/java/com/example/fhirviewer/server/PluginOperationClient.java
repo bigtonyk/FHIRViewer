@@ -287,8 +287,16 @@ public final class PluginOperationClient implements AutoCloseable {
         if (body == null || body.isBlank()) {
             return;
         }
-        if (operation.bodyContentType() != null && !operation.bodyContentType().isBlank()) {
-            request.contentType(operation.bodyContentType());
+        // The caller's choice wins over the operation's default, and only when the operation
+        // declares the type - so this cannot become a way to send a body as something the
+        // server never offered.
+        String chosen = invocation.contentType();
+        String declared = operation.bodyContentType();
+        String contentType = chosen != null && operation.acceptedBodyTypes().contains(chosen)
+                ? chosen
+                : declared;
+        if (contentType != null && !contentType.isBlank()) {
+            request.contentType(contentType);
         }
         request.body(body);
     }

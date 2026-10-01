@@ -30,6 +30,8 @@ public final class ServerOperationInvocation {
     private final Map<String, List<String>> queryParameters;
     private final Map<String, String> headerParameters;
     private final String body;
+    /** The content type the caller asked for, or {@code null} for the operation's default. */
+    private final String contentType;
 
     private ServerOperationInvocation(Builder builder) {
         this.operationId = builder.operationId;
@@ -37,6 +39,7 @@ public final class ServerOperationInvocation {
         this.queryParameters = orderedCopy(builder.queryParameters);
         this.headerParameters = orderedCopy(builder.headerParameters);
         this.body = builder.body;
+        this.contentType = builder.contentType;
     }
 
     /**
@@ -90,6 +93,16 @@ public final class ServerOperationInvocation {
         return body;
     }
 
+    /**
+     * The content type the caller asked for, or {@code null} to use the operation's own.
+     *
+     * <p>Never consulted for anything but the body: a request with no body is unaffected by
+     * it, and the {@code Accept} header stays where the transport decides it.</p>
+     */
+    public String contentType() {
+        return contentType;
+    }
+
     /** One path parameter value, or empty when none was supplied. */
     public Optional<String> pathParameter(String name) {
         return Optional.ofNullable(pathParameters.get(name));
@@ -128,6 +141,7 @@ public final class ServerOperationInvocation {
         private final Map<String, List<String>> queryParameters = new LinkedHashMap<>();
         private final Map<String, String> headerParameters = new LinkedHashMap<>();
         private String body;
+        private String contentType;
 
         private Builder(String operationId) {
             if (operationId == null || operationId.isBlank()) {
@@ -179,6 +193,20 @@ public final class ServerOperationInvocation {
         /** Sets the request body. */
         public Builder body(String body) {
             this.body = body;
+            return this;
+        }
+
+        /**
+         * Sets the content type to send the body as, overriding the operation's default.
+         *
+         * <p>{@code null} keeps the default, which is what a caller that has no opinion
+         * sends. The operation screen sets this from its content-type selector; nothing else
+         * does, so the declared type still governs everywhere else.</p>
+         */
+        public Builder contentType(String contentType) {
+            this.contentType = contentType == null || contentType.isBlank()
+                    ? null
+                    : contentType.trim();
             return this;
         }
 
