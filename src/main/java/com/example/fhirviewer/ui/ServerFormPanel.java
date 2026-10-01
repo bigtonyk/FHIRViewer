@@ -47,6 +47,16 @@ final class ServerFormPanel {
     private final ComboBox<String> serverBox = new ComboBox<>();
     private final TextField nameField = new TextField();
     private final TextField urlField = new TextField();
+
+    /**
+     * The vendor's administration API, when it is served from a different origin.
+     *
+     * <p>Optional, and blank is the normal and correct state. Almost every server serves its
+     * administration endpoints from the FHIR root, so requiring this would be requiring
+     * something almost nobody needs — which is why it sits below the fields that do
+     * matter and says so.</p>
+     */
+    private final TextField adminUrlField = new TextField();
     private final ComboBox<String> versionBox = new ComboBox<>();
     private final ComboBox<FhirServerPlugin> pluginBox = new ComboBox<>();
     private final ComboBox<ServerAuthKind> authBox = new ComboBox<>();
@@ -118,6 +128,14 @@ final class ServerFormPanel {
         addRow(grid, row++, "Server", serverBox);
         addRow(grid, row++, "Name", nameField);
         addRow(grid, row++, "Base URL", urlField);
+        // Optional and usually blank. Its tooltip says why, because a field with no
+        // explanation is one users fill in with the FHIR URL again.
+        addRow(grid, row++, "Admin URL", adminUrlField);
+        adminUrlField.setPromptText("Usually leave blank");
+        adminUrlField.setTooltip(new Tooltip(
+                "Only if this server's administration API is on a different address, "
+                        + "such as Smile CDR's JSON Admin API on port 9000. Leave blank "
+                        + "and operations go to the base URL above."));
         addRow(grid, row++, "FHIR version", versionBox);
         addRow(grid, row++, "Server type", pluginBox);
         addRow(grid, row++, "Authentication", authBox);
@@ -139,8 +157,8 @@ final class ServerFormPanel {
 
     /** The fields a test drives, so it can fill the form as a user would. */
     List<Control> fields() {
-        return List.of(serverBox, nameField, urlField, versionBox, pluginBox, authBox,
-                userField, secretField);
+        return List.of(serverBox, nameField, urlField, adminUrlField, versionBox, pluginBox,
+                authBox, userField, secretField);
     }
 
     /** The server selector, so the dialog can list the configured servers into it. */
@@ -238,6 +256,8 @@ final class ServerFormPanel {
     void load(ServerDefinition definition) {
         nameField.setText(definition.name());
         urlField.setText(definition.baseUrl());
+        adminUrlField.setText(
+                definition.administrationBaseUrl() == null ? "" : definition.administrationBaseUrl());
         versionBox.getSelectionModel().select(definition.fhirVersion());
         FhirServerPlugin plugin = pluginBox.getItems().stream()
                 .filter(p -> p.id().equals(definition.pluginId()))
@@ -253,6 +273,7 @@ final class ServerFormPanel {
     void clear() {
         nameField.clear();
         urlField.clear();
+        adminUrlField.clear();
         versionBox.getSelectionModel().selectFirst();
         if (!pluginBox.getItems().isEmpty()) {
             pluginBox.getSelectionModel().selectFirst();
@@ -310,7 +331,11 @@ final class ServerFormPanel {
         ServerDefinition.Builder builder = ServerDefinition.named(
                         nameField.getText(), urlField.getText())
                 .fhirVersion(selected(versionBox.getSelectionModel().getSelectedItem(), "R4"))
-                .pluginId(plugin == null ? "" : plugin.id());
+                .pluginId(plugin == null ? "" : plugin.id())
+                // Blank is the normal case and means "no separate administration origin".
+                // Passing it through unconditionally keeps an invalid value here reported as
+                // the same clear "must start with http:// or https://" the base URL gives.
+                .administrationBaseUrl(adminUrlField.getText());
         if (previous != null) {
             builder.id(previous.id());
         }
