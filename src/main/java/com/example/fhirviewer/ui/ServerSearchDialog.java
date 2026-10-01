@@ -233,8 +233,11 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
      * a renamed or deleted server should leave the rest of the form usable.</p>
      */
     private void restoreLastSearch() {
+        SearchMemoryTrace.log("restoreLastSearch entered");
         SearchMemory.Search last = memory.last();
+        SearchMemoryTrace.log("restore: got " + last);
         if (last == null) {
+            SearchMemoryTrace.log("restore: NOTHING remembered - this is the clearing bug");
             return;
         }
         if (last.serverName() != null) {
@@ -280,7 +283,10 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
      * search the user had ready to edit and press again.</p>
      */
     private void rerunRememberedSearch() {
+        SearchMemoryTrace.log("rerun: server=" + serverBox.getValue()
+                + " type=" + typeBox.getValue());
         if (serverBox.getValue() == null || typeBox.getValue() == null) {
+            SearchMemoryTrace.log("rerun: SKIPPED - no server or no type");
             return;
         }
         statusLabel.getStyleClass().remove("status-error");
@@ -413,6 +419,8 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             // So reopening this screen after opening a result shows the same search again.
             memory.remember(new SearchMemory.Search(server.name(), resourceType, criteria,
                     PAGE_SIZE));
+            SearchMemoryTrace.log("search: remembered server=" + server.name()
+                    + " type=" + resourceType + " criteria=" + criteria);
         }
         if (lastRequest == null) {
             reportFailure("Search for something first.");

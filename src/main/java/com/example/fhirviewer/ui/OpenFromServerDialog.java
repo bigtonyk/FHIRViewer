@@ -143,17 +143,23 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
      * Puts the last search back into the form, so coming back to this screen after opening
      * a result shows what was searched for rather than an empty one.
      *
-     * <p>Only the form is restored — the results are not re-fetched, because doing that
-     * would spend a network request for a page the user did not ask for again. Pressing
-     * Search runs it again.</p>
+     * <p>The results are re-fetched rather than left empty. That was originally a deliberate
+     * no, on the grounds that re-fetching spends a network request the user did not ask for.
+     * In practice it made the screen look broken: the server box is filled by
+     * {@link #initServers} whether or not memory has anything, so the one field that
+     * survived a reopen was the one that had not been remembered, and an empty type list and
+     * an empty results table read as "the search cleared".</p>
      *
      * <p>A preselected server still wins over the remembered one: the caller passed that
      * deliberately, usually because the open resource came from it, and silently overriding
      * an explicit choice would be worse than not remembering anything.</p>
      */
     private void restoreLastSearch() {
+        SearchMemoryTrace.log("open-screen restore entered");
         SearchMemory.Search last = memory.last();
+        SearchMemoryTrace.log("open-screen restore: got " + last);
         if (last == null) {
+            SearchMemoryTrace.log("open-screen restore: NOTHING remembered");
             return;
         }
         if (serverBox.getSelectionModel().getSelectedItem() == null
@@ -177,6 +183,26 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         } else {
             criteriaEditor.setParameters(criteria);
         }
+        rerunRememberedSearch();
+    }
+
+    /**
+     * Runs the restored search against the chosen server.
+     *
+     * <p>Only when nothing was preselected. A preselected server is an explicit choice by
+     * the caller - usually the one the open resource came from - and re-running against a
+     * server the user did not pick would be worse than showing nothing.</p>
+     */
+    private void rerunRememberedSearch() {
+        FhirServerConfiguration server = serverBox.getValue();
+        String type = typeField.getText() == null ? "" : typeField.getText().trim();
+        if (server == null || type.isEmpty()) {
+            SearchMemoryTrace.log("open-screen rerun skipped: server=" + server
+                    + " type='" + type + "'");
+            return;
+        }
+        SearchMemoryTrace.log("open-screen rerun: " + server.name() + " " + type);
+        search();
     }
 
     private void initServers(FhirServerConfiguration preselected) {
@@ -431,6 +457,8 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         SearchRequest request = new SearchRequest(type, criteria, PAGE_SIZE);
         // So reopening this screen after opening a result shows the same search again.
         memory.remember(new SearchMemory.Search(server.name(), type, criteria, PAGE_SIZE));
+        SearchMemoryTrace.log("open-screen search: remembered " + server.name()
+                + " " + type + " " + criteria);
         setBusy(true, "Searching " + type + " ...");
         run(() -> new Attempt<>(serverService.search(server, request), null), attempt -> {
             setBusy(false, null);
