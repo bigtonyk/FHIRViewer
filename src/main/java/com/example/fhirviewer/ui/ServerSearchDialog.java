@@ -233,11 +233,8 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
      * a renamed or deleted server should leave the rest of the form usable.</p>
      */
     private void restoreLastSearch() {
-        SearchMemoryTrace.log("restoreLastSearch entered");
         SearchMemory.Search last = memory.last();
-        SearchMemoryTrace.log("restore: got " + last);
         if (last == null) {
-            SearchMemoryTrace.log("restore: NOTHING remembered - this is the clearing bug");
             return;
         }
         if (last.serverName() != null) {
@@ -255,14 +252,17 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             // selectFirst() in loadCapabilities() - see simulateCapabilitiesArriving.
             typeBox.setValue(last.resourceType());
         }
+        // Not "return" when there are no criteria. Browsing a whole resource type is a
+        // search with no parameters, and returning here skipped the re-read below - so
+        // exactly the most ordinary search came back with no capabilities and no results,
+        // which is what "the search UI clears" was.
         List<SearchCriterion> criteria = last.criteria();
-        if (criteria.isEmpty()) {
-            return;
-        }
-        if (criteria.stream().allMatch(SearchCriterion::isRaw)) {
-            criteriaEditor.setRaw(criteria.get(0).value());
-        } else {
-            criteriaEditor.setParameters(criteria);
+        if (!criteria.isEmpty()) {
+            if (criteria.stream().allMatch(SearchCriterion::isRaw)) {
+                criteriaEditor.setRaw(criteria.get(0).value());
+            } else {
+                criteriaEditor.setParameters(criteria);
+            }
         }
         // Re-run it, rather than leaving the screen looking empty. This was originally a
         // deliberate no: re-fetching spends a network request for a page the user did not
@@ -283,10 +283,7 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
      * search the user had ready to edit and press again.</p>
      */
     private void rerunRememberedSearch() {
-        SearchMemoryTrace.log("rerun: server=" + serverBox.getValue()
-                + " type=" + typeBox.getValue());
         if (serverBox.getValue() == null || typeBox.getValue() == null) {
-            SearchMemoryTrace.log("rerun: SKIPPED - no server or no type");
             return;
         }
         statusLabel.getStyleClass().remove("status-error");
@@ -419,8 +416,6 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             // So reopening this screen after opening a result shows the same search again.
             memory.remember(new SearchMemory.Search(server.name(), resourceType, criteria,
                     PAGE_SIZE));
-            SearchMemoryTrace.log("search: remembered server=" + server.name()
-                    + " type=" + resourceType + " criteria=" + criteria);
         }
         if (lastRequest == null) {
             reportFailure("Search for something first.");

@@ -56,7 +56,6 @@ public final class SearchMemory {
 
     /** The last search, or {@code null} when none has been made this session. */
     public Search last() {
-        SearchMemoryTrace.log("last() -> " + last);
         return last;
     }
 
@@ -68,7 +67,6 @@ public final class SearchMemory {
      * screens are most often used.</p>
      */
     public void remember(Search search) {
-        SearchMemoryTrace.log("remember: " + search + " complete=" + (search != null && search.isComplete()));
         if (search != null && search.isComplete()) {
             this.last = search;
         }

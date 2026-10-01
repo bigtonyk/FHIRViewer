@@ -737,6 +737,41 @@ class ServerUiSmokeTest {
     }
 
     @Test
+    @DisplayName("Reopening after a search with no parameters still re-reads the server")
+    void reopeningAfterUnparameterisedSearchRefetches() throws Exception {
+        // The bug the trace found, after five wrong fixes. A search with no criteria - which
+        // is what "browse every Account" is - hit an early "return" in restoreLastSearch that
+        // skipped the re-read entirely. So the memory was restored correctly, the type came
+        // back, and yet there were no capabilities and no results.
+        //
+        // Every previous version of these tests used a search WITH a parameter, which is why
+        // none of them saw it. This one uses the empty case, exactly as reported.
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search("Rest", "Account", List.of(), 20));
+
+        AtomicInteger requests = new AtomicInteger();
+        server.onRequest(ignored -> requests.set(ignored));
+
+        FhirServerManager rest = new FhirServerManager();
+        rest.add(ServerDefinition.named("Rest", server.baseUrl()).build());
+        FhirServerService restService = new FhirServerService(standardRegistry());
+
+        runOnFxThread(() -> {
+            ServerSearchDialog reopened = new ServerSearchDialog(restService, rest, null,
+                    themeManager, memory);
+            assertEquals("Account", reopened.typeBoxValue(),
+                    "the type should still be restored for an unparameterised search");
+            reopened.close();
+        });
+
+        Thread.sleep(3000);
+        assertTrue(requests.get() >= 2,
+                "reopening a search with no parameters sent " + requests.get()
+                        + " request(s); an empty criteria list must not skip the re-read, "
+                        + "which is the bug behind \"the search UI clears\"");
+    }
+
+    @Test
     @DisplayName("Reopening brings the results back, not just the form")
     void reopeningRefetchesTheResults() throws Exception {
         // The reported symptom was that only the server survived: capabilities, parameters

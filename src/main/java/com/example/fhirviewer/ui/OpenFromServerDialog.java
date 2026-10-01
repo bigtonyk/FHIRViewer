@@ -155,11 +155,8 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
      * an explicit choice would be worse than not remembering anything.</p>
      */
     private void restoreLastSearch() {
-        SearchMemoryTrace.log("open-screen restore entered");
         SearchMemory.Search last = memory.last();
-        SearchMemoryTrace.log("open-screen restore: got " + last);
         if (last == null) {
-            SearchMemoryTrace.log("open-screen restore: NOTHING remembered");
             return;
         }
         if (serverBox.getSelectionModel().getSelectedItem() == null
@@ -174,14 +171,15 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         if (last.resourceType() != null && !last.resourceType().isBlank()) {
             typeField.setText(last.resourceType());
         }
+        // Not "return" when there are no criteria: browsing a whole resource type is a
+        // search with no parameters, and returning here skipped the re-read below.
         List<SearchCriterion> criteria = last.criteria();
-        if (criteria.isEmpty()) {
-            return;
-        }
-        if (criteria.stream().allMatch(SearchCriterion::isRaw)) {
-            criteriaEditor.setRaw(criteria.get(0).value());
-        } else {
-            criteriaEditor.setParameters(criteria);
+        if (!criteria.isEmpty()) {
+            if (criteria.stream().allMatch(SearchCriterion::isRaw)) {
+                criteriaEditor.setRaw(criteria.get(0).value());
+            } else {
+                criteriaEditor.setParameters(criteria);
+            }
         }
         rerunRememberedSearch();
     }
@@ -197,11 +195,8 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         FhirServerConfiguration server = serverBox.getValue();
         String type = typeField.getText() == null ? "" : typeField.getText().trim();
         if (server == null || type.isEmpty()) {
-            SearchMemoryTrace.log("open-screen rerun skipped: server=" + server
-                    + " type='" + type + "'");
             return;
         }
-        SearchMemoryTrace.log("open-screen rerun: " + server.name() + " " + type);
         search();
     }
 
@@ -457,8 +452,6 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         SearchRequest request = new SearchRequest(type, criteria, PAGE_SIZE);
         // So reopening this screen after opening a result shows the same search again.
         memory.remember(new SearchMemory.Search(server.name(), type, criteria, PAGE_SIZE));
-        SearchMemoryTrace.log("open-screen search: remembered " + server.name()
-                + " " + type + " " + criteria);
         setBusy(true, "Searching " + type + " ...");
         run(() -> new Attempt<>(serverService.search(server, request), null), attempt -> {
             setBusy(false, null);
