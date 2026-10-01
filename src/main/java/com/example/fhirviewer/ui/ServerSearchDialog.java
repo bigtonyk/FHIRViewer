@@ -261,6 +261,35 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         } else {
             criteriaEditor.setParameters(criteria);
         }
+        // Re-run it, rather than leaving the screen looking empty. This was originally a
+        // deliberate no: re-fetching spends a network request for a page the user did not
+        // ask for. But the server box is repopulated by the constructor's selectFirst()
+        // regardless, so a form-only restore looks broken - the one field that survives is
+        // the one that did not come from memory, and everything the user typed reads as
+        // cleared. Refetching is also what makes the capabilities list come back, since
+        // that is only populated by reading the server.
+        rerunRememberedSearch();
+    }
+
+    /**
+     * Loads the chosen server's capabilities and runs the remembered search again.
+     *
+     * <p>Both are network calls, so both report rather than fail silently, and neither runs
+     * when the dialog is opened with nothing to restore. The form has already been put back
+     * before this is called, so a server that has gone away costs the results but leaves the
+     * search the user had ready to edit and press again.</p>
+     */
+    private void rerunRememberedSearch() {
+        if (serverBox.getValue() == null || typeBox.getValue() == null) {
+            return;
+        }
+        statusLabel.getStyleClass().remove("status-error");
+        statusLabel.setText("Restoring your last search on " + serverBox.getValue().name() + " ...");
+        loadCapabilities(() -> {
+            // Runs after the types land, so the type is not replaced by the first in the
+            // list - see simulateCapabilitiesArriving.
+            search(null);
+        });
     }
 
     private GridPane criteriaGrid() {
@@ -324,7 +353,19 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         return new LoadedResource(resource, ResourceFormat.JSON, source, null);
     }
 
+    /** Reads the chosen server's capabilities and fills the resource type list. */
     private void loadCapabilities() {
+        loadCapabilities(null);
+    }
+
+    /**
+     * Reads the capabilities, then runs {@code afterwards} if it succeeded.
+     *
+     * <p>The callback exists so restoring the last search can wait for the type list before
+     * searching. Doing it the other way round - searching, then loading types - would let
+     * the type selectFirst() replace what was being searched for.</p>
+     */
+    private void loadCapabilities(Runnable afterwards) {
         com.example.fhirviewer.server.FhirServerConfiguration server = serverBox.getValue();
         if (server == null) {
             return;
@@ -342,6 +383,9 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             statusLabel.setText("FHIR " + capabilities.fhirVersion() + ", "
                     + capabilities.resourceTypes().size() + " resource types"
                     + (capabilities.pagingSupported() ? ", paging supported." : "."));
+            if (afterwards != null) {
+                afterwards.run();
+            }
         });
     }
 
@@ -502,6 +546,16 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
     /** The parameters editor, for tests. */
     SearchCriteriaEditor criteriaEditor() {
         return criteriaEditor;
+    }
+
+    /** The status line, for tests. */
+    String statusText() {
+        return statusLabel.getText();
+    }
+
+    /** The chosen server's name, for tests. */
+    String serverName() {
+        return serverBox.getValue() == null ? null : serverBox.getValue().name();
     }
 
     /** The resource type currently in the form, for tests. */

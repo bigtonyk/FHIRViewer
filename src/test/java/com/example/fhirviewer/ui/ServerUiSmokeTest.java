@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.hl7.fhir.r4.model.Patient;
@@ -676,6 +677,13 @@ class ServerUiSmokeTest {
         });
     }
 
+    /** A registry with the real standard REST plugin, for tests that need actual HTTP calls. */
+    private static FhirServerPluginRegistry standardRegistry() {
+        FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+        registry.register(new com.example.fhirviewer.server.StandardFhirRestPlugin());
+        return registry;
+    }
+
     /** A minimal, valid searchset Bundle with no entries. */
     private static String searchBundleOf(String resourceType, int count) {
         StringBuilder entries = new StringBuilder();
@@ -726,6 +734,68 @@ class ServerUiSmokeTest {
                     "the searched-for type did not come back on the next opening");
             reopened.close();
         });
+    }
+
+    @Test
+    @DisplayName("Reopening brings the results back, not just the form")
+    void reopeningRefetchesTheResults() throws Exception {
+        // The reported symptom was that only the server survived: capabilities, parameters
+        // and results all came back empty. Restoring the form alone produced exactly that -
+        // and the one field that looked remembered was the server box, which the
+        // constructor fills with selectFirst() whether or not memory has anything.
+        //
+        // So reopening must read the server again: that is what repopulates the type list,
+        // and the search that follows is what repopulates the results.
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search(null, "Patient",
+                List.of(new SearchCriterion("family", "Smith")), 20));
+
+        AtomicInteger requests = new AtomicInteger();
+        server.onRequest(ignored -> requests.set(ignored));
+
+        // A real REST plugin, not the ShapePlugin the rest of this class uses: that one
+        // answers from memory and never speaks HTTP, so it cannot show whether the screen
+        // re-reads the server. Counting requests only works against a plugin that makes them.
+        FhirServerManager rest = new FhirServerManager();
+        rest.add(ServerDefinition.named("Rest", server.baseUrl()).build());
+        FhirServerService restService = new FhirServerService(standardRegistry());
+
+        runOnFxThread(() -> {
+            ServerSearchDialog reopened = new ServerSearchDialog(restService, rest, null,
+                    themeManager, memory);
+            reopened.close();
+        });
+
+        // Two requests: the CapabilityStatement, then the search.
+        Thread.sleep(3000);
+
+        assertTrue(requests.get() >= 2,
+                "reopening sent " + requests.get() + " request(s); the capabilities and the "
+                        + "search should both have been re-run, which is what puts the type "
+                        + "list and the results back");
+    }
+
+    @Test
+    @DisplayName("Opening with nothing remembered makes no requests")
+    void openingWithNothingRememberedIsQuiet() throws Exception {
+        // The other half of that change: a first-time user must not pay for two network
+        // calls just to open the screen.
+        AtomicInteger requests = new AtomicInteger();
+        server.onRequest(ignored -> requests.set(ignored));
+
+        FhirServerManager rest = new FhirServerManager();
+        rest.add(ServerDefinition.named("Rest", server.baseUrl()).build());
+        FhirServerService restService = new FhirServerService(standardRegistry());
+
+        runOnFxThread(() -> {
+            ServerSearchDialog fresh = new ServerSearchDialog(restService, rest, null,
+                    themeManager, new SearchMemory());
+            fresh.close();
+        });
+
+        Thread.sleep(1500);
+        assertEquals(0, requests.get(),
+                "opening the screen with no search to restore should not talk to the server");
     }
 
     @Test

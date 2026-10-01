@@ -233,6 +233,19 @@ the server actually said there is a previous or next page.
 
 Open a result and it is displayed like any loaded file.
 
+### Coming back to a search
+
+Reopening the search screen brings back your last search: the server, the
+resource type, every parameter, and the results. It re-reads the server
+rather than showing an empty form, so the type list and the results are
+there too — you do not have to press Load capabilities or Search again.
+
+The first time you open the screen, or after restarting the viewer, there
+is nothing to bring back and it does not contact the server at all.
+
+If the server has gone away, the search you had is still filled in and
+ready to edit — only the results are missing.
+
 ### Loading types
 
 **Load types** in the Open-from-Server dialog asks the server which resource
