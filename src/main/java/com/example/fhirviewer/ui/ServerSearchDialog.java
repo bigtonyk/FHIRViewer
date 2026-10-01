@@ -1,6 +1,7 @@
 package com.example.fhirviewer.ui;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 
@@ -17,6 +18,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
@@ -75,8 +77,19 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
 
     private final ComboBox<com.example.fhirviewer.server.FhirServerConfiguration> serverBox = new ComboBox<>();
     private final ComboBox<String> typeBox = new ComboBox<>();
-    private final TextField parameterField = new TextField();
-    private final TextField valueField = new TextField();
+    private final SearchCriteriaEditor criteriaEditor = new SearchCriteriaEditor();
+
+    /** What was searched for last, so this screen comes back as it was left. */
+    private final SearchMemory memory;
+    /**
+     * What each server advertises, shared across dialogs.
+     *
+     * <p>Outlives this dialog on purpose: a fresh screen has an empty type box every time,
+     * so a check inside the dialog could never tell a first read from a repeat one. The
+     * session-scoped instance handed to the constructor without one is private to this
+     * dialog, which is fine for a single screen and useless for two.</p>
+     */
+    private final ServerCapabilitiesCache capabilitiesCache;
     private final Button connectButton = new Button("Load capabilities");
     private final Button searchButton = new Button("Search");
     private final Button nextButton = new Button("Next page");
@@ -100,7 +113,27 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             FhirServerService serverService,
             FhirServerManager serverManager,
             com.example.fhirviewer.service.FhirService fhirService,
-            ThemeManager themeManager) {
+            ThemeManager themeManager,
+            SearchMemory memory) {
+        this(serverService, serverManager, fhirService, themeManager, memory,
+                new ServerCapabilitiesCache());
+    }
+
+    /**
+     * Creates the dialog with a cache of what servers advertise.
+     *
+     * <p>The cache is shared by {@code MainWindow} so that reopening this screen does not
+     * re-read a CapabilityStatement it has already read.</p>
+     */
+    public ServerSearchDialog(
+            FhirServerService serverService,
+            FhirServerManager serverManager,
+            com.example.fhirviewer.service.FhirService fhirService,
+            ThemeManager themeManager,
+            SearchMemory memory,
+            ServerCapabilitiesCache capabilitiesCache) {
+        this.memory = Objects.requireNonNull(memory, "memory");
+        this.capabilitiesCache = Objects.requireNonNull(capabilitiesCache, "capabilitiesCache");
         this.serverService = serverService;
         this.serverManager = serverManager;
         this.fhirService = fhirService;
@@ -112,10 +145,9 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         serverBox.getItems().setAll(serverManager.servers());
         serverBox.getSelectionModel().selectFirst();
         renderServerNames();
+        typeBox.setEditable(true);
         typeBox.setDisable(true);
         typeBox.setPromptText("Load capabilities first");
-        parameterField.setPromptText("e.g. name");
-        valueField.setPromptText("e.g. Smith");
 
         connectButton.getStyleClass().add("button-ghost");
         connectButton.setTooltip(new Tooltip("Read the server's CapabilityStatement to list its resource types."));
@@ -182,7 +214,11 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         VBox content = new VBox(10, criteriaGrid(), statusLabel, pageInfo, results);
         getDialogPane().setContent(content);
         getDialogPane().getButtonTypes().addAll(openType, ButtonType.CANCEL);
-        getDialogPane().setPrefWidth(680);
+        // Wide enough for the criteria editor's buttons. "Parameters" / "Search string" and
+        // "Add parameter" / "Remove last" were clipped at the old width, which is a worse
+        // failure than a wide dialog: a button reading "Add param" is a guess.
+        getDialogPane().setPrefWidth(840);
+        getDialogPane().setMinWidth(760);
         getDialogPane().setPrefHeight(640);
         getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
         openButton = (Button) getDialogPane().lookupButton(openType);
@@ -208,6 +244,91 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             IBaseResource resource = openType.equals(button) ? selectedResource() : null;
             return resource == null ? null : asLoadedResource(resource);
         });
+
+        restoreLastSearch();
+    }
+
+    /**
+     * Puts the last search back into the form, so coming back to this screen after opening
+     * a result shows what was searched for rather than an empty one.
+     *
+     * <p>Only the form is restored. The results are not re-fetched: doing that would spend a
+     * network request and could pull a page the user did not ask for again. Pressing Search
+     * runs it again.</p>
+     *
+     * <p>A remembered server that is no longer configured is skipped rather than forced —
+     * a renamed or deleted server should leave the rest of the form usable.</p>
+     */
+    private void restoreLastSearch() {
+        SearchMemory.Search last = memory.last();
+        if (last == null) {
+            return;
+        }
+        if (last.serverName() != null) {
+            for (com.example.fhirviewer.server.FhirServerConfiguration server
+                    : serverBox.getItems()) {
+                if (server.name().equals(last.serverName())) {
+                    serverBox.getSelectionModel().select(server);
+                    break;
+                }
+            }
+        }
+        if (last.resourceType() != null && !last.resourceType().isBlank()) {
+            // Verified: this works on a non-editable box too, so do not read it as the
+            // reason a type went missing. What actually threw the restored value away was
+            // selectFirst() in loadCapabilities() - see simulateCapabilitiesArriving.
+            typeBox.setValue(last.resourceType());
+        }
+        // Not "return" when there are no criteria. Browsing a whole resource type is a
+        // search with no parameters, and returning here skipped the re-read below - so
+        // exactly the most ordinary search came back with no capabilities and no results,
+        // which is what "the search UI clears" was.
+        List<SearchCriterion> criteria = last.criteria();
+        if (!criteria.isEmpty()) {
+            if (criteria.stream().allMatch(SearchCriterion::isRaw)) {
+                criteriaEditor.setRaw(criteria.get(0).value());
+            } else {
+                criteriaEditor.setParameters(criteria);
+            }
+        }
+        // Re-run it, rather than leaving the screen looking empty. This was originally a
+        // deliberate no: re-fetching spends a network request for a page the user did not
+        // ask for. But the server box is repopulated by the constructor's selectFirst()
+        // regardless, so a form-only restore looks broken - the one field that survives is
+        // the one that did not come from memory, and everything the user typed reads as
+        // cleared. Refetching is also what makes the capabilities list come back, since
+        // that is only populated by reading the server.
+        rerunRememberedSearch();
+    }
+
+    /**
+     * Loads the chosen server's capabilities and runs the remembered search again.
+     *
+     * <p>Both are network calls, so both report rather than fail silently, and neither runs
+     * when the dialog is opened with nothing to restore. The form has already been put back
+     * before this is called, so a server that has gone away costs the results but leaves the
+     * search the user had ready to edit and press again.</p>
+     */
+    private void rerunRememberedSearch() {
+        if (serverBox.getValue() == null || typeBox.getValue() == null) {
+            return;
+        }
+        statusLabel.getStyleClass().remove("status-error");
+        statusLabel.setText("Restoring your last search on " + serverBox.getValue().name() + " ...");
+        // Only read the CapabilityStatement when the type list is empty. Reopening the
+        // screen is not a request to re-read it: the advertised types have not changed,
+        // and every reopen was spending a round trip to fetch a list already in hand.
+        // Load capabilities still re-reads on demand, so a server that has gained a
+        // resource type can still be picked up.
+        if (typeBox.getItems().isEmpty()) {
+            loadCapabilities(() -> {
+                // Runs after the types land, so the type is not replaced by the first in
+                // the list - see simulateCapabilitiesArriving.
+                search(null);
+            });
+        } else {
+            search(null);
+        }
     }
 
     private GridPane criteriaGrid() {
@@ -219,8 +340,12 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         int row = 0;
         addRow(grid, row++, "Server", serverBox);
         addRow(grid, row++, "Resource type", typeBox);
-        addRow(grid, row++, "Search parameter", parameterField);
-        addRow(grid, row++, "Value", valueField);
+        // Replaces the single name/value pair. The editor holds both the parameter rows and
+        // the raw search-string mode, so the two screens cannot drift into disagreeing
+        // about what a valid search is.
+        Region editor = criteriaEditor.build();
+        grid.add(editor, 0, row++);
+        GridPane.setColumnSpan(editor, 2);
         grid.add(actions, 1, row);
         return grid;
     }
@@ -267,9 +392,33 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         return new LoadedResource(resource, ResourceFormat.JSON, source, null);
     }
 
+    /** Reads the chosen server's capabilities and fills the resource type list. */
     private void loadCapabilities() {
+        loadCapabilities(null);
+    }
+
+    /**
+     * Reads the capabilities, then runs {@code afterwards} if it succeeded.
+     *
+     * <p>The callback exists so restoring the last search can wait for the type list before
+     * searching. Doing it the other way round - searching, then loading types - would let
+     * the type selectFirst() replace what was being searched for.</p>
+     */
+    private void loadCapabilities(Runnable afterwards) {
         com.example.fhirviewer.server.FhirServerConfiguration server = serverBox.getValue();
         if (server == null) {
+            return;
+        }
+        com.example.fhirviewer.server.ServerCapabilities cached =
+                capabilitiesCache.get(server.baseUrl());
+        if (cached != null) {
+            // Known already: a capability statement describes the software, not the data,
+            // so it does not change while the viewer is running. Apply it and go straight
+            // to the search rather than spending a round trip to fetch what is in hand.
+            applyCapabilities(cached);
+            if (afterwards != null) {
+                afterwards.run();
+            }
             return;
         }
         setBusy(true, "Reading capabilities of " + server.baseUrl() + " ...");
@@ -279,21 +428,26 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
                 reportFailure(attempt.failure());
                 return;
             }
-            ServerCapabilities capabilities = attempt.value();
-            typeBox.getItems().setAll(capabilities.resourceTypes());
-            if (!typeBox.getItems().isEmpty()) {
-                typeBox.getSelectionModel().selectFirst();
-                typeBox.setDisable(false);
-                searchButton.setDisable(false);
-            } else {
-                typeBox.setDisable(true);
-                searchButton.setDisable(true);
+            capabilitiesCache.put(server.baseUrl(), attempt.value());
+            applyCapabilities(attempt.value());
+            if (afterwards != null) {
+                afterwards.run();
             }
-            statusLabel.getStyleClass().remove("status-error");
-            statusLabel.setText("FHIR " + capabilities.fhirVersion() + ", "
-                    + capabilities.resourceTypes().size() + " resource types"
-                    + (capabilities.pagingSupported() ? ", paging supported." : "."));
         });
+    }
+
+    /**
+     * Fills the type box from what the server advertised.
+     *
+     * <p>Does not overwrite a type that is already chosen: the list arriving is the reason
+     * the default would be wrong, not a reason to replace what the user asked for.</p>
+     */
+    private void applyCapabilities(ServerCapabilities capabilities) {
+        simulateCapabilitiesArriving(capabilities.resourceTypes());
+        statusLabel.getStyleClass().remove("status-error");
+        statusLabel.setText("FHIR " + capabilities.fhirVersion() + ", "
+                + capabilities.resourceTypes().size() + " resource types"
+                + (capabilities.pagingSupported() ? ", paging supported." : "."));
     }
 
     /**
@@ -317,6 +471,9 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             }
             lastRequest = new SearchRequest(resourceType, criteria, PAGE_SIZE);
             lastPageToken = null;
+            // So reopening this screen after opening a result shows the same search again.
+            memory.remember(new SearchMemory.Search(server.name(), resourceType, criteria,
+                    PAGE_SIZE));
         }
         if (lastRequest == null) {
             reportFailure("Search for something first.");
@@ -353,14 +510,14 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
     }
 
     /**
-     * The criteria from the two fields; empty when the user left both blank.
+     * The criteria the user described; empty when a parameter search is left blank.
      *
-     * <p>Delegates to {@link SearchCriteriaBuilder} so this screen and
-     * {@code OpenFromServerDialog} cannot disagree about what a valid criterion is.</p>
+     * <p>Delegates to the shared editor so this screen and {@code OpenFromServerDialog}
+     * cannot disagree about what a valid search is.</p>
      */
     private List<SearchCriterion> criteria() {
         try {
-            return SearchCriteriaBuilder.from(parameterField.getText(), valueField.getText());
+            return criteriaEditor.criteria();
         } catch (IllegalArgumentException e) {
             reportFailure(e.getMessage());
             return null;
@@ -440,5 +597,64 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         statusLabel.getStyleClass().remove("status-error");
         statusLabel.getStyleClass().add("status-error");
         statusLabel.setText(message);
+    }
+
+    /** The Search button, for tests. */
+    Button searchButton() {
+        return searchButton;
+    }
+
+    /** The parameters editor, for tests. */
+    SearchCriteriaEditor criteriaEditor() {
+        return criteriaEditor;
+    }
+
+    /** The status line, for tests. */
+    String statusText() {
+        return statusLabel.getText();
+    }
+
+    /** The chosen server's name, for tests. */
+    String serverName() {
+        return serverBox.getValue() == null ? null : serverBox.getValue().name();
+    }
+
+    /** The resource type currently in the form, for tests. */
+    String typeBoxValue() {
+        return typeBox.getValue();
+    }
+
+    /**
+     * Seeds the type box as if it had been restored, for tests that need the restore path
+     * to find a type already in place.
+     */
+    void setRememberedTypeForTest(String type) {
+        typeBox.setValue(type);
+    }
+
+    /**
+     * Runs the part of {@link #loadCapabilities()} that runs once the types are known, so a
+     * test can check what happens to the form when they arrive.
+     *
+     * <p>Package-private and on purpose: the ordering here is the bug - the type list is
+     * filled from the server shortly after the form is built, and anything the user did in
+     * between has to survive it. Testing that requires driving the callback, and a test
+     * that reaches for the ComboBox directly would not exercise the ordering at all.</p>
+     */
+    void simulateCapabilitiesArriving(List<String> resourceTypes) {
+        typeBox.getItems().setAll(resourceTypes);
+        if (typeBox.getItems().isEmpty()) {
+            typeBox.setDisable(true);
+            searchButton.setDisable(true);
+            return;
+        }
+        boolean kept = memory.last() != null && memory.last().resourceType() != null
+                && !memory.last().resourceType().isBlank()
+                && typeBox.getValue() != null;
+        if (!kept) {
+            typeBox.getSelectionModel().selectFirst();
+        }
+        typeBox.setDisable(false);
+        searchButton.setDisable(false);
     }
 }

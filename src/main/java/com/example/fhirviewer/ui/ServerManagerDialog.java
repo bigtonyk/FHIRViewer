@@ -6,13 +6,12 @@ import java.util.Optional;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
-import javafx.scene.control.ListView;
 import javafx.scene.control.ScrollPane;
-import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -25,6 +24,7 @@ import com.example.fhirviewer.server.FhirServerService;
 import com.example.fhirviewer.server.ServerAuthKind;
 import com.example.fhirviewer.server.ServerCredentialSaver;
 import com.example.fhirviewer.server.ServerDefinition;
+import com.example.fhirviewer.server.TransportSecurity;
 
 /**
  * Manages the configured FHIR servers: a list of them, and a form that adds, edits and
@@ -48,7 +48,6 @@ public class ServerManagerDialog extends Dialog<Void> {
     private final FhirServerManager serverManager;
     private final ServerCredentialSaver credentialSaver;
 
-    private final ListView<ServerDefinition> serverList = new ListView<>();
     private final ServerFormPanel form;
     private final Label statusLabel = new Label(" ");
     private final Button addButton = new Button("Add");
@@ -124,25 +123,7 @@ public class ServerManagerDialog extends Dialog<Void> {
     }
 
     private void buildContent() {
-        serverList.setCellFactory(view -> new javafx.scene.control.ListCell<>() {
-            @Override
-            protected void updateItem(ServerDefinition item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.name());
-                setTooltip(empty || item == null ? null
-                        : new Tooltip(item.baseUrl()));
-            }
-        });
-        serverList.getSelectionModel().selectedItemProperty().addListener(
-                (obs, old, current) -> onSelected(current));
-
-        VBox listSide = new VBox(6);
-        listSide.setPadding(new Insets(0, 0, 0, 0));
-        Label listTitle = new Label("Configured servers");
-        listTitle.getStyleClass().add("pretty-row-label");
-        listSide.getChildren().addAll(listTitle, serverList);
-        VBox.setVgrow(serverList, Priority.ALWAYS);
-        serverList.setPrefWidth(180);
+        form.onServerChosen(this::onServerChosen);
 
         // fitToWidth is what makes the form grow with the window. Without it the grid stays
         // at its preferred width inside a wider dialog and the right-hand end of each field
@@ -151,27 +132,32 @@ public class ServerManagerDialog extends Dialog<Void> {
         formScroll.setFitToWidth(true);
         formScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         formScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        VBox.setVgrow(formScroll, Priority.ALWAYS);
+        // Grow is set once formSide exists, below, where the parent is known.
 
         VBox formSide = new VBox(6);
         Label formTitle = new Label("Server details");
         formTitle.getStyleClass().add("pretty-row-label");
         formSide.getChildren().addAll(formTitle, formScroll, buildButtons(), statusLabel);
         VBox.setVgrow(formScroll, Priority.ALWAYS);
+        // The horizontal counterpart. Without it the scroll pane sits at its content's
+        // preferred width, so the form hugs its fields and leaves the dialog empty.
+        HBox.setHgrow(formScroll, Priority.ALWAYS);
 
         statusLabel.getStyleClass().add("app-subtitle");
         statusLabel.setWrapText(true);
         statusLabel.setMaxWidth(Double.MAX_VALUE);
-        // The status line used to sit in the grid, where it inherited the label column's
-        // fixed width and truncated a long message. Full width and wrapping, it reads.
-        statusLabel.setPrefWidth(Double.MAX_VALUE);
+        // Only maxWidth, never prefWidth. A preferred width is a size a parent adds up to
+        // work out its own size, and MAX_VALUE there makes the whole chain above it unbounded
+        // - which squashed this layout to the left. maxWidth says "grow to fill" and does not
+        // feed the parent's arithmetic.
 
-        HBox panes = new HBox(14, listSide, formSide);
-        panes.setAlignment(Pos.TOP_LEFT);
-        HBox.setHgrow(formSide, Priority.ALWAYS);
-
-        BorderPane root = new BorderPane(panes);
+        // One column. The server list used to sit beside the form; it is now the selector at
+        // the top of the form, so there is nothing to lay out beside it and the dialog is
+        // both simpler and properly proportioned.
+        BorderPane root = new BorderPane(formSide);
         root.setPadding(new Insets(12));
+        // maxWidth, not prefWidth, for the same reason as the status line above.
+        root.setMaxWidth(Double.MAX_VALUE);
         getDialogPane().setContent(root);
     }
 
@@ -197,19 +183,49 @@ public class ServerManagerDialog extends Dialog<Void> {
 
     private void refreshList() {
         List<ServerDefinition> current = serverManager.definitionsForDisplay();
-        serverList.getItems().setAll(current);
-        if (editing != null) {
-            // Keep the edited server selected after an add, edit or delete.
-            serverList.getSelectionModel().select(editing);
+        java.util.List<String> names = current.stream().map(ServerDefinition::name).toList();
+        // Resolved *before* offering the names. Repopulating the drop-down selects its first
+        // entry, which fires the chosen handler and re-points `editing`; reading it afterwards
+        // would mean deciding whether to keep a selection using a value that had just been
+        // changed underneath us.
+        String keep = editing != null && names.contains(editing.name()) ? editing.name() : null;
+        form.offerServers(names);
+        form.selectServerQuietly(keep);
+        if (keep == null) {
+            editing = null;
+            addingNew = true;
         }
         updateButtonState();
     }
 
-    private void onSelected(ServerDefinition selected) {
-        editing = selected;
-        if (selected != null) {
+    /**
+     * Loads a server the user picked from the selector.
+     *
+     * <p>A blank choice means "a new server", so the form is cleared rather than loaded. A
+     * name that is not configured is treated the same way: the user is typing a new one, and
+     * refusing to switch would make the editable selector useless.</p>
+     */
+    private void onServerChosen(String chosen) {
+        ServerDefinition match = null;
+        if (chosen != null && !chosen.isBlank()) {
+            for (ServerDefinition candidate : serverManager.definitionsForDisplay()) {
+                if (candidate.name().equals(chosen)) {
+                    match = candidate;
+                    break;
+                }
+            }
+        }
+        editing = match;
+        if (match == null) {
+            addingNew = true;
+            form.clear();
+            form.selectServerQuietly(chosen);
+        } else {
             addingNew = false;
-            form.load(selected);
+            // Load the chosen server's details. Without this the selector changed the name
+            // and nothing else: the form kept whatever it had, so switching servers looked
+            // like it had done nothing.
+            form.load(match);
         }
         updateButtonState();
     }
@@ -234,7 +250,9 @@ public class ServerManagerDialog extends Dialog<Void> {
         // Keep Save enabled: Add has started the job of configuring a server, and the user
         // finishes it with Save. Disabling it here left no way to add a server at all.
         addingNew = true;
-        serverList.getSelectionModel().clearSelection();
+        // Back to the blank entry, which is how the selector says "a new server". Selecting
+        // it would otherwise fire the chosen handler and clear the form we just cleared.
+        form.selectServerQuietly(null);
         updateButtonState();
         setStatus("Fill in the details, then choose Save to add this server.");
     }
@@ -279,7 +297,16 @@ public class ServerManagerDialog extends Dialog<Void> {
         ServerAuthKind kind = form.authKind();
         ServerCredentialSaver.Outcome outcome =
                 credentialSaver.save(definition, kind, form.userName(), form.secret());
-        return outcome.message() + " ";
+        StringBuilder message = new StringBuilder(outcome.message()).append(' ');
+        // Said alongside the result rather than instead of it, so the warning survives the
+        // "Added <server>" text that is written after this returns. A user who does not
+        // know their password will cross the network in the clear has no way to find out
+        // except by reading this line.
+        String plaintext = TransportSecurity.warningFor(definition.baseUrl());
+        if (plaintext != null && !kind.isAnonymous()) {
+            message.append(plaintext);
+        }
+        return message.toString();
     }
 
     private void onDelete() {
@@ -370,9 +397,9 @@ public class ServerManagerDialog extends Dialog<Void> {
         return form;
     }
 
-    /** The list of configured servers, for selecting one. */
-    ListView<ServerDefinition> serverList() {
-        return serverList;
+    /** The selector, so a test can pick a configured server the way a user would. */
+    ComboBox<String> serverBox() {
+        return form.serverBox();
     }
 
     Button addButton() {

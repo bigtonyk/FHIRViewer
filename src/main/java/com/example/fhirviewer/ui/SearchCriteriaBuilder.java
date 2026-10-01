@@ -50,4 +50,21 @@ public final class SearchCriteriaBuilder {
         // clearer one, so it is allowed to propagate.
         return List.of(new SearchCriterion(name, wanted));
     }
+
+    /**
+     * Builds a one-element list holding the user's own search string.
+     *
+     * <p>Refuses an empty string rather than returning no criteria. In raw mode "no
+     * criteria" would be a search with nothing applied, which is every resource of the
+     * type — the one result the user did not ask for and might not be entitled to. A
+     * blank-row search in parameter mode is still allowed, because that is a visible,
+     * deliberate choice; an empty raw field is more likely a forgotten switch.</p>
+     *
+     * @param query what the user typed, for example {@code name:contains=Smith&_sort=-date}
+     * @return a single raw criterion
+     * @throws IllegalArgumentException when nothing usable is left to search for
+     */
+    public static List<SearchCriterion> raw(String query) {
+        return List.of(SearchCriterion.raw(query));
+    }
 }

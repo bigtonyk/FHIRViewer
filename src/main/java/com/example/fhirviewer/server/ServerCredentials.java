@@ -115,6 +115,14 @@ public final class ServerCredentials {
                     server.name());
             return AnonymousServerAuthentication.INSTANCE;
         }
+        if (TransportSecurity.exposesCredentials(server.baseUrl())) {
+            // The credential is about to be put on the wire in a form anyone on the path can
+            // read. Not refused - http to a non-loopback host is the user's decision, and a
+            // check they cannot see past would just be worked around - but recorded, because
+            // the save-time warning may have been days and several restarts ago.
+            log.warn("using a saved credential for {} over a connection that is not encrypted",
+                    server.name());
+        }
         try {
             return BasicServerAuthentication.from(store.unlockForServer(server, secret));
         } catch (SecretBoxException e) {

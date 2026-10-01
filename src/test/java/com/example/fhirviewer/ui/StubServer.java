@@ -31,6 +31,12 @@ final class StubServer {
     private final AtomicReference<String> body = new AtomicReference<>("");
     private final AtomicReference<String> contentType = new AtomicReference<>("");
     private final AtomicInteger requests = new AtomicInteger();
+    /**
+     * Called with the running request count on every request, for tests that care how many
+     * round trips a screen made rather than what came back.
+     */
+    private final AtomicReference<java.util.function.IntConsumer> onRequest =
+            new AtomicReference<>();
 
     StubServer() throws IOException {
         this.http = com.sun.net.httpserver.HttpServer.create(
@@ -54,6 +60,11 @@ final class StubServer {
         answerStatus.set(status);
         answerType.set(contentType);
         answer.set(body == null ? "" : body);
+    }
+
+    /** Registers a callback fired with the running request count on every request. */
+    void onRequest(java.util.function.IntConsumer listener) {
+        onRequest.set(listener);
     }
 
     String lastMethod() {
@@ -89,6 +100,10 @@ final class StubServer {
      */
     private void handle(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
         requests.incrementAndGet();
+        java.util.function.IntConsumer listener = onRequest.get();
+        if (listener != null) {
+            listener.accept(requests.get());
+        }
         method.set(exchange.getRequestMethod());
         // The raw path and query, so a percent-encoded path parameter is visible as sent.
         path.set(exchange.getRequestURI().getRawPath());

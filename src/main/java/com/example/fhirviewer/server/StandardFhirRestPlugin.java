@@ -217,6 +217,12 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
         requireSession(session);
         requireRequest(request);
         long started = System.currentTimeMillis();
+        if (request.isRawSearch()) {
+            // Sent whole and untouched, through the raw transport rather than HAPI's query
+            // builder. Building it from criteria would normalise away exactly what a raw
+            // search exists to preserve: prefixes, modifiers, chains and _sort.
+            return rawSearch(session, request, started);
+        }
         IGenericClient client = newClient(session);
         try {
             ca.uhn.fhir.rest.gclient.IQuery<org.hl7.fhir.r4.model.Bundle> query = client.search()
@@ -603,12 +609,54 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
     }
 
     /**
+     * Runs a search the user wrote themselves, sending their string on the query line as
+     * written.
+     *
+     * <p>Uses the raw transport rather than HAPI's {@code IQuery} for one reason: there is
+     * no way to put text on a query string untouched through a builder that models it as
+     * client parameters. Splitting on {@code &} and re-adding each half would double-encode
+     * any value the user had already escaped, and {@code withAdditionalParameter} would
+     * wrap the whole thing in a parameter of its own. So the path is assembled here and the
+     * transport is handed a URL that already contains the query.</p>
+     *
+     * <p>Nothing is interpreted. Whatever the user typed goes to the host the server
+     * definition names, and a server that does not understand a parameter is free to say so
+     * — which is the behaviour they asked for by choosing this form.</p>
+     */
+    private SearchResultPage rawSearch(ServerSession session, SearchRequest request, long started)
+            throws ServerOperationException {
+        String query = request.criteria().get(0).value();
+        String path = request.resourceType() + "?" + query;
+        com.example.fhirviewer.server.rest.RestResponse response =
+                com.example.fhirviewer.server.rest.JdkHttpRestClient
+                        .forSession(session)
+                        .get(path, Map.of());
+        org.hl7.fhir.r4.model.Bundle bundle = context.newJsonParser()
+                .parseResource(org.hl7.fhir.r4.model.Bundle.class, response.body());
+        SearchResultPage page = ServerSearchBundleReader.of(bundle);
+        log.info("raw search baseUrl={} type={} results={} total={} elapsedMs={}",
+                redactedBase(session), request.resourceType(), page.resources().size(),
+                page.total(), System.currentTimeMillis() - started);
+        return page;
+    }
+
+    /**
      * Turns a generic request into HAPI search criteria. Vendor plugins override this to
      * translate names, add fixed parameters or rewrite values.
+     *
+     * <p><b>Raw criteria are skipped here.</b> They are sent by
+     * {@link #rawSearch}, because a raw string cannot be expressed as an
+     * {@link ICriterion} — which is the whole point of it. Building one as a
+     * {@link StringClientParam} with {@code matchesExactly()} would quietly normalise away
+     * exactly the prefixes, modifiers and chains the user typed. {@link SearchRequest}
+     * forbids a request that mixes the two kinds, so this method never sees a mixture.</p>
      */
     protected List<ICriterion<?>> criteriaOf(SearchRequest request) {
         List<ICriterion<?>> criteria = new ArrayList<>();
         for (SearchCriterion criterion : request.criteria()) {
+            if (criterion.isRaw()) {
+                continue;
+            }
             criteria.add(new StringClientParam(criterion.name()).matchesExactly().value(criterion.value()));
         }
         return criteria;

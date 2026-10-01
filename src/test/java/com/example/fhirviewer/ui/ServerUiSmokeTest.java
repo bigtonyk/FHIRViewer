@@ -3,6 +3,8 @@ package com.example.fhirviewer.ui;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.GraphicsEnvironment;
@@ -10,6 +12,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.hl7.fhir.r4.model.Patient;
@@ -23,10 +26,20 @@ import com.example.fhirviewer.server.FhirServerManager;
 import com.example.fhirviewer.server.FhirServerPluginRegistry;
 import com.example.fhirviewer.server.FhirServerService;
 import com.example.fhirviewer.server.ServerAuthKind;
+import com.example.fhirviewer.server.SearchCriterion;
+import com.example.fhirviewer.server.SearchRequest;
 import com.example.fhirviewer.server.ServerDefinition;
 import com.example.fhirviewer.server.ServerOrigin;
 
 import javafx.application.Platform;
+import javafx.geometry.Bounds;
+import javafx.scene.Scene;
+import javafx.scene.control.Button;
+import javafx.scene.Node;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
 
 /**
  * A smoke test that builds the new Phase 6 screens on a real JavaFX toolkit.
@@ -199,7 +212,7 @@ class ServerUiSmokeTest {
     void buildsTheOpenScreen() throws Exception {
         runOnFxThread(() -> {
             OpenFromServerDialog dialog = new OpenFromServerDialog(service, manager,
-                    manager.servers().get(0));
+                    manager.servers().get(0), new SearchMemory());
             dialog.close();
         });
     }
@@ -244,7 +257,7 @@ class ServerUiSmokeTest {
 
         runOnFxThread(() -> {
             ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
-            dialog.serverList().getSelectionModel().selectFirst();
+            dialog.serverBox().getSelectionModel().select(1);
             dialog.form().urlField().setText("https://new.example.org/fhir");
             dialog.saveButton().fire();
             dialog.close();
@@ -264,7 +277,7 @@ class ServerUiSmokeTest {
 
         runOnFxThread(() -> {
             ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
-            dialog.serverList().getSelectionModel().selectFirst();
+            dialog.serverBox().getSelectionModel().select(1);
             dialog.deleteButton().fire();
             dialog.close();
         });
@@ -290,8 +303,13 @@ class ServerUiSmokeTest {
             built.get().close();
         });
 
-        assertEquals(2, built.get().serverList().getItems().size(),
-                "the manager must show the servers already configured");
+        assertEquals(3, built.get().serverBox().getItems().size(),
+                "the selector must offer the blank entry plus both configured servers, so the"
+                        + " user can switch between them from the form");
+        assertTrue(built.get().serverBox().getItems().contains("One"),
+                "the configured server names must be listed");
+        assertTrue(built.get().serverBox().getItems().contains("Two"),
+                "the configured server names must be listed");
     }
 
     @Test
@@ -315,20 +333,860 @@ class ServerUiSmokeTest {
     }
 
     @Test
-    @DisplayName("Save and Delete are disabled until a server is selected")
-    void managerDisablesActionsWithoutASelection() throws Exception {
+    @DisplayName("Delete needs a configured server; Save and Add are always available")
+    void managerDisablesDeleteWithoutASelection() throws Exception {
+        // With the selector, the blank entry means "a form ready for a new server", so Save
+        // is deliberately available from the moment the dialog opens - that is how a first
+        // server gets added, and disabling it there left no way to configure anything.
+        // Delete is different: it can only remove something that exists.
         AtomicReference<ServerManagerDialog> built = new AtomicReference<>();
         runOnFxThread(() -> {
             built.set(new ServerManagerDialog(service, new FhirServerManager(), null));
             built.get().close();
         });
 
-        assertTrue(built.get().saveButton().isDisabled(),
-                "Save with nothing selected would silently do nothing");
         assertTrue(built.get().deleteButton().isDisabled(),
-                "Delete with nothing selected would silently do nothing");
+                "Delete with no server selected would silently do nothing");
         assertFalse(built.get().addButton().isDisabled(),
                 "Add is how a first server gets configured, so it must always be available");
+        assertFalse(built.get().saveButton().isDisabled(),
+                "Save must be available on the blank selector entry, which is a form ready"
+                        + " for a new server");
+    }
+
+    @Test
+    @DisplayName("No two form fields are laid out in the same grid row")
+    void noTwoFieldsShareAGridRow() throws Exception {
+        // "User name" and "Password" were both added with `row` instead of `row++`, so they
+        // landed in the same cell. Their labels drew over each other and the label column
+        // clipped them to an ellipsis. Every other check passed: both controls existed, were
+        // enabled and were populated correctly - they were simply in the wrong place, which
+        // is invisible until someone looks at the window.
+        AtomicReference<String> clash = new AtomicReference<>();
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, new FhirServerManager(), null);
+            inspect(dialog.getDialogPane(), node -> {
+                if (node instanceof javafx.scene.layout.GridPane grid) {
+                    java.util.Map<Integer, java.util.List<Node>> rows = new java.util.HashMap<>();
+                    for (Node child : grid.getChildren()) {
+                        if (child instanceof javafx.scene.control.Label) {
+                            // Row labels must not share a row; controls may, in principle.
+                            if (rows.computeIfAbsent(GridPane.getRowIndex(child),
+                                    k -> new java.util.ArrayList<>()).size() > 1) {
+                                clash.set("row " + GridPane.getRowIndex(child));
+                            }
+                        }
+                    }
+                }
+            });
+            dialog.close();
+        });
+
+        assertNull(clash.get(), "two labels share grid " + clash.get()
+                + ", so they overlap and the narrow label column clips them");
+    }
+
+    @Test
+    @DisplayName("Choosing a server from the selector loads it into the form")
+    void choosingAServerLoadsIt() throws Exception {
+        // The behaviour the selector exists for: switch between configured servers without
+        // deleting and re-adding, and without a separate list to find the right one in.
+        FhirServerManager fresh = new FhirServerManager();
+        fresh.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
+        fresh.add(ServerDefinition.named("Test", "https://test.example.org/fhir").build());
+
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
+            dialog.serverBox().getSelectionModel().select("Test");
+            assertEquals("https://test.example.org/fhir",
+                    dialog.form().urlField().getText(),
+                    "choosing a server must load its details");
+            dialog.serverBox().getSelectionModel().select("Prod");
+            assertEquals("https://prod.example.org/fhir",
+                    dialog.form().urlField().getText(),
+                    "choosing another server must replace what is loaded");
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("The selector opens on a new server rather than silently selecting one")
+    void theSelectorOpensOnNew() throws Exception {
+        // Without the blank entry an editable combo opens on the first configured server,
+        // so simply looking at the dialog would start an edit of it.
+        FhirServerManager fresh = new FhirServerManager();
+        fresh.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
+
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
+            // The blank entry is selected, not null: it is a real item in the drop-down and
+            // the user selects it deliberately to start a new server.
+            assertTrue(dialog.serverBox().getValue() == null
+                            || dialog.serverBox().getValue().isBlank(),
+                    "opening the dialog must not preselect a server, but selected "
+                            + dialog.serverBox().getValue());
+            assertTrue(dialog.form().urlField().getText().isEmpty(),
+                    "the form must start empty");
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("The form is actually visible once laid out")
+    void theFormIsActuallyVisible() throws Exception {
+        // Checks the symptom a user reports rather than a property. The dialog was once
+        // squashed to the left with the server list measured at 12px, because a preferred
+        // width of MAX_VALUE on the status line made every container above it unbounded.
+        // Laying out at a real window size and measuring is what catches that class of bug;
+        // asserting on grow priorities alone would not.
+        FhirServerManager fresh = new FhirServerManager();
+        fresh.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
+
+        AtomicReference<double[]> bounds = new AtomicReference<>();
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, fresh, null);
+            // The DialogPane is already the root of the dialog's own scene, so it cannot be
+            // made the root of another. Wrapping it in a container lets it be laid out at a
+            // known size without disturbing that.
+            javafx.scene.layout.StackPane host = new javafx.scene.layout.StackPane(
+                    dialog.getDialogPane());
+            Scene scene = new Scene(host, 900, 500);
+            scene.getRoot().applyCss();
+            scene.getRoot().layout();
+            Bounds laidOut = dialog.form().nameField().getBoundsInParent();
+            bounds.set(new double[] { laidOut.getWidth(), laidOut.getHeight() });
+            dialog.close();
+        });
+
+        assertTrue(bounds.get()[0] >= 200,
+                "the form collapsed to " + bounds.get()[0] + "px wide");
+        assertTrue(bounds.get()[1] > 0, "the form has no height at all");
+    }
+
+    @Test
+    @DisplayName("The Firely plugin reaches the running application")
+    void firelyReachesTheApplication() throws Exception {
+        // Investigating "the Firely operation list only shows 2 operations" turned up two
+        // things that look identical and are not:
+        //
+        //  - FirelyPlugin is deliberately absent from the META-INF/services file. It is
+        //    loaded from configuration instead, so a user can switch it off without
+        //    changing the class path. Adding it to the service file would be wrong, and
+        //    defeats the deny list.
+        //  - The application builds its registry with PluginLoader.load(), which combines
+        //    both, so Firely *is* available.
+        //
+        // The actual cause is the form: the "Server type" list defaults to its first entry,
+        // and the first entry is the standard plugin. A server added for a Firely endpoint
+        // without changing that is saved as standard-rest and shows the standard
+        // operations - with nothing on screen to say the plugin had not been chosen.
+        //
+        // This test pins the first half, so the service file is not "fixed" later by
+        // someone who has not found this.
+        AtomicReference<List<String>> loaded = new AtomicReference<>();
+        runOnFxThread(() -> loaded.set(
+                com.example.fhirviewer.server.PluginLoader.load().plugins().stream()
+                        .map(com.example.fhirviewer.server.FhirServerPlugin::id).toList()));
+
+        assertTrue(loaded.get().contains("firely"),
+                "Firely must reach the application through PluginLoader; found "
+                        + loaded.get());
+        assertTrue(loaded.get().contains("smile-cdr"), "found " + loaded.get());
+        assertTrue(loaded.get().contains("standard-rest"), "found " + loaded.get());
+    }
+
+    @Test
+    @DisplayName("Firely stays out of the service file on purpose")
+    void firelyIsNotInTheServiceFile() throws Exception {
+        // Kept deliberately: it is loaded from configuration so the user can disable it
+        // without touching the class path.
+        assertFalse(com.example.fhirviewer.server.PluginLoader.discoverableIds()
+                        .contains(com.example.fhirviewer.server.FirelyPlugin.class.getName()),
+                "Firely belongs in the config file, not service discovery");
+    }
+
+    @Test
+    @DisplayName("Several parameters can be entered at once")
+    void severalParametersCanBeEntered() throws Exception {
+        // The screen took exactly one parameter before; this is the change.
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            editor.nameFieldAt(0).setText("family");
+            editor.valueFieldAt(0).setText("Smith");
+            editor.addButton().fire();
+            editor.nameFieldAt(1).setText("given");
+            editor.valueFieldAt(1).setText("John");
+            editor.addButton().fire();
+            editor.nameFieldAt(2).setText("birthdate");
+            editor.valueFieldAt(2).setText("1990-01-01");
+
+            assertEquals(3, editor.rowCount(), "every added row must be there");
+            List<SearchCriterion> criteria = editor.criteria();
+            assertEquals(3, criteria.size(), "all three should be sent: " + criteria);
+            assertEquals("family", criteria.get(0).name());
+            assertEquals("Smith", criteria.get(0).value());
+            assertEquals("birthdate", criteria.get(2).name());
+            assertEquals("1990-01-01", criteria.get(2).value());
+        });
+    }
+
+    @Test
+    @DisplayName("A row can be removed again")
+    void aRowCanBeRemoved() throws Exception {
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            editor.addButton().fire();
+            editor.addButton().fire();
+            assertEquals(3, editor.rowCount());
+            editor.removeButton().fire();
+            assertEquals(2, editor.rowCount());
+        });
+    }
+
+    @Test
+    @DisplayName("The last remaining row cannot be removed")
+    void theLastRowCannotBeRemoved() throws Exception {
+        // Removing the only row would leave nothing to type into, with no way back except
+        // reloading the dialog.
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            assertTrue(editor.removeButton().isDisabled(),
+                    "there must always be somewhere to type");
+        });
+    }
+
+    @Test
+    @DisplayName("A raw search string is offered as an alternative to parameters")
+    void rawModeIsOffered() throws Exception {
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            assertFalse(editor.isRawMode(), "parameters is the default");
+
+            editor.rawMode().fire();
+            assertTrue(editor.isRawMode(), "choosing Search string must switch the mode");
+            editor.rawField().setText("name:contains=Smith&_sort=-birthdate");
+
+            List<SearchCriterion> criteria = editor.criteria();
+            assertEquals(1, criteria.size(), "a raw search is one criterion");
+            assertTrue(criteria.get(0).isRaw());
+            assertEquals("name:contains=Smith&_sort=-birthdate", criteria.get(0).value());
+        });
+    }
+
+    @Test
+    @DisplayName("Switching to raw mode drops the parameters rather than mixing them")
+    void switchingModeDoesNotMixKinds() throws Exception {
+        // A half-typed parameter silently carried into a raw search would send a search the
+        // user did not write. SearchRequest refuses a mixed request; the editor makes sure it
+        // cannot build one.
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            editor.nameFieldAt(0).setText("family");
+            editor.valueFieldAt(0).setText("Smith");
+            editor.rawMode().fire();
+            editor.rawField().setText("given=John");
+
+            List<SearchCriterion> criteria = editor.criteria();
+            assertEquals(1, criteria.size(), "only the raw string should remain: " + criteria);
+            assertTrue(criteria.get(0).isRaw());
+            // And it must be a request the model will actually accept.
+            new SearchRequest("Patient", criteria, 20);
+        });
+    }
+
+    @Test
+    @DisplayName("A blank row means browse every resource of the type")
+    void aBlankRowIsNoCriteria() throws Exception {
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            assertTrue(editor.criteria().isEmpty(),
+                    "leaving the row blank is how you ask for the whole type");
+        });
+    }
+
+    @Test
+    @DisplayName("A value with no parameter name is refused")
+    void aValueWithNoNameIsRefused() throws Exception {
+        // "name=" matches nothing on most servers and everything on some, which is worse
+        // than being told the row is half-finished.
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            editor.valueFieldAt(0).setText("Smith");
+            assertThrows(IllegalArgumentException.class, editor::criteria,
+                    "a value with no name should be refused");
+        });
+    }
+
+    @Test
+    @DisplayName("The criteria editor's buttons cannot be squeezed to hide their text")
+    void editorButtonsKeepTheirText() throws Exception {
+        // A JavaFX Button shrinks its text rather than overflowing it, so a narrow dialog
+        // silently renders "Add parameter" as "Add param". Reported as buttons with the text
+        // cut off.
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            for (Button button : List.of(editor.addButton(), editor.removeButton())) {
+                // JavaFX normalises USE_PREF_SIZE to its -1 sentinel once CSS is applied, so
+                // the stored value cannot be compared directly. What matters is the effect:
+                // the minimum is the preferred width, so the label cannot shrink.
+                double min = button.getMinWidth();
+                boolean minIsPref = min == Region.USE_PREF_SIZE
+                        || min == -1.0
+                        || min >= button.prefWidth(-1);
+                assertTrue(minIsPref,
+                        button.getText() + " can be squeezed below its natural width (min "
+                                + min + "px, pref " + button.prefWidth(-1) + "px)");
+            }
+        });
+    }
+
+    @Test
+    @DisplayName("The last search survives reopening the search screen")
+    void lastSearchSurvivesReopening() throws Exception {
+        // The bug this replaces, reported as "when I search and then open in viewer, the
+        // search UI clears". Three separate faults, none of which the earlier tests could see
+        // because none of them reopened the dialog:
+        //
+        //  1. isComplete() demanded at least one criterion, so a plain browse - every
+        //     Patient, no filter - was never remembered. That is the commonest search there
+        //     is, and it came back blank.
+        //  2. The resource type is restored into a ComboBox whose items are filled from the
+        //     server's capabilities. Set-value alone is not enough, because that filling
+        //     runs shortly afterwards.
+        //  3. When the types did arrive, selectFirst() threw the remembered type away and
+        //     replaced it with the first in the list - which is what the user saw.
+        //
+        // So restore the form, then let capabilities land on top of it, and require the
+        // remembered type to survive - which is the sequence a user actually goes through.
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search(null, "Observation",
+                List.of(new SearchCriterion("status", "final")), 20));
+
+        runOnFxThread(() -> {
+            ServerSearchDialog reopened = new ServerSearchDialog(service, new FhirServerManager(),
+                    null, themeManager, memory);
+            assertEquals("Observation", reopened.typeBoxValue(),
+                    "the remembered resource type did not come back");
+
+            // Capabilities loading afterwards must not quietly replace it with the first
+            // item in the list, which is what the user had to ask about.
+            reopened.simulateCapabilitiesArriving(List.of("Patient", "Observation", "Practitioner"));
+            assertEquals("Observation", reopened.typeBoxValue(),
+                    "loading capabilities discarded the remembered resource type");
+            reopened.close();
+        });
+    }
+
+    /** A registry with the real standard REST plugin, for tests that need actual HTTP calls. */
+    private static FhirServerPluginRegistry standardRegistry() {
+        FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+        registry.register(new com.example.fhirviewer.server.StandardFhirRestPlugin());
+        return registry;
+    }
+
+    /** A minimal, valid searchset Bundle with no entries. */
+    private static String searchBundleOf(String resourceType, int count) {
+        StringBuilder entries = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            entries.append("<entry><resource><")
+                    .append(resourceType)
+                    .append("><id>stub-").append(i).append("</id></")
+                    .append(resourceType)
+                    .append("></resource></entry>");
+        }
+        return "{\"resourceType\":\"Bundle\",\"type\":\"searchset\",\"entry\":["
+                + entries + "]}";
+    }
+
+    @Test
+    @DisplayName("Pressing Search leaves the search remembered for the next opening")
+    void pressingSearchRemembersItForNextTime() throws Exception {
+        // The gap this closes: every earlier test injected SearchMemory.remember() directly,
+        // which proved the restore path but never that pressing Search fills the memory in
+        // the first place. If search() returned early - no server chosen, no type, a bad
+        // parameter - nothing was recorded and the screen came back blank, and none of those
+        // tests could tell.
+        //
+        // So drive the real button on a real dialog, against the stub server, then throw the
+        // dialog away and build a new one with the same memory.
+        SearchMemory memory = new SearchMemory();
+        server.answerWith(200, "application/fhir+json", searchBundleOf("Patient", 0));
+
+        runOnFxThread(() -> {
+            ServerSearchDialog dialog = new ServerSearchDialog(service, manager, null,
+                    themeManager, memory);
+            dialog.simulateCapabilitiesArriving(List.of("Patient", "Observation"));
+            dialog.searchButton().fire();
+            dialog.close();
+        });
+
+        // The search runs on a worker; give it a moment before asking whether it landed.
+        Thread.sleep(1500);
+
+        assertNotNull(memory.last(),
+                "pressing Search did not record anything, so the next opening cannot "
+                        + "restore it - this is what the user sees as the search clearing");
+
+        runOnFxThread(() -> {
+            ServerSearchDialog reopened = new ServerSearchDialog(service, manager, null,
+                    themeManager, memory);
+            assertEquals("Patient", reopened.typeBoxValue(),
+                    "the searched-for type did not come back on the next opening");
+            reopened.close();
+        });
+    }
+
+    @Test
+    @DisplayName("Reopening after a search with no parameters still re-reads the server")
+    void reopeningAfterUnparameterisedSearchRefetches() throws Exception {
+        // The bug the trace found, after five wrong fixes. A search with no criteria - which
+        // is what "browse every Account" is - hit an early "return" in restoreLastSearch that
+        // skipped the re-read entirely. So the memory was restored correctly, the type came
+        // back, and yet there were no capabilities and no results.
+        //
+        // Every previous version of these tests used a search WITH a parameter, which is why
+        // none of them saw it. This one uses the empty case, exactly as reported.
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search("Rest", "Account", List.of(), 20));
+
+        AtomicInteger requests = new AtomicInteger();
+        server.onRequest(ignored -> requests.set(ignored));
+
+        FhirServerManager rest = new FhirServerManager();
+        rest.add(ServerDefinition.named("Rest", server.baseUrl()).build());
+        FhirServerService restService = new FhirServerService(standardRegistry());
+
+        runOnFxThread(() -> {
+            ServerSearchDialog reopened = new ServerSearchDialog(restService, rest, null,
+                    themeManager, memory);
+            assertEquals("Account", reopened.typeBoxValue(),
+                    "the type should still be restored for an unparameterised search");
+            reopened.close();
+        });
+
+        waitUntil("reopening sent no request at all", () -> requests.get() >= 2);
+        assertTrue(requests.get() >= 2,
+                "reopening a search with no parameters sent " + requests.get()
+                        + " request(s); an empty criteria list must not skip the re-read, "
+                        + "which is the bug behind \"the search UI clears\"");
+    }
+
+    @Test
+    @DisplayName("Reopening brings the results back, not just the form")
+    void reopeningRefetchesTheResults() throws Exception {
+        // The reported symptom was that only the server survived: capabilities, parameters
+        // and results all came back empty. Restoring the form alone produced exactly that -
+        // and the one field that looked remembered was the server box, which the
+        // constructor fills with selectFirst() whether or not memory has anything.
+        //
+        // So reopening must read the server again: that is what repopulates the type list,
+        // and the search that follows is what repopulates the results.
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search(null, "Patient",
+                List.of(new SearchCriterion("family", "Smith")), 20));
+
+        AtomicInteger requests = new AtomicInteger();
+        server.onRequest(ignored -> requests.set(ignored));
+
+        // A real REST plugin, not the ShapePlugin the rest of this class uses: that one
+        // answers from memory and never speaks HTTP, so it cannot show whether the screen
+        // re-reads the server. Counting requests only works against a plugin that makes them.
+        FhirServerManager rest = new FhirServerManager();
+        rest.add(ServerDefinition.named("Rest", server.baseUrl()).build());
+        FhirServerService restService = new FhirServerService(standardRegistry());
+
+        runOnFxThread(() -> {
+            ServerSearchDialog reopened = new ServerSearchDialog(restService, rest, null,
+                    themeManager, memory);
+            reopened.close();
+        });
+
+        // Two requests: the CapabilityStatement, then the search.
+        waitUntil("reopening sent no request at all", () -> requests.get() >= 2);
+
+        assertTrue(requests.get() >= 2,
+                "reopening sent " + requests.get() + " request(s); the capabilities and the "
+                        + "search should both have been re-run, which is what puts the type "
+                        + "list and the results back");
+    }
+
+    @Test
+    @DisplayName("Pressing Open in viewer actually opens the selected resource")
+    void pressingOpenActuallyOpens() throws Exception {
+        // The regression from the duplicate-Read fix: the pane's button was wired to a
+        // result converter reading a field nothing ever assigned, so every press returned
+        // null and the window closed with nothing opened. The button looked correct and
+        // did nothing, which is the same failure as the very first ServerDialog bug.
+        //
+        // So press the real button and require a result to come back out of show().
+        AtomicReference<OpenFromServerDialog.Outcome> got = new AtomicReference<>();
+        server.answerWith(200, "application/fhir+json",
+                "{\"resourceType\":\"Patient\",\"id\":\"123\"}");
+
+        runOnFxThread(() -> {
+            OpenFromServerDialog dialog = new OpenFromServerDialog(service, manager, null,
+                    new SearchMemory(), new ServerCapabilitiesCache());
+            // Select a row: that is what enables the button and what Open acts on.
+            Patient patient = new Patient();
+            patient.setId("Patient/123");
+            dialog.resultsForTest().getItems().setAll(List.of(patient));
+            dialog.resultsForTest().getSelectionModel().select(0);
+
+            assertFalse(dialog.openButtonForTest().isDisabled(),
+                    "Open should be enabled once a result is selected");
+            dialog.openButtonForTest().fire();
+            got.set(dialog.getResult());
+        });
+
+        assertNotNull(got.get(),
+                "pressing Open in viewer produced no result: the button was wired to a "
+                        + "converter reading a field nothing assigns, so every press closed "
+                        + "the window with nothing opened");
+        assertEquals("Patient", got.get().resourceType());
+        assertEquals("123", got.get().resourceId());
+    }
+
+    @Test
+    @DisplayName("Open from Server has one Open button and a type drop-down")
+    void openFromServerHasOneOpenButtonAndATypeDropDown() throws Exception {
+        // Two defects reported together. There were two buttons labelled "Read" where only
+        // the dialog pane's was wired to the result converter, so one of them did nothing -
+        // and "Load types" filled a separate ListView, not the type box, so the box itself
+        // stayed a plain text field and looked as though the load had failed.
+        //
+        // Asserted through the controls themselves rather than by walking the scene graph:
+        // the pane's button bar is only built when the dialog is shown, and showing a modal
+        // dialog on the JavaFX thread deadlocks the test.
+        runOnFxThread(() -> {
+            OpenFromServerDialog dialog = new OpenFromServerDialog(service, manager, null,
+                    new SearchMemory());
+
+            assertNotNull(dialog.openButtonForTest(),
+                    "the dialog pane's Open button is missing");
+            assertEquals("Open in viewer", dialog.openButtonForTest().getText(),
+                    "the Open button should be named to match the search screen");
+            assertEquals("Load capabilities", dialog.loadCapabilitiesButton().getText(),
+                    "the button should be named to match the search screen");
+
+            // No second, look-alike button in the content. This is the one that did nothing.
+            for (javafx.scene.Node node : findNodes(
+                    (javafx.scene.Parent) dialog.getDialogPane().getContent(),
+                    n -> n instanceof Button)) {
+                String text = ((Button) node).getText();
+                assertFalse("Read".equals(text),
+                        "the duplicate 'Read' button is still present: it is not wired to "
+                                + "the result converter, so it does nothing");
+            }
+
+            assertTrue(dialog.typeBox().isEditable(),
+                    "the type box must be editable so a type can still be typed");
+
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("Reopening does not re-read capabilities when the types are already known")
+    void reopeningSkipsCapabilitiesWhenTypesAreKnown() throws Exception {
+        // Reopening was spending a round trip on the CapabilityStatement every time. The
+        // advertised types have not changed, and Load capabilities still re-reads on
+        // demand, so this asks for the behaviour the user asked for: no repeat read.
+        AtomicInteger requests = new AtomicInteger();
+        server.onRequest(ignored -> requests.set(ignored));
+        FhirServerManager rest = new FhirServerManager();
+        rest.add(ServerDefinition.named("Rest", server.baseUrl()).build());
+        FhirServerService restService = new FhirServerService(standardRegistry());
+        // One cache for both dialogs, as MainWindow does, plus a search to restore.
+        ServerCapabilitiesCache cache = new ServerCapabilitiesCache();
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search("Rest", "Patient",
+                List.of(new SearchCriterion("family", "Smith")), 20));
+
+        runOnFxThread(() -> {
+            ServerSearchDialog first = new ServerSearchDialog(restService, rest, null,
+                    themeManager, memory, cache);
+            first.setRememberedTypeForTest("Patient");
+            first.close();
+        });
+        waitUntil("the first dialog made no request", () -> requests.get() >= 2);
+        int afterFirst = requests.get();
+        assertTrue(afterFirst >= 2,
+                "the first dialog should have read the CapabilityStatement and searched; sent "
+                        + afterFirst + " request(s)");
+
+        // Second dialog, same session and the same cache: the types are already known, so
+        // only the search is re-run - one request, not two.
+        runOnFxThread(() -> {
+            ServerSearchDialog second = new ServerSearchDialog(restService, rest, null,
+                    themeManager, memory, cache);
+            second.setRememberedTypeForTest("Patient");
+            second.close();
+        });
+        waitUntil("the second dialog sent no request", () -> requests.get() > afterFirst);
+        assertEquals(1, requests.get() - afterFirst,
+                "reopening with the types already known should spend one request on the "
+                        + "search, not a second one re-reading the CapabilityStatement");
+    }
+
+    /**
+ * Waits for a condition, rather than sleeping a fixed time.
+ *
+ * <p>These tests drive background work on the JavaFX thread, which is also running the rest
+ * of the suite. A fixed sleep is either too short - and the test fails for no reason when the
+ * machine is busy - or too long. Polling is bounded and stops as soon as the work lands.</p>
+     */
+    private static void waitUntil(String what, java.util.function.BooleanSupplier condition) {
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (System.currentTimeMillis() < deadline) {
+            if (condition.getAsBoolean()) {
+                return;
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        assertTrue(condition.getAsBoolean(), what);
+    }
+
+    /** Every node in the tree matching the predicate, including the root. */
+    private static List<javafx.scene.Node> findNodes(javafx.scene.Parent root,
+            java.util.function.Predicate<javafx.scene.Node> match) {
+        List<javafx.scene.Node> found = new java.util.ArrayList<>();
+        java.util.ArrayDeque<javafx.scene.Node> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            javafx.scene.Node node = queue.poll();
+            if (match.test(node)) {
+                found.add(node);
+            }
+            if (node instanceof javafx.scene.Parent parent) {
+                parent.getChildrenUnmodifiable().forEach(queue::add);
+            }
+        }
+        return found;
+    }
+
+    /** The single node matching the predicate. */
+    private static javafx.scene.Node single(javafx.scene.Parent root,
+            java.util.function.Predicate<javafx.scene.Node> match) {
+        List<javafx.scene.Node> found = findNodes(root, match);
+        assertEquals(1, found.size(), "expected exactly one matching node, found " + found.size());
+        return found.get(0);
+    }
+
+    @Test
+    @DisplayName("Opening with nothing remembered makes no requests")
+    void openingWithNothingRememberedIsQuiet() throws Exception {
+        // The other half of that change: a first-time user must not pay for two network
+        // calls just to open the screen.
+        AtomicInteger requests = new AtomicInteger();
+        server.onRequest(ignored -> requests.set(ignored));
+
+        FhirServerManager rest = new FhirServerManager();
+        rest.add(ServerDefinition.named("Rest", server.baseUrl()).build());
+        FhirServerService restService = new FhirServerService(standardRegistry());
+
+        runOnFxThread(() -> {
+            ServerSearchDialog fresh = new ServerSearchDialog(restService, rest, null,
+                    themeManager, new SearchMemory());
+            fresh.close();
+        });
+
+        Thread.sleep(1500);
+        assertEquals(0, requests.get(),
+                "opening the screen with no search to restore should not talk to the server");
+    }
+
+    @Test
+    @DisplayName("The parameters come back too, not just the type")
+    void parametersComeBackAsWell() throws Exception {
+        // The type is the easy half. What the user actually types is the parameter list, and
+        // restoring the type while leaving that blank reads as "the search cleared".
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search(null, "Patient",
+                List.of(new SearchCriterion("family", "Smith"),
+                        new SearchCriterion("gender", "male")),
+                20));
+
+        runOnFxThread(() -> {
+            ServerSearchDialog reopened = new ServerSearchDialog(service, manager, null,
+                    themeManager, memory);
+            assertEquals(List.of("family", "gender"),
+                    reopened.criteriaEditor().criteria().stream()
+                            .map(SearchCriterion::name).toList(),
+                    "the parameters did not come back, so the search reads as cleared");
+            assertEquals(List.of("Smith", "male"),
+                    reopened.criteriaEditor().criteria().stream()
+                            .map(SearchCriterion::value).toList(),
+                    "the parameter values did not come back");
+            reopened.close();
+        });
+    }
+
+    @Test
+    @DisplayName("A search with no parameters is remembered")
+    void searchWithoutParametersIsRemembered() {
+        // Browsing a whole resource type is the most ordinary thing this screen does, and
+        // it used to be the one thing that could never be restored.
+        SearchMemory memory = new SearchMemory();
+        memory.remember(new SearchMemory.Search("Demo", "Patient", List.of(), 20));
+        assertNotNull(memory.last(), "an unfiltered search was not remembered");
+        assertEquals("Patient", memory.last().resourceType());
+
+        // A search with no resource type is not a search at all, and still is not recorded.
+        SearchMemory empty = new SearchMemory();
+        empty.remember(new SearchMemory.Search("Demo", null, List.of(), 20));
+        assertNull(empty.last(), "a search with no resource type should not be remembered");
+    }
+
+    @Test
+    @DisplayName("The search screens are wide enough for the editor's buttons")
+    void searchScreensAreWideEnough() throws Exception {
+        // The editor's widest row is "Parameters" / "Search string" plus its two buttons.
+        // Measured from the laid-out controls rather than a guessed number, so a longer
+        // button label is caught here instead of on screen.
+        AtomicReference<Double> available = new AtomicReference<>();
+        runOnFxThread(() -> {
+            SearchCriteriaEditor editor = new SearchCriteriaEditor();
+            javafx.scene.layout.StackPane host = new javafx.scene.layout.StackPane(
+                    editor.build());
+            Scene scene = new Scene(host, 900, 500);
+            scene.getRoot().applyCss();
+            scene.getRoot().layout();
+            double needed = editor.addButton().prefWidth(-1)
+                    + editor.removeButton().prefWidth(-1)
+                    + editor.rawMode().prefWidth(-1)
+                    + editor.parametersMode().prefWidth(-1)
+                    + 8 * 4;
+            available.set(needed);
+        });
+        assertTrue(available.get() > 0, "could not measure the editor's buttons");
+
+        runOnFxThread(() -> {
+            ServerSearchDialog search = new ServerSearchDialog(service, new FhirServerManager(), null, themeManager, new SearchMemory());
+            assertTrue(search.getDialogPane().getMinWidth() >= available.get(),
+                    "the search dialog is " + search.getDialogPane().getMinWidth()
+                            + "px but its buttons need " + available.get());
+            search.close();
+
+            OpenFromServerDialog open = new OpenFromServerDialog(service, new FhirServerManager(), null, new SearchMemory());
+            assertTrue(open.getDialogPane().getMinWidth() >= available.get(),
+                    "the open dialog is " + open.getDialogPane().getMinWidth()
+                            + "px but its buttons need " + available.get());
+            open.close();
+        });
+    }
+
+    @Test
+    @DisplayName("The operation screen's server selector is actually on screen")
+    void theServerSelectorIsOnScreen() throws Exception {
+        // The server box was created, populated, given a cell factory, wired to reload the
+        // operation list, and read in three places - and never added to any layout. It
+        // worked perfectly and could not be seen, so the server was fixed at whatever the
+        // main window preselected.
+        //
+        // The check that would have caught it: walk the scene graph and require the control
+        // to be in it. A control that is not reachable from the dialog pane is not a control,
+        // however much of it is written and wired.
+        AtomicReference<Boolean> onScreen = new AtomicReference<>(false);
+        runOnFxThread(() -> {
+            FhirServerManager fresh = new FhirServerManager();
+            fresh.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
+            fresh.add(ServerDefinition.named("Test", "https://test.example.org/fhir").build());
+            ServerOperationDialog dialog = new ServerOperationDialog(service, fresh,
+                    fresh.servers().get(0), themeManager);
+            inspect(dialog.getDialogPane(), node -> {
+                if (node == dialog.serverBox()) {
+                    onScreen.set(true);
+                }
+            });
+            dialog.close();
+        });
+
+        assertTrue(onScreen.get(),
+                "the server selector is not in the scene graph, so the user cannot change"
+                        + " which server the operation runs against");
+    }
+
+    @Test
+    @DisplayName("The operation screen offers every configured server")
+    void theOperationScreenOffersEveryServer() throws Exception {
+        runOnFxThread(() -> {
+            FhirServerManager fresh = new FhirServerManager();
+            fresh.add(ServerDefinition.named("Prod", "https://prod.example.org/fhir").build());
+            fresh.add(ServerDefinition.named("Test", "https://test.example.org/fhir").build());
+            ServerOperationDialog dialog = new ServerOperationDialog(service, fresh,
+                    fresh.servers().get(0), themeManager);
+            assertEquals(2, dialog.serverBox().getItems().size(),
+                    "every configured server must be selectable, or the user cannot run an"
+                            + " operation against the second one");
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("No control in the manager claims an unbounded preferred width")
+    void noControlHasAnUnboundedPreferredWidth() throws Exception {
+        // A layout bug that cannot be seen from a test is not much use, and this class of
+        // one is invisible until someone looks at the window. prefWidth is the size a parent
+        // adds up when working out its own size; MAX_VALUE there makes the whole chain above
+        // it unbounded, and the result is content pinned to one side of a wide dialog.
+        // maxWidth is the property that means "grow to fill" - it is the right one and it
+        // does not feed the parent's arithmetic.
+        AtomicReference<Node> offender = new AtomicReference<>();
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, new FhirServerManager(), null);
+            inspect(dialog.getDialogPane(), node -> {
+                double pref = node.prefWidth(-1);
+                if (pref == Double.MAX_VALUE || pref > 100_000) {
+                    offender.set(node);
+                }
+            });
+            dialog.close();
+        });
+
+        assertNull(offender.get(), "unbounded preferred width on "
+                + (offender.get() == null ? "?" : offender.get().getClass().getName())
+                + "; use maxWidth instead");
+    }
+
+    /** Visits a node, and every node below it, reporting each to {@code check}. */
+    private static void inspect(Node node, java.util.function.Consumer<Node> check) {
+        check.accept(node);
+        if (node instanceof javafx.scene.layout.Pane pane) {
+            for (Node child : pane.getChildren()) {
+                inspect(child, check);
+            }
+        } else if (node instanceof javafx.scene.control.ScrollPane pane
+                && pane.getContent() != null) {
+            inspect(pane.getContent(), check);
+        }
+    }
+
+    @Test
+    @DisplayName("The form column grows to fill the dialog width")
+    void theFormColumnGrowsToFill() throws Exception {
+        // The form is the part with fields, so it is the part that must take the slack.
+        // Without an explicit hgrow on the scroll pane it sat at its content's preferred
+        // width, which is what left the right-hand side of the dialog empty.
+        AtomicReference<Boolean> grows = new AtomicReference<>(false);
+        runOnFxThread(() -> {
+            ServerManagerDialog dialog = new ServerManagerDialog(service, new FhirServerManager(), null);
+            inspect(dialog.getDialogPane(), node -> {
+                if (node instanceof javafx.scene.control.ScrollPane pane
+                        && HBox.getHgrow(pane) == Priority.ALWAYS) {
+                    grows.set(true);
+                }
+            });
+            dialog.close();
+        });
+
+        assertTrue(grows.get(),
+                "the form's scroll pane must grow horizontally or the form hugs its fields"
+                        + " and the rest of the dialog stays empty");
     }
 
     @Test

@@ -156,7 +156,19 @@ public class ServerOperationDialog extends Dialog<ServerOperationDialog.Outcome>
         layout.setPadding(new Insets(12));
         layout.setAlignment(javafx.geometry.Pos.TOP_LEFT);
         HBox.setHgrow(layout, Priority.ALWAYS);
-        VBox content = new VBox(10, layout, statusLabel, resultLabel, resultArea);
+
+        // The server selector, which was built, populated, wired to reload the operation
+        // list and read in three places - and never added to any layout. So it worked
+        // perfectly and could not be seen: the server was fixed at whatever the main window
+        // had preselected, and the reported symptom was "no way to select the server".
+        // A control that is not in the scene graph is not a control.
+        Label serverLabel = new Label("Server");
+        serverLabel.getStyleClass().add("pretty-row-label");
+        HBox serverRow = new HBox(10, serverLabel, serverBox);
+        HBox.setHgrow(serverBox, Priority.ALWAYS);
+        serverBox.setMaxWidth(Double.MAX_VALUE);
+
+        VBox content = new VBox(10, serverRow, layout, statusLabel, resultLabel, resultArea);
         content.setPadding(new Insets(0, 12, 12, 12));
         VBox.setVgrow(content, Priority.ALWAYS);
         getDialogPane().setContent(content);
@@ -467,6 +479,17 @@ public class ServerOperationDialog extends Dialog<ServerOperationDialog.Outcome>
     /** The ids currently offered, for a test that checks a particular one is present. */
     List<String> operationIds() {
         return operationList.getItems().stream().map(ServerOperation::id).toList();
+    }
+
+    /**
+     * The server selector, so a test can confirm the user can actually change the server.
+     *
+     * <p>Exposed because the selector was once built, populated, wired and read, and never
+     * added to any layout — so everything about it was correct except being visible. Only a
+     * test that looks for it in the scene graph would notice.</p>
+     */
+    ComboBox<FhirServerConfiguration> serverBox() {
+        return serverBox;
     }
 
     /**

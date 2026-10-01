@@ -12,7 +12,7 @@ describing an ideal.
 ## Contents
 
 1. [What the server functions do](#1-what-the-server-functions-do)
-2. [Adding your first server](#2-adding-your-first-server)
+2. [Adding and editing servers](#2-adding-and-editing-servers)
 3. [Credentials](#3-credentials)
 4. [Finding a resource: three ways](#4-finding-a-resource-three-ways)
 5. [Editing a resource](#5-editing-a-resource)
@@ -56,29 +56,34 @@ appear in the menus without the application changing.
 
 ---
 
-## 2. Adding your first server
+## 2. Adding and editing servers
 
 **Tools → FHIR Servers...**
 
-The dialog has a list of the servers you have already configured on the left,
-and the details of the selected one on the right. Four buttons sit under the
-form.
+The dialog opens with a **Server** drop-down listing every configured server,
+so you can switch between them without leaving the form. Choosing one loads
+its details; typing a name that is not in the list starts a new one. The
+first entry is blank, which means "a new server" — that is how the first
+server gets added.
+
+Four buttons sit under the form:
 
 | Button | What it does |
 |---|---|
-| **Add** | Clears the form so you can describe a new server. Nothing is created until you press **Save**. |
-| **Save** | Adds the server, or updates the one selected. Takes effect immediately — there is no separate OK. |
-| **Delete** | Removes the selected server from the list. |
+| **Add** | Clears the form and returns the selector to the blank entry, ready to describe a new server. |
+| **Save** | Adds the server, or updates the one you picked. Takes effect immediately — there is no separate OK. |
+| **Delete** | Removes the server you picked from the list. Disabled until you pick one. |
 | **Test connection** | Fetches the server's `CapabilityStatement` and reports whether it is reachable. Works on whatever the form currently holds, so you can test before saving. |
 
-To correct a server that is already there: select it, change what needs
-changing, press **Save**. Editing replaces the server rather than adding a
-second one, so you do not end up with a stale copy to clean up.
+To correct a server that is already there: pick it from the drop-down, change
+what needs changing, press **Save**. Editing replaces the server rather than
+adding a second one, so you do not end up with a stale copy to clean up.
 
 The form asks for:
 
 | Field | What to enter |
 |---|---|
+| **Server** | Pick an existing one, or leave blank and type a **Name** for a new one |
 | **Name** | Any label you like. It is how you tell your servers apart, and it is the identity the viewer matches on, so names must be unique. |
 | **Base URL** | The server's FHIR root, e.g. `https://example.com/fhir` or `http://localhost:8080/fhir`. Must start with `http://` or `https://`. Trailing slashes are removed for you. |
 | **FHIR version** | `R4` is the only choice currently. |
@@ -173,22 +178,43 @@ without the passphrase or the password.
 **File → Open from FHIR Server...**
 
 Type the resource type and id — `Patient` and `123`, for example — and press
-**Read**. This is the fastest route when you already know what you want.
+**Open in viewer**. This is the fastest route when you already know what you
+want.
 
 ### B. Search for a resource
 
-The same dialog, **File → Open from FHIR Server...**, has a **Parameter** and
-a **Value** field. Enter a resource type, optionally one search parameter, and
-press **Search**.
+The same dialog, **File → Open from FHIR Server...**, searches in two ways. Choose
+**Parameters** or **Search string** at the top.
 
-- Leaving both parameter and value blank asks the server for everything of
-  that type, which is a legitimate way to browse.
-- Supplying one without the other is refused. A bare `name=` matches nothing
-  on most servers and everything on some, so it is better to be told than to
-  guess.
+**Parameters** takes any number of name and value rows. Press **Add parameter**
+for another, **Remove last** to drop one. Enter a resource type and press
+**Search**.
+
+- Leaving a row blank asks the server for everything of that type, which is a
+  legitimate way to browse.
+- A value with no name is refused. A bare `name=` matches nothing on most
+  servers and everything on some, so it is better to be told than to guess.
+
+**Search string** takes one line, sent to the server exactly as typed. Use this
+when you already have the search written down — copied from a browser address
+bar, a specification example or a colleague.
+
+- Prefixes (`name:exact`), modifiers (`name:contains`), chained parameters
+  (`subject.name`), `_sort`, `_count` and anything the server adds all work,
+  because the viewer does not try to interpret it.
+- You may paste `Patient?name=Smith`, `?name=Smith` or just `name=Smith`. The
+  resource type comes from the **Type** field; everything after the question
+  mark is sent as typed.
+- Nothing is escaped twice, so a value you have already encoded stays as it
+  is.
+- An empty search string is refused rather than run, because a search with
+  nothing applied returns *every* resource of the type.
+
+Switching between the two clears the other, so a half-typed parameter cannot
+be sent as a search you did not write.
 
 Results appear in a table showing the **type**, **id** and **version** of
-each. Select a row and press **Read** to open it.
+each. Select a row and press **Open in viewer** to open it.
 
 The version column matters: it is the version the viewer will check against
 when you save. Being able to see it before you open the resource is the
@@ -208,11 +234,28 @@ the server actually said there is a previous or next page.
 
 Open a result and it is displayed like any loaded file.
 
+### Coming back to a search
+
+Reopening the search screen brings back your last search: the server, the
+resource type, every parameter, and the results. It re-reads the server
+rather than showing an empty form, so the type list and the results are
+there too — you do not have to press Load capabilities or Search again.
+
+The first time you open the screen, or after restarting the viewer, there
+is nothing to bring back and it does not contact the server at all.
+
+If the server has gone away, the search you had is still filled in and
+ready to edit — only the results are missing.
+
 ### Loading types
 
-**Load types** in the Open-from-Server dialog asks the server which resource
-types it supports and lists them. Clicking one fills the type field. You can
-always type a type instead — the list is a convenience, not a limit.
+**Load capabilities** asks the server which resource types it supports and
+fills the type box's drop-down. Pick one from the list, or always type a type
+instead — the list is a convenience, not a limit.
+
+The answer is remembered for as long as the viewer is open, so the button is
+only needed the first time you use a server. Press it again after the server
+has been upgraded and you want its new resource types.
 
 
 ---
@@ -384,7 +427,10 @@ Use this when a read fails, to tell "the server is unreachable" apart from
 The generic operation screen. The list comes from the server's plugin, so
 vendor endpoints appear here without the application knowing they exist.
 
-1. Pick a server.
+1. Pick a server from the **Server** drop-down at the top. It lists every
+   configured server, and defaults to whichever one the current resource
+   came from, or the active one. Changing it reloads the operation list for
+   that server, because each server's plugin offers different operations.
 2. Pick an operation from the list. The description explains what it does.
 3. Fill in the parameters the form asks for. Required ones are marked.
 4. Press **Run**.
@@ -671,7 +717,6 @@ Stated plainly, so nothing here reads as working when it does not.
 | **Bulk jobs are started, not finished** | `$export` and `$import` return `202` with a polling URL. The screen shows that acknowledgement; it does not follow the job to completion. |
 | **Writing conformance resources** | Firely's administration API allows it; the viewer deliberately offers those searches read-only. |
 | **FHIRPath patch** | The three body-shaped patch formats only. A FHIRPath patch is a `Parameters` resource, and sending it as a merge patch would be wrong. |
-| **More than one search parameter** | The search screens take one parameter and value. Leave both blank to browse a type. |
 | **A raw REST console** | Deliberately excluded. Arbitrary GET/POST/PUT/DELETE would need its own authentication, error mapping and paging. Use the operation screen. |
 | **Extra request headers per server** | Not persisted. A header *value* is a secret, and `ServerDefinition` has no way to hold one. |
 | **Transaction bundles** | No multi-resource write. Write one resource at a time. |

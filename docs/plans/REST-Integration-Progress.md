@@ -40,7 +40,7 @@ work can be resumed without re-reading the plan.
 | 27 | Plugin Developer API | **partial** — loader, registry and a mock plugin in tests; no published guide |
 | 28 | Testing | **done** — 539 tests, offline, `@TempDir` + localhost `HttpServer` |
 | 29 | Backward Compatibility | **not started** |
-| 30 | Security Review | **not started** |
+| 30 | Security Review | **done** — 10 items inspected, 8 clean, 3 findings; 1 fixed. See `Phase-30-Security-Review.md` |
 
 ### Phase 7 — Open from / Save to a FHIR Server
 
@@ -64,7 +64,7 @@ subscriptions, multi-parameter search, and a FHIRPath patch.
 
 | | Why it matters |
 |---|---|
-| **Phase 30 — security review** | Not started, and the one I would weigh most heavily: this branch can write to clinical systems and that capability has never been reviewed for security. |
+| **Phase 30 — security review** | **Done** — see `Phase-30-Security-Review.md`. Ten items inspected, eight clean, three findings; the one medium finding (credentials silently sent over plain HTTP) is fixed. It was written by the author of the code it reviews, so a second reader is still worth having. |
 | **Phase 29 — backward compatibility** | Not started. A review activity, not code. |
 | **Phase 9 — second base URL** | Planned, not built. Needed for Smile's Admin JSON API only; its reindex operations already work. |
 | `SmileCdrPluginTest.java.hold` | Disabled, so Smile's connection and detection half is untested. Its operation declarations are covered separately. |
@@ -79,6 +79,14 @@ they cannot see layout, and the last three commits changed a lot of layout.
 (a second base URL, needed for Smile CDR's **Admin JSON API** — its reindex operations are
 on the FHIR endpoint and already work), and phases 29 and 30, which are review activities
 rather than code.
+
+Phase 30 is now done - see `Phase-30-Security-Review.md`.
+
+**Newly planned:** `10_STANDARD_OPERATIONS_AND_INPUT_UI.md`. A standard FHIR server offers
+only `$export` and `$import`; the specification's operations are declared nowhere in the
+codebase. This is not an authentication limitation - discovery applies no auth filter at all.
+The plan covers declaring them, verifying each against a live server, the input UI needed to
+make `$validate` and friends usable, and why a Firely server can end up served as a plain one.
 
 ## Notes
 
