@@ -140,17 +140,75 @@ All require the `ACCESS_ADMIN_JSON` permission, so each is marked
 tokens and is deliberately the only mutating entry here. Add the rest only when
 they are wanted and verified.
 
-## Not in scope
+## Done
 
-- **The Smile Web Admin Console.** A browser UI, not a REST API; it is not
-  reachable from the operation screen at all.
-- **Per-invocation port entry** (the rejected option 2). A user-typed host and
-  port on every run is a misdelivery hazard and a second credential path. If the
-  configured admin URL is wrong, the operation should fail against the configured
-  value, visibly, not be redirected by a field on the form.
-- **Standard FHIR REST and Smile `$`-operations.** Neither declares any today.
-  Worth a separate look; the HAPI test server is a reasonable target for the
-  former, but that is its own piece of work.
+Implemented, in four commits. 603 tests, all passing.
+
+### 1. The optional URL
+
+`FhirServerConfiguration.administrationBaseUrl()` — a **default** method returning `null`.
+Phase 29 ran immediately before this and found that a new *abstract* member would break every
+existing configuration implementation, so the default is not a convenience here, it is the
+requirement. `LegacyPlugin` keeps compiling because of it.
+
+`ServerDefinition` carries it, and `ServerDefinitionStore` writes the key **only when set**,
+so the settings file of the ordinary server is byte-identical to before.
+
+### 2. The transport
+
+Option **(a) from the plan** — a flag on the request — and the plan's reason for preferring
+it holds: "this is an administration call" is a fact at the call site, because the plugin
+declared it. Inferring it from the path would be a guess, and a wrong guess sends a
+credential to an address the user did not choose.
+
+- `RestRequest.administration()` / `isAdministration()`
+- `ServerOperation.administration()` — what the plugin states
+- `PluginOperationClient` copies it onto the request
+- `JdkHttpRestClient` holds both origins and picks per request
+
+**A flagged request with no configured administration URL falls back to the base URL.**
+Firely's administration API is a branch of the same origin, so its operations are flagged;
+failing there would break every existing Firely server.
+
+### 3. Persistence and UI
+
+Three tests in `ServerDefinitionPersistenceTest`, extended rather than duplicated: the URL
+survives a restart, a server without one writes no key, and a hand-written file predating
+the field still loads.
+
+One optional field in the add-server form, below the fields that matter, with a tooltip
+saying it is usually blank.
+
+### 4. The Smile operations
+
+Nine, all flagged and all requiring credentials: `version/`, `config/`, `runtime-status/`,
+`metrics/`, `openid-clients/`, `openid-sessions/`, `privacy-notice/`,
+`user-management/{node_id}/{module_id}/users`, and the one deliberately mutating entry,
+`.../invalidate-all-sessions?username=`.
+
+**These are the unverified option the plan asked to be stated explicitly.** There is no
+reachable public Smile CDR, so every path is taken from Smile's documentation and none has
+been sent anywhere. That is recorded in the code beside the declarations, not only here,
+because a wrong path fails on every real server while looking entirely correct — which is
+how Firely's `/administration` branch went wrong on this branch once already. `version` is
+the first thing to try against a real instance, and it is the cheapest to correct if the
+shape is wrong.
+
+## Also changed
+
+`SmileCdrPluginOperationsTest.operationsAreOnTheFhirEndpoint` asserted that **no** Smile
+operation used the admin API. That premise was correct when written and is now false, so it
+was narrowed rather than deleted: the re-index operations must still not be flagged, and the
+admin ones must be. The old test also referenced this file under its pre-rename name.
+
+## Not done
+
+- **No live verification** of any Smile path, for the reason above.
+- **The Smile Web Admin Console** is a browser UI, not a REST API, and is unreachable from
+  the operation screen entirely.
+- **No per-invocation URL entry.** A user-typed host and port on every run is a misdelivery
+  hazard and a second credential path; if the configured URL is wrong the operation should
+  fail visibly against it.
 
 ## Done when
 
