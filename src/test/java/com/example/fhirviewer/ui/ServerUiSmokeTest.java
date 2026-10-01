@@ -208,6 +208,30 @@ class ServerUiSmokeTest {
     }
 
     @Test
+    @DisplayName("The status screen names the plugin serving the server, in words")
+    void statusScreenNamesTheServingPlugin() throws Exception {
+        // The confusion this fixes was real and cost several rounds: a Firely server saved
+        // with the default plugin is served as a plain FHIR server, and offers two
+        // operations - which reads as "Firely only has two". Naming the plugin is what makes
+        // the two cases tellable apart.
+        AtomicReference<String> report = new AtomicReference<>();
+        runOnFxThread(() -> {
+            ServerStatusDialog dialog = new ServerStatusDialog(service, manager,
+                    manager.servers().get(0), themeManager);
+            report.set(dialog.reportTextForTest());
+            dialog.close();
+        });
+
+        String text = report.get();
+        assertNotNull(text, "the status screen showed no report at all");
+        assertTrue(text.contains("Served by:"),
+                "the status screen does not say which plugin serves this server:\n" + text);
+        assertTrue(text.contains("Result Shapes"),
+                "the plugin is named by id rather than by its display name, which is not "
+                        + "something a user can act on:\n" + text);
+    }
+
+    @Test
     @DisplayName("The open-from-server screen builds with its search results table")
     void buildsTheOpenScreen() throws Exception {
         runOnFxThread(() -> {
