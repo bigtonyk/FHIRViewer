@@ -44,6 +44,18 @@ public final class ServerOperation {
     private final String bodyContentType;
     private final ResultKind expectedResult;
     private final boolean requiresAuthentication;
+    /**
+     * Whether this operation belongs to the vendor's administration API.
+     *
+     * <p>A flag the plugin states, rather than something inferred from the path. Deciding it
+     * centrally from path text would be a guess, and a wrong guess sends a request — possibly
+     * carrying credentials — to an address the user did not choose.</p>
+     *
+     * <p>False for every operation that serves the FHIR endpoint, which is nearly all of
+     * them. True matters only for a server whose administration API is a <em>separate
+     * origin</em>, such as Smile CDR.</p>
+     */
+    private final boolean administration;
     private final String requiredCapability;
 
     private ServerOperation(Builder builder) {
@@ -58,6 +70,7 @@ public final class ServerOperation {
         this.bodyContentType = builder.bodyContentType;
         this.expectedResult = builder.expectedResult;
         this.requiresAuthentication = builder.requiresAuthentication;
+        this.administration = builder.administration;
         this.requiredCapability = builder.requiredCapability;
         validateParametersAgainstTemplate();
     }
@@ -177,6 +190,16 @@ public final class ServerOperation {
     public boolean requiresAuthentication() {
         return requiresAuthentication;
     }
+/**
+     * Whether this operation is served by the vendor's administration API.
+     *
+     * <p>See {@link FhirServerConfiguration#administrationBaseUrl()}. When a server declares
+     * no separate administration URL this changes nothing — the request goes to the base URL
+     * either way, which is what keeps Firely working with an empty field.</p>
+     */
+    public boolean isAdministration() {
+        return administration;
+    }
 
     /**
      * A token naming what the server must advertise for this operation to be offered, or
@@ -295,6 +318,7 @@ public final class ServerOperation {
         private String bodyContentType;
         private ResultKind expectedResult = ResultKind.ANY;
         private boolean requiresAuthentication;
+        private boolean administration;
         private String requiredCapability;
 
         private Builder(String id, RestMethod method, String pathTemplate) {
@@ -348,6 +372,18 @@ public final class ServerOperation {
         /** Declares that the operation will not run without credentials. */
         public Builder requiresAuthentication() {
             this.requiresAuthentication = true;
+            return this;
+        }
+
+        /**
+         * Declares that this operation is served by the vendor's administration API.
+         *
+         * <p>Only meaningful for a server whose administration API is a separate origin;
+         * with none configured the request goes to the base URL regardless, which is why
+         * Firely's operations do not need this.</p>
+         */
+        public Builder administration() {
+            this.administration = true;
             return this;
         }
 

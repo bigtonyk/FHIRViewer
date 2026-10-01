@@ -164,7 +164,12 @@ public final class ServerDefinitionStore {
             if (pluginId != null) {
                 builder.pluginId(pluginId);
             }
-            return builder.timeoutMillis(timeoutOf(properties, key)).build();
+            return builder.timeoutMillis(timeoutOf(properties, key))
+                    // Absent or blank means "no separate administration origin", which is
+                    // what a file written before this existed will not have.
+                    .administrationBaseUrl(
+                            trimmed(properties.getProperty(key + "administrationBaseUrl")))
+                    .build();
         } catch (IllegalArgumentException unusable) {
             // The builder validates the base URL and refuses anything that is not one.
             // That check is worth having, but a hand-edited file must not cost the user
@@ -238,6 +243,14 @@ public final class ServerDefinitionStore {
                 properties.setProperty(key + "pluginId", definition.pluginId());
                 properties.setProperty(key + "timeoutMillis",
                         Integer.toString(definition.timeoutMillis()));
+                // Written only when set. Omitting it rather than writing an empty value keeps
+                // a file written before this existed byte-identical for the overwhelmingly
+                // common server that has no separate administration origin, so there is
+                // nothing to diff and nothing to migrate.
+                if (trimmed(definition.administrationBaseUrl()) != null) {
+                    properties.setProperty(key + "administrationBaseUrl",
+                            definition.administrationBaseUrl().trim());
+                }
             }
         }
         if (active != null && trimmed(active.name()) != null) {

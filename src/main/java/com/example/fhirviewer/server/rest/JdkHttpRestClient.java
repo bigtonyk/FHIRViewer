@@ -58,6 +58,14 @@ public final class JdkHttpRestClient implements RestClient {
     public static final int DEFAULT_TIMEOUT_MILLIS = 20_000;
 
     private final String baseUrl;
+    /**
+     * The vendor's administration API, or {@code null} when the FHIR root serves it too.
+     *
+     * <p>Held beside the base URL rather than merged into it, so the choice is made per
+     * request from {@link RestRequest#isAdministration()} and a server with no separate
+     * origin behaves exactly as it did before this existed.</p>
+     */
+    private final String administrationBaseUrl;
     private final Duration timeout;
     private final HttpClient httpClient;
     private final RestOutcomeParser outcomeParser;
@@ -119,12 +127,42 @@ public final class JdkHttpRestClient implements RestClient {
         return new JdkHttpRestClient(
                 session.server().baseUrl(),
                 session.server().timeoutMillis(),
-                headersOf(session.authentication()));
+                headersOf(session.authentication()),
+                null,
+                new RestOutcomeParser(),
+                session.server().administrationBaseUrl());
     }
 
     /** The authentication's headers, tolerating a session built without one. */
     private static RequestHeaders headersOf(ServerAuthentication authentication) {
         return authentication == null ? RequestHeaders.none() : authentication.requestHeaders();
+    }
+
+    /**
+     * Which of the two origins a request goes to.
+     *
+     * <p>An administration request with no configured administration URL falls back to the
+     * base URL rather than failing. That is deliberate: Firely's administration API is a
+     * branch of the same origin, so its operations are flagged and would otherwise break
+     * for every existing server.</p>
+     */
+    private String baseUrlFor(RestRequest request) {
+        return request.isAdministration() && administrationBaseUrl != null
+                ? administrationBaseUrl
+                : baseUrl;
+    }
+
+    /**
+     * Trims and validates an optional second origin, or {@code null} when there is none.
+     *
+     * <p>Validated here as well as in {@code ServerDefinition}, because a plugin may
+     * construct a client directly. A blank value means "not set", not an error.</p>
+     */
+    private static String normalizeOptionalBaseUrl(String candidate) {
+        if (candidate == null || candidate.isBlank()) {
+            return null;
+        }
+        return requireBaseUrl(candidate);
     }
 
     /**
@@ -146,7 +184,23 @@ public final class JdkHttpRestClient implements RestClient {
      */
     public JdkHttpRestClient(String baseUrl, int timeoutMillis, RequestHeaders authentication,
             HttpClient httpClient, RestOutcomeParser outcomeParser) {
+        this(baseUrl, timeoutMillis, authentication, httpClient, outcomeParser, null);
+    }
+
+    /**
+     * The seam that also carries the administration API's origin.
+     *
+     * <p>The five-argument constructor above delegates here with {@code null}, so every
+     * existing caller — including the plugin tests and anything outside this package — is
+     * unaffected and behaves exactly as before.</p>
+     *
+     * @param httpClient the client to send with, or {@code null} to build one
+     */
+    public JdkHttpRestClient(String baseUrl, int timeoutMillis, RequestHeaders authentication,
+            HttpClient httpClient, RestOutcomeParser outcomeParser,
+            String administrationBaseUrl) {
         this.baseUrl = requireBaseUrl(baseUrl);
+        this.administrationBaseUrl = normalizeOptionalBaseUrl(administrationBaseUrl);
         // A value of zero or less means "no explicit deadline", which is the rule
         // ServerDefinition already documents. It is resolved here rather than at each use,
         // so timeout() always reports the deadline that will actually be applied.
@@ -219,7 +273,7 @@ public final class JdkHttpRestClient implements RestClient {
     @Override
     public RestResponse execute(RestRequest request) throws ServerOperationException {
         Objects.requireNonNull(request, "request");
-        String url = RestUrls.join(baseUrl, request.path());
+        String url = RestUrls.join(baseUrlFor(request), request.path());
         String fullUrl = withQuery(url, request.queryParameters());
         HttpRequest httpRequest = toHttpRequest(request, fullUrl);
         long started = System.currentTimeMillis();

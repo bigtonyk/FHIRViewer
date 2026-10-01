@@ -176,6 +176,12 @@ public final class PluginOperationClient implements AutoCloseable {
     private RestRequest buildRequest(ServerOperation operation, ServerOperationInvocation invocation,
             String path) throws ServerOperationException {
         RestRequest.Builder request = RestRequest.builder(operation.method(), path);
+        // The plugin said where this belongs. Saying it here rather than letting the
+        // transport guess from the path is what keeps a mis-pathed administration call from
+        // being sent to the wrong origin.
+        if (operation.isAdministration()) {
+            request.administration();
+        }
 
         for (ServerOperationParameter parameter : operation.parametersAt(
                 ServerOperationParameter.Location.QUERY)) {

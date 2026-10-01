@@ -59,4 +59,26 @@ public interface FhirServerConfiguration {
     default String credentialKey() {
         return baseUrl() == null || baseUrl().isBlank() ? pluginId() : baseUrl().trim();
     }
+
+    /**
+     * Where this vendor's administration API lives, when it is not under {@link #baseUrl()}.
+     *
+     * <p>Most servers serve everything from one root and leave this {@code null}. It exists
+     * for the ones that do not: Smile CDR serves its FHIR endpoint on port 8000 and its JSON
+     * Admin API on port 9000, so an operation declared for the admin API cannot be reached
+     * through {@link #baseUrl()}. Firely's administration API is only a branch of the same
+     * origin and needs nothing here.</p>
+     *
+     * <p>An <b>origin</b>, not a full path — {@code https://host:9000} — because the
+     * operation's own path is appended to it. Never {@code null} for a server that has one,
+     * and {@code null} meaning "same as {@link #baseUrl()}" is the normal case.</p>
+     *
+     * <p>A {@code default} method rather than a new abstract one, deliberately. Making it
+     * abstract would break every configuration implementation, which is exactly what Phase
+     * 29 exists to prevent: {@code LegacyPlugin} implements the pre-REST contract and must
+     * keep compiling.</p>
+     */
+    default String administrationBaseUrl() {
+        return null;
+    }
 }
