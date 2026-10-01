@@ -764,7 +764,7 @@ class ServerUiSmokeTest {
             reopened.close();
         });
 
-        Thread.sleep(3000);
+        waitUntil("reopening sent no request at all", () -> requests.get() >= 2);
         assertTrue(requests.get() >= 2,
                 "reopening a search with no parameters sent " + requests.get()
                         + " request(s); an empty criteria list must not skip the re-read, "
@@ -802,12 +802,48 @@ class ServerUiSmokeTest {
         });
 
         // Two requests: the CapabilityStatement, then the search.
-        Thread.sleep(3000);
+        waitUntil("reopening sent no request at all", () -> requests.get() >= 2);
 
         assertTrue(requests.get() >= 2,
                 "reopening sent " + requests.get() + " request(s); the capabilities and the "
                         + "search should both have been re-run, which is what puts the type "
                         + "list and the results back");
+    }
+
+    @Test
+    @DisplayName("Pressing Open in viewer actually opens the selected resource")
+    void pressingOpenActuallyOpens() throws Exception {
+        // The regression from the duplicate-Read fix: the pane's button was wired to a
+        // result converter reading a field nothing ever assigned, so every press returned
+        // null and the window closed with nothing opened. The button looked correct and
+        // did nothing, which is the same failure as the very first ServerDialog bug.
+        //
+        // So press the real button and require a result to come back out of show().
+        AtomicReference<OpenFromServerDialog.Outcome> got = new AtomicReference<>();
+        server.answerWith(200, "application/fhir+json",
+                "{\"resourceType\":\"Patient\",\"id\":\"123\"}");
+
+        runOnFxThread(() -> {
+            OpenFromServerDialog dialog = new OpenFromServerDialog(service, manager, null,
+                    new SearchMemory(), new ServerCapabilitiesCache());
+            // Select a row: that is what enables the button and what Open acts on.
+            Patient patient = new Patient();
+            patient.setId("Patient/123");
+            dialog.resultsForTest().getItems().setAll(List.of(patient));
+            dialog.resultsForTest().getSelectionModel().select(0);
+
+            assertFalse(dialog.openButtonForTest().isDisabled(),
+                    "Open should be enabled once a result is selected");
+            dialog.openButtonForTest().fire();
+            got.set(dialog.getResult());
+        });
+
+        assertNotNull(got.get(),
+                "pressing Open in viewer produced no result: the button was wired to a "
+                        + "converter reading a field nothing assigns, so every press closed "
+                        + "the window with nothing opened");
+        assertEquals("Patient", got.get().resourceType());
+        assertEquals("123", got.get().resourceId());
     }
 
     @Test
@@ -872,7 +908,7 @@ class ServerUiSmokeTest {
             first.setRememberedTypeForTest("Patient");
             first.close();
         });
-        Thread.sleep(2500);
+        waitUntil("the first dialog made no request", () -> requests.get() >= 2);
         int afterFirst = requests.get();
         assertTrue(afterFirst >= 2,
                 "the first dialog should have read the CapabilityStatement and searched; sent "
@@ -886,10 +922,33 @@ class ServerUiSmokeTest {
             second.setRememberedTypeForTest("Patient");
             second.close();
         });
-        Thread.sleep(2500);
+        waitUntil("the second dialog sent no request", () -> requests.get() > afterFirst);
         assertEquals(1, requests.get() - afterFirst,
                 "reopening with the types already known should spend one request on the "
                         + "search, not a second one re-reading the CapabilityStatement");
+    }
+
+    /**
+ * Waits for a condition, rather than sleeping a fixed time.
+ *
+ * <p>These tests drive background work on the JavaFX thread, which is also running the rest
+ * of the suite. A fixed sleep is either too short - and the test fails for no reason when the
+ * machine is busy - or too long. Polling is bounded and stops as soon as the work lands.</p>
+     */
+    private static void waitUntil(String what, java.util.function.BooleanSupplier condition) {
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (System.currentTimeMillis() < deadline) {
+            if (condition.getAsBoolean()) {
+                return;
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        assertTrue(condition.getAsBoolean(), what);
     }
 
     /** Every node in the tree matching the predicate, including the root. */

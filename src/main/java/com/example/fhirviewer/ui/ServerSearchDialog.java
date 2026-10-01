@@ -416,7 +416,9 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             // so it does not change while the viewer is running. Apply it and go straight
             // to the search rather than spending a round trip to fetch what is in hand.
             applyCapabilities(cached);
-            afterwards.run();
+            if (afterwards != null) {
+                afterwards.run();
+            }
             return;
         }
         setBusy(true, "Reading capabilities of " + server.baseUrl() + " ...");

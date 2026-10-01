@@ -130,9 +130,6 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     /** The pane's Open button, looked up once so its enabled state can follow the selection. */
     private Button openButton;
 
-    /** The pending outcome, filled in by the background callbacks and returned on close. */
-    private Outcome outcome;
-
     /** True while a background call runs, so a close cannot race an in-flight read. */
     private boolean busy;
 
@@ -166,9 +163,12 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
         getDialogPane().setMinHeight(520);
         openType = new ButtonType("Open in viewer", ButtonBar.ButtonData.OK_DONE);
         getDialogPane().getButtonTypes().addAll(openType, ButtonType.CANCEL);
-        // The Open result arrives asynchronously, so the button only closes the dialog
-        // and the converter hands back whatever the background call produced.
-        setResultConverter(dialogButton -> openType.equals(dialogButton) ? outcome : null);
+        // No result converter. The read is asynchronous, so the converter would run the
+        // moment the button was pressed - before anything had been read - and hand back
+        // null, which closed the window with nothing opened. That is why this button did
+        // nothing. The read sets its own result and closes when the server answers, so
+        // the converter is not just unnecessary here, it was actively wrong.
+        //
         // The pane's Open button. Nothing opens until a result is chosen or a type and id
         // are typed, so it starts disabled rather than as a button that appears to work and
         // then reports nothing to do.
@@ -177,6 +177,15 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
             openButton = open;
             open.getStyleClass().add("button-primary");
             open.setDisable(true);
+            // Consume the press so the dialog does not close itself with an empty result,
+            // and do the work here instead. readTypedResource() sets the result and closes
+            // once the resource is in hand.
+            open.addEventFilter(ActionEvent.ACTION, event -> {
+                if (!open.isDisabled()) {
+                    event.consume();
+                    readTypedResource();
+                }
+            });
         }
         progress.setVisible(false);
         getDialogPane().setContent(buildContent());
@@ -403,6 +412,11 @@ public class OpenFromServerDialog extends Dialog<OpenFromServerDialog.Outcome> {
     /** The resource type box, for tests. */
     ComboBox<String> typeBox() {
         return typeBox;
+    }
+
+    /** The results table, for tests. */
+    TableView<IBaseResource> resultsForTest() {
+        return results;
     }
 
     /** Enables Open when a row is chosen or both a type and an id are given. */
