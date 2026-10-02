@@ -1242,6 +1242,44 @@ class ServerUiSmokeTest {
     }
 
     @Test
+    @DisplayName("The credential fields are on screen, not merely present")
+    void credentialFieldsAreWithinTheVisibleArea() throws Exception {
+        // The test above asserted isVisible(), which is true for a control scrolled out of
+        // sight. That is exactly the gap: "choose an authentication and the user name and
+        // password never appear" passed every assertion above, because both fields existed,
+        // were enabled, were populated - and sat below the bottom of the form pane.
+        //
+        // So measure. Lay the dialog out at its own preferred size, choose Basic, and require
+        // both fields to fall inside the scroll viewport.
+        AtomicReference<ServerManagerDialog> built = new AtomicReference<>();
+        runOnFxThread(() -> built.set(new ServerManagerDialog(service, new FhirServerManager(), null)));
+        ServerManagerDialog dialog = built.get();
+
+        runOnFxThread(() -> {
+            dialog.form().authBox().getSelectionModel().select(ServerAuthKind.BASIC);
+            dialog.getDialogPane().applyCss();
+            dialog.getDialogPane().layout();
+            javafx.scene.control.ScrollPane scroll = dialog.formScrollForTest();
+            scroll.applyCss();
+            scroll.layout();
+
+            Bounds view = scroll.localToScene(scroll.getViewportBounds());
+            for (javafx.scene.control.TextField field : java.util.List.of(
+                    dialog.form().userField(), dialog.form().secretField())) {
+                Bounds bounds = field.localToScene(field.getBoundsInLocal());
+                assertTrue(bounds.getMaxY() <= view.getMaxY() + 1,
+                        "the " + field.getPromptText() + " field ends at "
+                                + (int) bounds.getMaxY() + " but the form pane ends at "
+                                + (int) view.getMaxY() + " - it is below the fold, so the user "
+                                + "cannot see it however correct everything else is");
+                assertTrue(bounds.getHeight() > 0,
+                        "the " + field.getPromptText() + " field has no height on screen");
+            }
+            dialog.close();
+        });
+    }
+
+    @Test
     @DisplayName("The operation screen lists the real Firely plugin's operations")
     void listsTheRealFirelyOperations() throws Exception {
         // The ShapePlugin case above proves the screen renders whatever a plugin declares.

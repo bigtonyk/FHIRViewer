@@ -156,10 +156,17 @@ public class ServerOperationDialog extends Dialog<ServerOperationDialog.Outcome>
                     return;
                 }
                 setText(item.displayName());
+                // Wrapped rather than truncated. The operation names are sentences - "The
+                // Patient everything-operation", "Bulk export" - and a ListView cell clips
+                // at its edge, so a wider window alone still left "The Patient everything-
+                // operat...". Wrapping shows the whole name; the row grows to fit.
+                setWrapText(true);
                 setTooltip(new Tooltip(item.id() + " — " + item.description()));
             }
         });
-        operationList.setPrefWidth(260);
+        // Wide enough for the longest declared name without wrapping in the common case, and
+        // the dialog is sized to fit this rather than the other way round.
+        operationList.setPrefWidth(360);
         operationList.getSelectionModel().selectedItemProperty().addListener(
                 (observable, previous, selected) -> showOperation(selected));
 
@@ -175,7 +182,8 @@ public class ServerOperationDialog extends Dialog<ServerOperationDialog.Outcome>
         ButtonType openType = new ButtonType("Open in viewer", ButtonBar.ButtonData.OK_DONE);
         getDialogPane().getButtonTypes().addAll(openType, ButtonType.CLOSE);
         getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
-        getDialogPane().setPrefWidth(880);
+        getDialogPane().setPrefWidth(1040);
+        getDialogPane().setMinWidth(760);
         getDialogPane().setPrefHeight(680);
         openButton = (Button) getDialogPane().lookupButton(openType);
         if (openButton != null) {

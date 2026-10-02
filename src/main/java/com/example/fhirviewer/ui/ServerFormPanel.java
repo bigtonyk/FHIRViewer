@@ -144,8 +144,8 @@ final class ServerFormPanel {
         // them to an ellipsis - reported as "labels overlapping" and "a label showing
         // ....". Row positions are invisible to every other check here: the controls were
         // all present, enabled and correctly populated, they were just in the wrong place.
-        addRow(grid, row++, "User name", userField);
-        addRow(grid, row++, "Password", secretField);
+        addRow(grid, row++, userLabel, userField);
+        addRow(grid, row++, secretLabel, secretField);
 
         // The hint spans both columns so it can use the full width rather than being
         // squeezed into the control column, which is what made it unreadable.
@@ -393,7 +393,21 @@ final class ServerFormPanel {
     }
 
     private void addRow(GridPane grid, int row, String label, Region control) {
-        grid.add(rowLabel(label), 0, row);
+        addRow(grid, row, rowLabel(label), control);
+    }
+
+    /**
+     * Adds a row using a label this class already holds.
+     *
+     * <p>Needed for the two credential rows. {@link #applyAuthVisibility()} shows and hides
+     * those labels, and relabels the secret one to "Token" for a bearer credential - but
+     * {@code addRow} builds its own label, so the ones this class holds were never in the
+     * grid at all. The fields appeared and disappeared correctly while their labels did
+     * nothing: "Password" stayed on screen for a token, and for an anonymous server a stray
+     * label described fields that were not there.</p>
+     */
+    private void addRow(GridPane grid, int row, Label label, Region control) {
+        grid.add(label, 0, row);
         grid.add(control, 1, row);
         GridPane.setHgrow(control, Priority.ALWAYS);
         control.setMaxWidth(Double.MAX_VALUE);
