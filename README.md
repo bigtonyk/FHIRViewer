@@ -270,6 +270,9 @@ The working documents live under `docs/`, out of the repository root:
 - **`docs/user-guide/FHIR-Server-Functions.md`** — how to point the viewer at a FHIR
   server, read resources from it and write changes back. Start here if you are using
   the server features rather than changing them.
+- **`docs/building-a-launchable-build.md`** — how to produce a build someone can
+  launch by double-clicking, with no JDK installed on their machine. Read this
+  if you are handing the viewer to someone rather than running it yourself.
 - **`docs/plans/`** — the implementation plans, one per feature. Read the plan for a
   feature before changing it; each one records the design decisions behind the code.
   Note that the plan filenames and the "Phase" column in the status table above are
