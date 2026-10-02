@@ -38,7 +38,7 @@ work can be resumed without re-reading the plan.
 | 25 | UI Error Handling | **done** |
 | 26 | Logging and Diagnostics | **partial** — logged throughout; no diagnostics doc |
 | 27 | Plugin Developer API | **partial** — loader, registry and a mock plugin in tests; no published guide |
-| 28 | Testing | **done** — 613 tests, offline, `@TempDir` + localhost `HttpServer` |
+| 28 | Testing | **done** — 614 tests, offline, `@TempDir` + localhost `HttpServer` |
 | 29 | Backward Compatibility | **done** — see `Phase-29-Backward-Compatibility.md` |
 | 30 | Security Review | **done** — 10 items inspected, 8 clean, 3 findings; 1 fixed. See `Phase-30-Security-Review.md` |
 

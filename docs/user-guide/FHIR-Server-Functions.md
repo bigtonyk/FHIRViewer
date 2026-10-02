@@ -89,6 +89,7 @@ The form asks for:
 | **FHIR version** | `R4` is the only choice currently. |
 | **Server type** | Which plugin serves this server — see [What each plugin supports](#11-what-each-plugin-supports). Choose the vendor plugin when one is listed for your product. |
 | **Authentication** | Anonymous, user name and password, or a bearer token. See [Credentials](#3-credentials). |
+| **Admin URL** | **Usually leave blank.** Only for a server whose administration API lives on a *different address* than its FHIR root — Smile CDR serves FHIR on port 8000 and its JSON Admin API on 9000. Give the origin, e.g. `https://host:9000`. Leave it blank and every operation goes to the **Base URL** above, which is right for almost every server including Firely. |
 
 Servers are **saved as soon as you change them**, so they are still there next
 time you start the application. You do not need to press Save on the main
@@ -409,6 +410,11 @@ delete cannot silently remove a resource somebody else has changed.
 The connection screen, and the place to check what is configured:
 
 - **The server list**, with the active one marked.
+- **Served by** — the plugin handling this server, named in full ("Standard FHIR
+  REST", "Firely Server"). **Check this first** if an operation looks missing:
+  a Firely server added without changing **Server type** is served by the plain
+  FHIR plugin, which offers the specification's operations but none of the
+  vendor ones. `standard-rest` on a vendor's endpoint is the usual cause.
 - **Connect / Disconnect** — selects which server the other tools act on.
 - **Test** — a quick reachability check.
 - **Status / Capabilities** — reads the server's `CapabilityStatement`: the
@@ -433,10 +439,21 @@ vendor endpoints appear here without the application knowing they exist.
    that server, because each server's plugin offers different operations.
 2. Pick an operation from the list. The description explains what it does.
 3. Fill in the parameters the form asks for. Required ones are marked.
-4. Press **Run**.
-5. The result appears in the panel below, classified for you — FHIR resource,
+4. If the operation takes a body, two more choices appear above it:
+   - **Body is** — what that body *is*, so the box is labelled rather than
+     anonymous. `$validate` wants a resource; `$graphql` wants a query.
+   - **Sent as** — the content type. Pick one the operation actually accepts;
+     anything else is refused here rather than by the server. If the resource
+     you have open in the editor fits the operation, the body is **filled in
+     for you** — edit it, or clear it.
+
+   That last point is what makes `$validate` practical: open the resource you
+   suspect, run `$validate`, and the body is already the thing you were looking
+   at.
+5. Press **Run**.
+6. The result appears in the panel below, classified for you — FHIR resource,
    Bundle, `OperationOutcome`, JSON, XML, plain text, or empty.
-6. **Open in viewer** displays a result in the normal views.
+7. **Open in viewer** displays a result in the normal views.
 
 Operations declared as needing authentication cannot be run anonymously; the
 viewer says so rather than sending a request that would be refused.
@@ -452,9 +469,39 @@ Which plugins declare operations today:
 
 | Plugin | Operations offered |
 |---|---|
-| **Standard FHIR REST** | Bulk `$export` and `$import` — see below |
-| **Smile CDR** | Its reindex family, plus the inherited bulk operations |
-| **Firely Server** | Its administration API, its measure operations, plus the inherited bulk operations |
+| **Standard FHIR REST** | The specification's own — `$validate`, `$expand`, `$lookup`, `$everything`, `$patient`, `$compartment`, `$convert`, `$vread`, `$graph`, `$history`, the export/import poll-status pair, `$graphql`, `$snapshots` — plus bulk `$export` and `$import`. See below |
+| **Smile CDR** | Its reindex family and its JSON Admin API, plus everything inherited from the standard layer |
+| **Firely Server** | Its administration API, its measure operations, plus everything inherited from the standard layer |
+
+### The specification's operations, on every server
+
+These come from the FHIR specification rather than any vendor, so all three plugins
+offer them and a vendor plugin adds to them rather than replacing them. They are
+the ones worth knowing:
+
+| Operation | What it does |
+|---|---|
+| **Validate a resource** (`$validate`) | Checks a resource against the profiles it claims, and returns the errors and warnings. The body is filled in from whatever you have open. |
+| **Everything about a patient** (`$everything`) | Every resource related to a patient, across types. Narrow it with `start` and `end` — it is large otherwise. |
+| **Convert to another FHIR version** (`$convert`) | Converts older data into the version this viewer reads. |
+| **Version read** (`$vread`) | One specific version of a resource, so you can see what changed. |
+| **Expand a ValueSet** (`$expand`) | The list of codes a ValueSet contains. |
+| **Look up a code** (`$lookup`) | The resources a code identifies — the reverse of a terminology search. |
+| **Bulk export progress** (`$export-poll-status`) | How far a `$export` you started has got. |
+
+The type-level and instance-level forms are listed separately, because the
+specification defines them as separate interactions.
+
+**Not offered here: `$search`.** It needs a search expressed as several
+parameters, which this screen cannot do well — and
+[the two search screens](#4-finding-a-resource-three-ways) do it properly,
+with an editor for several parameters and a raw string. Use those.
+
+**How far this has been checked.** `$everything`, `$patient`, `$graphql` and
+`$export-poll-status` were each run against `hapi.fhir.org/baseR4`. The rest are
+taken from the specification and have not been sent to a real server, so a
+server may answer "unknown operation" for some of them — that is the server
+declaring it does not implement that one, not a fault in the viewer.
 
 A second, similar-looking case: a plugin *does* declare operations, but all of
 them need credentials and none are unlocked this session. That message says so
@@ -492,6 +539,19 @@ address you already configured — no second URL is needed.
   nothing, and it tells you what a full re-index would do before you start one.
 - It requires the FHIR Storage (RDBMS) module. A server without it answers
   that the operation is unknown — a server setting, not a fault.
+
+#### Smile's JSON Admin API
+
+Smile also serves an administration API on its own port — version, configuration,
+runtime status, metrics, OpenID Connect clients and sessions, the user list, and
+session invalidation. **These need the Admin URL field on the server** (see
+[The form asks for](#2-adding-and-editing-servers)); with it blank they would be
+sent to the FHIR endpoint and fail there.
+
+**They are unverified.** No public Smile CDR was reachable while this was
+written, so every path comes from Smile's documentation and none has been run
+against a real instance. Expect to correct some of them. If **Version** works,
+the rest are likely right in shape.
 - Re-indexing a large server is slow. Prefer the dry run, or scope `$reindex`
   with a `url` such as `Patient?`.
 - `$reindex` also accepts `partitionId` on a multi-tenant server; `_ALL`
@@ -713,16 +773,16 @@ Stated plainly, so nothing here reads as working when it does not.
 | Not built yet | What you get instead |
 |---|---|
 | **Vendor screens** (*Tools → Server Tools...*) | Removed. The only screen it could offer was never implemented, so the menu item was removed rather than left doing nothing. Those endpoints are reachable as individual operations under **Run Server Operation...**. |
-| **Smile CDR's Admin JSON API** | User, session and partition management sit on a separate port that the viewer cannot address yet. The reindex operations, which are on the FHIR endpoint, do work. See [Phase 9](../plans/09_SECOND_BASE_URL_FOR_ADMIN_APIS.md). |
-| **Bulk jobs are started, not finished** | `$export` and `$import` return `202` with a polling URL. The screen shows that acknowledgement; it does not follow the job to completion. |
+| **Smile CDR's Admin JSON API** | **Reachable now**, through the **Admin URL** field, but the paths are documentation-derived and unverified — no public Smile instance was available to test them. The reindex operations, on the FHIR endpoint, are the ones to rely on. See [Smile's JSON Admin API](#smiles-json-admin-api). |
+| **Bulk jobs are started, not finished** | `$export` and `$import` return `202` with a polling URL. The screen shows that acknowledgement; it does not follow the job to completion. Use `$export-poll-status` by hand to check on one. |
 | **Writing conformance resources** | Firely's administration API allows it; the viewer deliberately offers those searches read-only. |
 | **FHIRPath patch** | The three body-shaped patch formats only. A FHIRPath patch is a `Parameters` resource, and sending it as a merge patch would be wrong. |
 | **A raw REST console** | Deliberately excluded. Arbitrary GET/POST/PUT/DELETE would need its own authentication, error mapping and paging. Use the operation screen. |
 | **Extra request headers per server** | Not persisted. A header *value* is a secret, and `ServerDefinition` has no way to hold one. |
 | **Transaction bundles** | No multi-resource write. Write one resource at a time. |
-| **Conditional create / `$everything`** | Out of scope. |
 | **Subscriptions and push notifications** | Out of scope. |
 | **Smile CDR's connection half has no automated test** | Its test file is disabled. The operation declarations added here are covered separately. |
+| **Most specification operations are unverified** | Four were run against a public server. The rest come from the specification and may not be implemented by your server. See [How far this has been checked](#the-specifications-operations-on-every-server). |
 
 ---
 

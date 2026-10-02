@@ -142,7 +142,8 @@ they are wanted and verified.
 
 ## Done
 
-Implemented, in four commits. 603 tests, all passing.
+Implemented, in four commits. 603 tests at the end of this phase, all passing;
+614 once the UI work that followed was added.
 
 ### 1. The optional URL
 
