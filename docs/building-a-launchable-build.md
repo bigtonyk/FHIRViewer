@@ -143,6 +143,20 @@ The JavaFX jars were not staged for the module path. The build keeps them in
 there. If you have removed that staging step, the JavaFX modules cannot be
 resolved.
 
+**The launcher reports "Failed to launch JVM"**
+
+The JVM started, but the application died during startup and the launcher
+hides the real error. Run the launcher from a console (`FHIRViewer.exe` from
+`cmd`) to see it. The usual cause is a JDK module missing from the bundled
+runtime: `jpackage` resolves `requires` directives and nothing else, and the
+application's libraries are plain class-path jars, so any module on the
+hand-maintained `--add-modules` list in `pom.xml` that is needed but not named
+produces exactly this. `java.logging` was the one that bit first
+(`NoClassDefFoundError: java/util/logging/Logger`, from a `Logger` field in
+`MainWindow` - `java.logging` is not pulled in by any module in the JavaFX
+closure). Refresh the list with the `jdeps` command recorded next to it in the
+pom after any dependency change, then rebuild.
+
 **The build is slow**
 
 Expected. Packing a runtime takes minutes. If it is much slower than that,

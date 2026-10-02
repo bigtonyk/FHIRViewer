@@ -594,7 +594,55 @@
                     <argument>--module-path</argument>
                     <argument>${project.build.directory}/dist-modules</argument>
                     <argument>--add-modules</argument>
-                    <argument>javafx.controls,javafx.graphics,javafx.base</argument>
+                    <!--
+                      Every JDK module the application needs, not only the
+                      JavaFX ones.
+
+                      jlink, which jpackage runs internally, follows requires
+                      directives and nothing else. The application's libraries
+                      are plain jars on the class path with no module
+                      descriptor, so their JDK module requirements are invisible
+                      to that resolution. Naming the three JavaFX modules alone
+                      produced a nine-module runtime, and an image that started
+                      and then died the moment it touched an absent module: the
+                      packaged launcher reported only
+
+                        Failed to launch JVM
+
+                      over a NoClassDefFoundError for java/util/logging/Logger -
+                      a Logger field in MainWindow, and java.logging is not
+                      pulled in by any module in the JavaFX closure.
+
+                      This list is what jdeps reports as the root modules for the
+                      jars that ship, with the JavaFX modules added by hand: the
+                      JavaFX jars are on the module path, but the application
+                      uses them from the class path, so jdeps reports them as
+                      missing and never names their modules.
+
+                      Naming roots is enough. jlink walks their requires closure
+                      itself, which is why java.logging, java.xml and jdk.zipfs
+                      do not appear below and are still present in the runtime.
+
+                      After a dependency change, refresh the list by running
+                      jdeps over the application jar with dist-input on the class
+                      path:
+
+                        jdeps multi-release 25 ignore-missing-deps
+                          print-module-deps
+                          module-path "target/dist-modules"
+                          class-path "target/dist-input/*"
+                          target/dist-input/fhir-viewer-0.1.0-SNAPSHOT.jar
+
+                      Options are written without their leading dashes, as the
+                      note above about XML comments explains.
+
+                      Cryptographic providers are deliberately absent. On the
+                      JDK in use SunEC lives in java.base and jdk.crypto.ec
+                      holds little more than a module descriptor, and an HTTPS
+                      request from the trimmed runtime was checked to work
+                      without it.
+                    -->
+                    <argument>javafx.base,javafx.graphics,javafx.controls,java.base,java.desktop,java.instrument,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml.crypto,jdk.attach,jdk.httpserver,jdk.javadoc,jdk.jdi,jdk.jfr,jdk.unsupported</argument>
                     <!--
                       The two opens the development launcher has always
                       passed. Carried across rather than left out: without
