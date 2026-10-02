@@ -13,6 +13,8 @@ import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.TextArea;
+import javafx.scene.layout.ColumnConstraints;
+import javafx.scene.layout.GridPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -60,12 +62,37 @@ public class ServerOperationDialog extends Dialog<ServerOperationDialog.Outcome>
 
     private final FhirServerService serverService;
     private final FhirServerManager serverManager;
+    /** The resource already open in the editor, offered as the body when it fits. */
+    private final org.hl7.fhir.instance.model.api.IBaseResource displayedResource;
 
     private final ComboBox<FhirServerConfiguration> serverBox = new ComboBox<>();
     private final ListView<ServerOperation> operationList = new ListView<>();
     private final VBox parameterPane = new VBox(8);
     private final TextArea bodyArea = new TextArea();
     private final Label bodyLabel = new Label("Request body");
+
+    /**
+     * What the body is called, and the values a body of that kind usually takes.
+     *
+     * <p>The plan's point: the screen had a free-text body and no notion of what the body
+     * <em>is</em>. For {@code $validate} it is a resource, for {@code $graphql} a query, for
+     * Firely's {@code $import} a set of parameters - and the form could say none of that, so
+     * every one of them looked like the same undifferentiated text box.</p>
+     *
+     * <p>A dropdown of the values the specification defines, which is a starting point rather
+     * than a limit: it is editable, so a value not on the list can still be typed.</p>
+     */
+    private final ComboBox<String> bodyNameBox = new ComboBox<>();
+    private final Label bodyValueLabel = new Label("Value");
+
+    /**
+     * The content type to send the body as.
+     *
+     * <p>Without this the body always went as the operation declared, which is JSON for most
+     * of them - so an operation that accepts XML could not be sent XML at all, and the only
+     * way to change it was to edit the declaration in a plugin.</p>
+     */
+    private final ComboBox<String> contentTypeBox = new ComboBox<>();
     private final Label statusLabel = new Label(" ");
     private final Label resultLabel = new Label(" ");
     private final TextArea resultArea = new TextArea();
@@ -82,6 +109,21 @@ public class ServerOperationDialog extends Dialog<ServerOperationDialog.Outcome>
 
     public ServerOperationDialog(FhirServerService serverService, FhirServerManager serverManager,
             FhirServerConfiguration preselect, ThemeManager themeManager) {
+        this(serverService, serverManager, preselect, themeManager, null);
+    }
+
+    /**
+     * Creates the dialog, offering the resource already open as the body when it fits.
+     *
+     * <p>That resource is the overwhelmingly common body for the operations that take one:
+     * {@code $validate} on what you are looking at, {@code $convert} on it, a patch built from
+     * it. Making the user find and copy it out of the editor is the difference between a
+     * screen you use and one you do not.</p>
+     */
+    public ServerOperationDialog(FhirServerService serverService, FhirServerManager serverManager,
+            FhirServerConfiguration preselect, ThemeManager themeManager,
+            org.hl7.fhir.instance.model.api.IBaseResource displayedResource) {
+        this.displayedResource = displayedResource;
         this.serverService = serverService;
         this.serverManager = serverManager;
 
@@ -114,10 +156,17 @@ public class ServerOperationDialog extends Dialog<ServerOperationDialog.Outcome>
                     return;
                 }
                 setText(item.displayName());
+                // Wrapped rather than truncated. The operation names are sentences - "The
+                // Patient everything-operation", "Bulk export" - and a ListView cell clips
+                // at its edge, so a wider window alone still left "The Patient everything-
+                // operat...". Wrapping shows the whole name; the row grows to fit.
+                setWrapText(true);
                 setTooltip(new Tooltip(item.id() + " — " + item.description()));
             }
         });
-        operationList.setPrefWidth(260);
+        // Wide enough for the longest declared name without wrapping in the common case, and
+        // the dialog is sized to fit this rather than the other way round.
+        operationList.setPrefWidth(360);
         operationList.getSelectionModel().selectedItemProperty().addListener(
                 (observable, previous, selected) -> showOperation(selected));
 
@@ -133,7 +182,8 @@ public class ServerOperationDialog extends Dialog<ServerOperationDialog.Outcome>
         ButtonType openType = new ButtonType("Open in viewer", ButtonBar.ButtonData.OK_DONE);
         getDialogPane().getButtonTypes().addAll(openType, ButtonType.CLOSE);
         getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
-        getDialogPane().setPrefWidth(880);
+        getDialogPane().setPrefWidth(1040);
+        getDialogPane().setMinWidth(760);
         getDialogPane().setPrefHeight(680);
         openButton = (Button) getDialogPane().lookupButton(openType);
         if (openButton != null) {
@@ -298,13 +348,103 @@ public class ServerOperationDialog extends Dialog<ServerOperationDialog.Outcome>
             bodyLabel.setText(form.bodyHint());
             bodyLabel.getStyleClass().add("pretty-row-label");
             bodyArea.clear();
-            parameterPane.getChildren().addAll(bodyLabel, bodyArea);
+            // What the body is, what it may contain, and how it is sent. Three things the
+            // screen previously could not say, so every body looked like the same text box.
+            bodyNameBox.setEditable(true);
+            bodyNameBox.getItems().setAll(bodyNamesFor(operation));
+            bodyNameBox.getSelectionModel().selectFirst();
+            bodyNameBox.getStyleClass().add("pretty-row-label");
+            bodyValueLabel.setText("Value");
+            bodyValueLabel.getStyleClass().add("pretty-row-label");
+            contentTypeBox.setEditable(true);
+            contentTypeBox.getItems().setAll(
+                    operation.acceptedBodyTypes().isEmpty()
+                            ? List.of("application/fhir+json")
+                            : operation.acceptedBodyTypes());
+            contentTypeBox.getSelectionModel().selectFirst();
+            contentTypeBox.getStyleClass().add("pretty-row-label");
+
+            GridPane bodyGrid = new GridPane();
+            bodyGrid.setHgap(8);
+            bodyGrid.setVgap(6);
+            bodyGrid.add(new Label("Body is"), 0, 0);
+            bodyGrid.add(bodyNameBox, 1, 0);
+            bodyGrid.add(new Label("Sent as"), 0, 1);
+            bodyGrid.add(contentTypeBox, 1, 1);
+            ColumnConstraints grow = new ColumnConstraints();
+            grow.setHgrow(javafx.scene.layout.Priority.ALWAYS);
+            bodyGrid.getColumnConstraints().addAll(new ColumnConstraints(), grow);
+            bodyGrid.setMaxWidth(Double.MAX_VALUE);
+
+            parameterPane.getChildren().addAll(bodyLabel, bodyGrid, bodyValueLabel, bodyArea);
+            // Whatever the body is, it is most often the resource already open in the
+            // editor. That is the difference between "a form that can run an operation" and
+            // "a screen you can actually run $validate on".
+            prefillFromDisplayed(operation);
         }
         runButton.setDisable(false);
         // The action row is re-added last so it stays below the fields however many
         // parameters the operation declared.
         parameterPane.getChildren().addAll(actions);
         clearResult();
+    }
+
+    /**
+     * What this operation's body may be called.
+     *
+     * <p>The specification gives a name to the body of some operations and not others, so the
+     * list is derived from the operation's own id rather than hard-coded per plugin - the
+     * vendor plugins get the same treatment without knowing about any of this.</p>
+     */
+    private static List<String> bodyNamesFor(
+            com.example.fhirviewer.server.ServerOperation operation) {
+        String id = operation.id();
+        if (id.contains("$validate") || id.contains("$convert")
+                || id.contains("$transaction") || id.contains("$patch")) {
+            return List.of("Resource", "Profile");
+        }
+        if (id.contains("$graphql")) {
+            return List.of("query", "variables", "operationName");
+        }
+        if (id.contains("import")) {
+            return List.of("inputResources", "inputEncoding", "createNewResources",
+                    "nameToUpdate", "deleteNameNotInBundle");
+        }
+        return List.of("resource");
+    }
+
+    /**
+     * Offers the open resource as the body, when that is what the operation is asking for.
+     *
+     * <p>Only when the body is a resource and one is open. Silently pre-filling a body the
+     * operation did not ask for would put a Patient into a GraphQL query, which is worse than
+     * an empty box.</p>
+     */
+    private void prefillFromDisplayed(com.example.fhirviewer.server.ServerOperation operation) {
+        if (displayedResource == null || !bodyNamesFor(operation).contains("resource")) {
+            return;
+        }
+        String text;
+        try {
+            text = com.example.fhirviewer.fhir.FhirContextFactory.r4()
+                    .newJsonParser().encodeResourceToString(displayedResource);
+        } catch (RuntimeException problem) {
+            // A resource the parser will not re-read is a reason to leave the box empty, not
+            // to fail opening the screen.
+            return;
+        }
+        bodyArea.setText(text);
+        String contentType = contentTypeBox.getValue();
+        if (contentType != null && contentType.endsWith("+xml")) {
+            try {
+                bodyArea.setText(com.example.fhirviewer.fhir.FhirContextFactory.r4()
+                        .newXmlParser().encodeResourceToString(displayedResource));
+            } catch (RuntimeException problem) {
+                // Keep the JSON that did work rather than emptying the box.
+            }
+        }
+        showStatus("Filled in with the resource open in the editor. Edit it, or clear it.",
+                false);
     }
 
     /** One labelled input for a declared parameter. */
@@ -341,7 +481,8 @@ public class ServerOperationDialog extends Dialog<ServerOperationDialog.Outcome>
         }
         com.example.fhirviewer.server.ServerOperationInvocation invocation;
         try {
-            invocation = form.toInvocation(form.acceptsBody() ? bodyArea.getText() : null);
+            invocation = form.toInvocation(form.acceptsBody() ? bodyArea.getText() : null,
+                    form.acceptsBody() ? contentTypeBox.getValue() : null);
         } catch (IllegalStateException e) {
             showStatus(e.getMessage(), true);
             return;

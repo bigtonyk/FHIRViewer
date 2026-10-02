@@ -36,14 +36,30 @@ public final class RestRequest {
     private final Map<String, List<String>> queryParameters;
     private final RestHeaders headers;
     private final String body;
+    /**
+     * Whether this call goes to the vendor's administration API rather than the FHIR one.
+     *
+     * <p>A flag on the request rather than a second client or a convention about paths,
+     * because "this is an administration call" is a fact about the call site and is already
+     * known there — the plugin declared it. Inferring it from the path would be a guess,
+     * and a wrong guess sends a request to an address the user did not choose.</p>
+     */
+    private final boolean administration;
 
     private RestRequest(RestMethod method, String path,
-            Map<String, List<String>> queryParameters, RestHeaders headers, String body) {
+            Map<String, List<String>> queryParameters, RestHeaders headers, String body,
+            boolean administration) {
         this.method = method;
         this.path = path;
         this.queryParameters = queryParameters;
         this.headers = headers;
         this.body = body;
+        this.administration = administration;
+    }
+
+    /** True when this request should be sent to {@code administrationBaseUrl()}. */
+    public boolean isAdministration() {
+        return administration;
     }
 
     /** Starts a request for any verb. */
@@ -149,6 +165,7 @@ public final class RestRequest {
         private final Map<String, List<String>> queryParameters = new LinkedHashMap<>();
         private final RestHeaders.Builder headers = RestHeaders.builder();
         private String body;
+        private boolean administration;
 
         private Builder(RestMethod method, String path) {
             this.method = Objects.requireNonNull(method, "method");
@@ -237,7 +254,20 @@ public final class RestRequest {
             Map<String, List<String>> frozen = new LinkedHashMap<>();
             queryParameters.forEach((name, values) -> frozen.put(name, List.copyOf(values)));
             return new RestRequest(method, path, Collections.unmodifiableMap(frozen),
-                    headers.build(), body);
+                    headers.build(), body, administration);
+        }
+
+        /**
+         * Marks this as a call to the vendor's administration API.
+         *
+         * <p>Only takes effect when the server actually declares a separate administration
+         * URL. With none configured the request goes to the base URL like any other, which is
+         * what keeps a Firely server working with nothing filled in — its administration
+         * API is a branch of the same origin.</p>
+         */
+        public Builder administration() {
+            this.administration = true;
+            return this;
         }
     }
 

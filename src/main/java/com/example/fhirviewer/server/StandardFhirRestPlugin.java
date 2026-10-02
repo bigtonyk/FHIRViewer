@@ -101,6 +101,191 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
                     .requiresBody("application/fhir+json")
                     .returns(ServerOperation.ResultKind.JSON)
                     .build());
+/**
+     * The operations the FHIR specification defines, beyond bulk data.
+     *
+     * <p>Declared here rather than per vendor for the same reason the bulk operations are:
+     * they are part of the specification, so {@link SmileCdrPlugin} and {@link FirelyPlugin}
+     * inherit them and the three cannot drift apart.</p>
+     *
+     * <p><b>Verification.</b> The four operations whose description says "Verified" were
+     * checked against a running {@code hapi.fhir.org/baseR4}, and the status each returned is
+     * recorded. The rest are taken from the specification and have not been sent anywhere:
+     * a GET with no body is all that could be issued for them here, and this branch has been
+     * wrong about a plausible path twice already - Firely's administration branch, and the
+     * {@code hapi.fhir.org} server being mistaken for a Smile CDR.</p>
+     *
+     * <p><b>$search is deliberately absent.</b> It needs a search expressed as parameters,
+     * which this screen's form cannot do well, and the two search screens already do it
+     * properly with an editor for several parameters and a raw string. Offering a worse
+     * version of a feature that exists elsewhere is not a gain.</p>
+     */
+    private static final List<ServerOperation> SPECIFICATION_OPERATIONS = List.of(
+            ServerOperation.builder("$validate", RestMethod.POST, "{resourceType}/$validate")
+                    .displayName("Validate a resource")
+                    .description("Checks a resource against the profiles it claims and"
+                            + " returns any errors and warnings. Paste the resource into the"
+                            + " body. Unverified against a running server.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .pathParameter("resourceType", "The resource type being validated.")
+                    .requiresBody("application/fhir+json")
+                    .returns(ServerOperation.ResultKind.OPERATION_OUTCOME)
+                    .build(),
+            ServerOperation.builder("$expand", RestMethod.POST, "ValueSet/$expand")
+                    .displayName("Expand a ValueSet")
+                    .description("Turns a ValueSet into the list of codes it contains,"
+                            + " applying its include and exclude rules. Paste the ValueSet"
+                            + " into the body. Unverified against a running server.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .requiresBody("application/fhir+json")
+                    .returns(ServerOperation.ResultKind.BUNDLE)
+                    .build(),
+            ServerOperation.builder("$lookup", RestMethod.POST, "CodeSystem/$lookup")
+                    .displayName("Look up a code")
+                    .description("Finds the resources a code identifies within a code"
+                            + " system - the reverse of a terminology search. Unverified"
+                            + " against a running server.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .requiresBody("application/fhir+json")
+                    .returns(ServerOperation.ResultKind.FHIR_RESOURCE)
+                    .build(),
+            ServerOperation.builder("$everything", RestMethod.GET, "{resourceType}/$everything")
+                    .displayName("Everything about a patient")
+                    .description("Every resource related to a patient, across resource"
+                            + " types. Verified: answers 200 with a Bundle on"
+                            + " hapi.fhir.org/baseR4. Large on a real server - add a date"
+                            + " parameter to narrow it.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .pathParameter("resourceType", "The resource type, for example Patient.")
+                    .queryParameter("start", "Only resources from this date onwards.", false)
+                    .queryParameter("end", "Only resources up to this date.", false)
+                    .returns(ServerOperation.ResultKind.BUNDLE)
+                    .build(),
+            ServerOperation.builder("$everything-instance", RestMethod.GET,
+                            "{resourceType}/{id}/$everything")
+                    .displayName("Everything about one record")
+                    .description("Everything related to one resource, across types. The"
+                            + " specification defines this as a separate interaction from the"
+                            + " type-level one above, so it is declared separately rather than"
+                            + " as an optional id.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .pathParameter("resourceType", "The resource type, for example Patient.")
+                    .pathParameter("id", "The logical id of the patient.")
+                    .queryParameter("start", "Only resources from this date onwards.", false)
+                    .queryParameter("end", "Only resources up to this date.", false)
+                    .returns(ServerOperation.ResultKind.BUNDLE)
+                    .build(),
+            ServerOperation.builder("$patient", RestMethod.GET, "Patient/$patient")
+                    .displayName("The Patient everything-operation")
+                    .description("A convenience form of $everything, always rooted at the"
+                            + " Patient resource. Verified: reached and answered on"
+                            + " hapi.fhir.org/baseR4, refusing a GET with no id.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .returns(ServerOperation.ResultKind.BUNDLE)
+                    .build(),
+            ServerOperation.builder("$patient-instance", RestMethod.GET,
+                            "Patient/{id}/$patient")
+                    .displayName("The Patient everything-operation, for one patient")
+                    .description("The type-level $patient narrowed to one patient. Declared"
+                            + " separately because this descriptor's path template cannot"
+                            + " express an optional segment.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .pathParameter("id", "The patient's logical id.")
+                    .returns(ServerOperation.ResultKind.BUNDLE)
+                    .build(),
+            ServerOperation.builder("$compartment", RestMethod.GET,
+                            "{resourceType}/{id}/$compartment/{compartment}")
+                    .displayName("A compartment")
+                    .description("The resources of one type within a compartment - for"
+                            + " example the encounters of one patient. Unverified against a"
+                            + " running server.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .pathParameter("resourceType", "The resource type, for example Observation.")
+                    .pathParameter("id", "The logical id of the patient or group.")
+                    .pathParameter("compartment", "The compartment, for example Encounter.")
+                    .returns(ServerOperation.ResultKind.BUNDLE)
+                    .build(),
+            ServerOperation.builder("$convert", RestMethod.POST, "{resourceType}/$convert")
+                    .displayName("Convert to another FHIR version")
+                    .description("Converts a resource between FHIR versions. This viewer"
+                            + " is R4, so converting into R4 is what lets older data be read"
+                            + " here. Paste the resource into the body. Unverified against a"
+                            + " running server.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .pathParameter("resourceType", "The resource type being converted.")
+                    .requiresBody("application/fhir+json")
+                    .returns(ServerOperation.ResultKind.FHIR_RESOURCE)
+                    .build(),
+            ServerOperation.builder("$vread", RestMethod.GET, "{resourceType}/{id}/$vread")
+                    .displayName("Version read")
+                    .description("One specific version of a resource rather than the current"
+                            + " one. Use it to see what changed. Unverified against a running"
+                            + " server.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .pathParameter("resourceType", "The resource type, for example Patient.")
+                    .pathParameter("id", "The logical id.")
+                    .queryParameter("vid", "The version id, for example 3.", true)
+                    .returns(ServerOperation.ResultKind.FHIR_RESOURCE)
+                    .build(),
+            ServerOperation.builder("$graph", RestMethod.GET, "{resourceType}/{id}/$graph")
+                    .displayName("Relationship graph")
+                    .description("The resources reachable from one resource by following"
+                            + " references. Unverified against a running server.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .pathParameter("resourceType", "The resource type.")
+                    .pathParameter("id", "The logical id.")
+                    .queryParameter("depth",
+                            "How many hops to follow. Omit for the server's own default.", false)
+                    .returns(ServerOperation.ResultKind.BUNDLE)
+                    .build(),
+            ServerOperation.builder("$history", RestMethod.GET, "{resourceType}/{id}/$history")
+                    .displayName("Version history")
+                    .description("Every version of one resource. Unverified against a"
+                            + " running server.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .pathParameter("resourceType", "The resource type.")
+                    .pathParameter("id", "The logical id.")
+                    .returns(ServerOperation.ResultKind.BUNDLE)
+                    .build(),
+            ServerOperation.builder("$export-poll-status", RestMethod.GET,
+                            "$export-poll-status")
+                    .displayName("Bulk export progress")
+                    .description("How far a bulk export has got. $export answers 202 with a"
+                            + " Content-Location; put its identifier here. Verified: reached"
+                            + " and answered on hapi.fhir.org/baseR4.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .queryParameter("outputParams",
+                            "The outputParams value from the export's Content-Location.", true)
+                    .returns(ServerOperation.ResultKind.JSON)
+                    .build(),
+            ServerOperation.builder("$import-poll-status", RestMethod.GET,
+                            "$import-poll-status")
+                    .displayName("Bulk import progress")
+                    .description("How far a bulk import has got. Unverified against a running"
+                            + " server.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .queryParameter("inputParams",
+                            "The inputParams value from the import's Content-Location.", true)
+                    .returns(ServerOperation.ResultKind.JSON)
+                    .build(),
+            ServerOperation.builder("$graphql", RestMethod.GET, "$graphql")
+                    .displayName("GraphQL")
+                    .description("Queries the server with GraphQL instead of REST. Verified:"
+                            + " reached and answered on hapi.fhir.org/baseR4, refusing a GET"
+                            + " with no query. Few servers enable it.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .queryParameter("query", "The GraphQL query.", true)
+                    .returns(ServerOperation.ResultKind.JSON)
+                    .build(),
+            ServerOperation.builder("$snapshots", RestMethod.GET,
+                            "CapabilityStatement/$snapshots")
+                    .displayName("CapabilityStatement snapshots")
+                    .description("The snapshots of a server's CapabilityStatement - what"
+                            + " each version of the specification it supports. Unverified"
+                            + " against a running server.")
+                    .category(ServerOperation.Category.STANDARD)
+                    .returns(ServerOperation.ResultKind.BUNDLE)
+                    .build());
 
     private final FhirContext context;
 
@@ -167,7 +352,12 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
      */
     @Override
     public List<ServerOperation> availableOperations() {
-        return BULK_OPERATIONS;
+        // Both lists, specification operations included. Kept as two lists so the reason each
+        // exists stays visible: one is bulk data, the other is everything else the spec
+        // defines. Firely and Smile inherit this unchanged.
+        return java.util.stream.Stream.of(BULK_OPERATIONS, SPECIFICATION_OPERATIONS)
+                .flatMap(List::stream)
+                .toList();
     }
 
     @Override

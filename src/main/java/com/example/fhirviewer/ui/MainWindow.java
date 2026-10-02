@@ -1939,7 +1939,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                 ? serverManager.active().orElse(null)
                 : serverFor(displayedOrigin);
         ServerOperationDialog dialog = new ServerOperationDialog(serverService, serverManager,
-                preselect, themeManager);
+                preselect, themeManager, displayedResource);
         dialog.initOwner(stage);
         dialog.showAndWait().ifPresent(outcome -> {
             if (!confirmUnsavedChanges("displaying a result from a server")) {

@@ -132,7 +132,7 @@ public class ServerStatusDialog extends Dialog<Void> {
             return;
         }
         report.setText(server.name() + "\n" + server.baseUrl()
-                + "\nPlugin: " + server.pluginId()
+                + "\nServed by: " + servingPlugin(server)
                 + "\nFHIR version: " + server.fhirVersion()
                 + "\n\nNot connected. Choose Connect to test this server.");
         showStatus("Ready.", false);
@@ -176,7 +176,7 @@ public class ServerStatusDialog extends Dialog<Void> {
         disconnectButton.setDisable(false);
         ServerCapabilities capabilities = result.capabilities();
         report.setText(server.name() + "\n" + server.baseUrl()
-                + "\nPlugin: " + server.pluginId()
+                + "\nServed by: " + servingPlugin(server)
                 + "\n\nConnected."
                 + (capabilities == null ? "" : "\n" + capabilities));
         showStatus("Connected to " + server.name() + ". "
@@ -185,7 +185,38 @@ public class ServerStatusDialog extends Dialog<Void> {
         serverBox.setCellFactory(serverBox.getCellFactory());
     }
 
-    /** Clears the active selection, so no server is treated as the current one. */
+    /**
+     * The report pane's text, for tests.
+     *
+     * <p>Which plugin is serving the server is shown here and nowhere else, so this is the
+     * only way a headless test can tell it is on screen at all.</p>
+     */
+    String reportTextForTest() {
+        return report.getText();
+    }
+
+    /**
+     * The line naming which plugin serves this server, in words rather than ids.
+     *
+     * <p>The plugin id alone was the whole of what this screen said, and
+     * {@code standard-rest} is not something a user can act on. It matters because the
+     * commonest report about the operation screen was "Firely only offers 2 operations" -
+     * which was a Firely server saved with the default plugin, serving it as a plain FHIR
+     * server. Naming the plugin makes that distinguishable from Firely genuinely offering
+     * two.</p>
+     *
+     * <p>Returns the plugin's own display name when it can be found, falling back to the id,
+     * which is better than nothing for a plugin that has been uninstalled.</p>
+     */
+    private String servingPlugin(FhirServerConfiguration server) {
+        for (com.example.fhirviewer.server.FhirServerPlugin plugin
+                : serverService.plugins()) {
+            if (plugin.id().equals(server.pluginId())) {
+                return plugin.displayName() + " (" + plugin.id() + ")";
+            }
+        }
+        return server.pluginId() + " (plugin not found)";
+    }
     private void disconnect() {
         FhirServerConfiguration server = connected;
         if (server == null) {

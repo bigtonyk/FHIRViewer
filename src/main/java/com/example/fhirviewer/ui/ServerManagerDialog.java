@@ -50,6 +50,15 @@ public class ServerManagerDialog extends Dialog<Void> {
 
     private final ServerFormPanel form;
     private final Label statusLabel = new Label(" ");
+
+    /**
+     * The form's scroll pane, held so a test can ask what is actually within it.
+     *
+     * <p>A control can be {@code isVisible()} and still be scrolled out of sight - which is
+     * how "choose an authentication and the user name box never appears" was possible while
+     * a test asserting the fields become visible passed every run.</p>
+     */
+    private ScrollPane formScroll;
     private final Button addButton = new Button("Add");
     private final Button saveButton = new Button("Save");
     private final Button deleteButton = new Button("Delete");
@@ -94,7 +103,12 @@ public class ServerManagerDialog extends Dialog<Void> {
         // the status line; sizing it here gives it room to start with and the ScrollPane
         // below handles anything larger.
         getDialogPane().setPrefWidth(640);
-        getDialogPane().setPrefHeight(520);
+        // Tall enough for the whole form, credentials included. It was 520, which fitted the
+        // form only while every row happened to be visible; choosing an authentication adds
+        // two rows and put the user name and password below the fold - present, enabled,
+        // correctly populated, and completely out of sight.
+        getDialogPane().setPrefHeight(760);
+        getDialogPane().setMinHeight(520);
 
         ButtonType closeType = new ButtonType("Close", ButtonBar.ButtonData.OK_DONE);
         getDialogPane().getButtonTypes().add(closeType);
@@ -128,7 +142,7 @@ public class ServerManagerDialog extends Dialog<Void> {
         // fitToWidth is what makes the form grow with the window. Without it the grid stays
         // at its preferred width inside a wider dialog and the right-hand end of each field
         // is cut off, which is the symptom that prompted this layout.
-        ScrollPane formScroll = new ScrollPane(form.build());
+        formScroll = new ScrollPane(form.build());
         formScroll.setFitToWidth(true);
         formScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         formScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
@@ -395,6 +409,17 @@ public class ServerManagerDialog extends Dialog<Void> {
     /** The form, for filling in fields. */
     ServerFormPanel form() {
         return form;
+    }
+
+    /**
+     * The scrollable form pane, for tests that need to know what is actually on screen.
+     *
+     * <p>A control can be {@code isVisible()} and still be scrolled out of sight, which is how
+     * "choose an authentication and the user name box never appears" was possible while a test
+     * asserting the fields become visible passed. Only a measured viewport says otherwise.</p>
+     */
+    javafx.scene.control.ScrollPane formScrollForTest() {
+        return formScroll;
     }
 
     /** The selector, so a test can pick a configured server the way a user would. */

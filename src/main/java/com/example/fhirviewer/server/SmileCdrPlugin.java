@@ -226,7 +226,86 @@ public class SmileCdrPlugin extends StandardFhirRestPlugin {
                     .category(ServerOperation.Category.ADMINISTRATION)
                     .requiresAuthentication()
                     .returns(ServerOperation.ResultKind.OPERATION_OUTCOME)
+                    .build(),
+            // ---- The JSON Admin API ----
+            //
+            // UNVERIFIED against a running server. Every path below is taken from Smile's
+            // own documentation, not from a live instance: there is no reachable public
+            // Smile CDR, so these have never been sent anywhere. That is stated here rather
+            // than only in the plan because a path that looks right and is wrong fails on
+            // every real server while appearing entirely correct - which is exactly how
+            // Firely's /administration branch went wrong on this branch once already.
+            //
+            // They are also the reason this phase exists: these are served from the JSON
+            // Admin API on its own port, so each carries administration() and is only
+            // reachable when the server has an administration URL configured.
+            adminGet("version", "Version",
+                    "The Smile CDR version this server is running.",
+                    ServerOperation.ResultKind.JSON),
+            adminGet("config", "System configuration",
+                    "The server's own configuration, as JSON.",
+                    ServerOperation.ResultKind.JSON),
+            adminGet("runtime-status", "Runtime status",
+                    "Uptime, memory and thread state.",
+                    ServerOperation.ResultKind.JSON),
+            adminGet("metrics", "Metrics",
+                    "Runtime metrics. Large; useful when reporting a problem.",
+                    ServerOperation.ResultKind.JSON),
+            adminGet("openid-clients", "OpenID Connect clients",
+                    "The OpenID Connect clients this server trusts.",
+                    ServerOperation.ResultKind.JSON),
+            adminGet("openid-sessions", "OpenID Connect sessions",
+                    "Live OpenID Connect sessions.",
+                    ServerOperation.ResultKind.JSON),
+            adminGet("privacy-notice", "Privacy notice",
+                    "The privacy notice this server publishes.",
+                    ServerOperation.ResultKind.JSON),
+            ServerOperation.builder("admin-user-list", RestMethod.GET,
+                            "user-management/{node_id}/{module_id}/users")
+                    .displayName("Users")
+                    .description("The users of one node and module. Both ids come from the"
+                            + " server's own configuration.")
+                    .category(ServerOperation.Category.ADMINISTRATION)
+                    .requiresAuthentication()
+                    .administration()
+                    .pathParameter("node_id", "The node id, from the server configuration.")
+                    .pathParameter("module_id", "The module id, from the server configuration.")
+                    .returns(ServerOperation.ResultKind.JSON)
+                    .build(),
+            ServerOperation.builder("admin-invalidate-sessions", RestMethod.POST,
+                            "user-management/{node_id}/{module_id}/invalidate-all-sessions")
+                    .displayName("Invalidate all sessions for a user")
+                    .description("Revokes every live token for one user. The only mutating"
+                            + " entry in this group: it signs people out immediately, so it is"
+                            + " here deliberately and nothing else destructive is.")
+                    .category(ServerOperation.Category.ADMINISTRATION)
+                    .requiresAuthentication()
+                    .administration()
+                    .pathParameter("node_id", "The node id, from the server configuration.")
+                    .pathParameter("module_id", "The module id, from the server configuration.")
+                    .queryParameter("username", "The user whose sessions are revoked.", true)
+                    .returns(ServerOperation.ResultKind.JSON)
                     .build());
+
+    /**
+     * One read-only JSON Admin API call.
+     *
+     * <p>Every one of these needs the {@code ACCESS_ADMIN_JSON} permission, so
+     * {@link ServerOperation.Builder#requiresAuthentication()} is set on all of them — which
+     * also means a session without credentials is told so locally rather than by a 401 from
+     * a server that had nothing better to say.</p>
+     */
+    private static ServerOperation adminGet(String id, String displayName, String description,
+            ServerOperation.ResultKind returns) {
+        return ServerOperation.builder(id, RestMethod.GET, id + "/")
+                .displayName(displayName)
+                .description(description)
+                .category(ServerOperation.Category.ADMINISTRATION)
+                .requiresAuthentication()
+                .administration()
+                .returns(returns)
+                .build();
+    }
 
     /**
      * Smile CDR's operations, which is what the generic operation screen lists for a

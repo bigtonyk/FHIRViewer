@@ -208,6 +208,30 @@ class ServerUiSmokeTest {
     }
 
     @Test
+    @DisplayName("The status screen names the plugin serving the server, in words")
+    void statusScreenNamesTheServingPlugin() throws Exception {
+        // The confusion this fixes was real and cost several rounds: a Firely server saved
+        // with the default plugin is served as a plain FHIR server, and offers two
+        // operations - which reads as "Firely only has two". Naming the plugin is what makes
+        // the two cases tellable apart.
+        AtomicReference<String> report = new AtomicReference<>();
+        runOnFxThread(() -> {
+            ServerStatusDialog dialog = new ServerStatusDialog(service, manager,
+                    manager.servers().get(0), themeManager);
+            report.set(dialog.reportTextForTest());
+            dialog.close();
+        });
+
+        String text = report.get();
+        assertNotNull(text, "the status screen showed no report at all");
+        assertTrue(text.contains("Served by:"),
+                "the status screen does not say which plugin serves this server:\n" + text);
+        assertTrue(text.contains("Result Shapes"),
+                "the plugin is named by id rather than by its display name, which is not "
+                        + "something a user can act on:\n" + text);
+    }
+
+    @Test
     @DisplayName("The open-from-server screen builds with its search results table")
     void buildsTheOpenScreen() throws Exception {
         runOnFxThread(() -> {
@@ -1214,6 +1238,44 @@ class ServerUiSmokeTest {
                     "a bearer token stands alone and has no user name");
             assertTrue(dialog.form().secretField().isVisible(),
                     "Bearer still needs its token");
+        });
+    }
+
+    @Test
+    @DisplayName("The credential fields are on screen, not merely present")
+    void credentialFieldsAreWithinTheVisibleArea() throws Exception {
+        // The test above asserted isVisible(), which is true for a control scrolled out of
+        // sight. That is exactly the gap: "choose an authentication and the user name and
+        // password never appear" passed every assertion above, because both fields existed,
+        // were enabled, were populated - and sat below the bottom of the form pane.
+        //
+        // So measure. Lay the dialog out at its own preferred size, choose Basic, and require
+        // both fields to fall inside the scroll viewport.
+        AtomicReference<ServerManagerDialog> built = new AtomicReference<>();
+        runOnFxThread(() -> built.set(new ServerManagerDialog(service, new FhirServerManager(), null)));
+        ServerManagerDialog dialog = built.get();
+
+        runOnFxThread(() -> {
+            dialog.form().authBox().getSelectionModel().select(ServerAuthKind.BASIC);
+            dialog.getDialogPane().applyCss();
+            dialog.getDialogPane().layout();
+            javafx.scene.control.ScrollPane scroll = dialog.formScrollForTest();
+            scroll.applyCss();
+            scroll.layout();
+
+            Bounds view = scroll.localToScene(scroll.getViewportBounds());
+            for (javafx.scene.control.TextField field : java.util.List.of(
+                    dialog.form().userField(), dialog.form().secretField())) {
+                Bounds bounds = field.localToScene(field.getBoundsInLocal());
+                assertTrue(bounds.getMaxY() <= view.getMaxY() + 1,
+                        "the " + field.getPromptText() + " field ends at "
+                                + (int) bounds.getMaxY() + " but the form pane ends at "
+                                + (int) view.getMaxY() + " - it is below the fold, so the user "
+                                + "cannot see it however correct everything else is");
+                assertTrue(bounds.getHeight() > 0,
+                        "the " + field.getPromptText() + " field has no height on screen");
+            }
+            dialog.close();
         });
     }
 

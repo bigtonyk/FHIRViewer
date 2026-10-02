@@ -62,19 +62,65 @@ class SmileCdrPluginOperationsTest {
     }
 
     @Test
-    @DisplayName("Smile's operations run on the FHIR endpoint, not the Admin JSON API")
-    void operationsAreOnTheFhirEndpoint() {
-        // This is the load-bearing assertion. Smile's JSON Admin API is on a separate port
-        // (typically 9000) from the FHIR endpoint (typically 8000), and this application
-        // resolves operation paths against the single base URL the user configured. A path
-        // under admin-json would therefore 404 on every real server while looking entirely
-        // plausible — see docs/plans/08_SECOND_BASE_URL_FOR_ADMIN_APIS.md.
+    @DisplayName("Smile's re-index operations run on the FHIR endpoint, not the Admin JSON API")
+    void reindexOperationsAreOnTheFhirEndpoint() {
+        // The load-bearing assertion for the re-index family. Smile's JSON Admin API is on a
+        // separate port (typically 9000) from the FHIR endpoint (typically 8000), and the
+        // single base URL reaches only the latter - so a path under the admin API would 404 on
+        // every real server while looking entirely plausible.
+        //
+        // Narrowed from the original "no operation may use the admin API" once Phase 9 made
+        // that reachable. What matters now is that the two groups are told apart explicitly,
+        // by the flag rather than by guessing from the path.
         for (ServerOperation operation : plugin.availableOperations()) {
-            String path = operation.pathTemplate();
-            assertFalse(path.contains("admin-json"),
-                    operation.id() + " must not use the Admin JSON API branch: " + path);
-            assertFalse(path.startsWith("admin/"),
-                    operation.id() + " must not use an admin branch: " + path);
+            if (!isAdminApi(operation.id())) {
+                assertFalse(operation.isAdministration(),
+                        operation.id() + " is served from the FHIR endpoint and must not be "
+                                + "flagged as an administration call");
+                assertFalse(operation.pathTemplate().startsWith("admin/"),
+                        operation.id() + " must not use an admin branch: "
+                                + operation.pathTemplate());
+            }
+        }
+    }
+
+    /** The JSON Admin API calls, which either carry an admin- prefix or are their own path. */
+    private static boolean isAdminApi(String id) {
+        return id.startsWith("admin-")
+                || java.util.Set.of("version", "config", "runtime-status", "metrics",
+                        "openid-clients", "openid-sessions", "privacy-notice").contains(id);
+    }
+
+    @Test
+    @DisplayName("The JSON Admin API operations are flagged as administration calls")
+    void adminApiOperationsAreFlagged() {
+        // Each needs the server's administration URL to be reachable at all. Without the flag
+        // they would be sent to the FHIR endpoint on port 8000 and fail on every real server
+        // while looking correctly declared.
+        List<String> admin = plugin.availableOperations().stream()
+                .filter(ServerOperation::isAdministration)
+                .map(ServerOperation::id)
+                .toList();
+
+        assertTrue(admin.contains("version"), "the version call is missing");
+        assertTrue(admin.contains("admin-user-list"), "the user list is missing");
+        assertTrue(admin.contains("admin-invalidate-sessions"),
+                "the session invalidation call is missing");
+        assertEquals(9, admin.size(),
+                "expected nine JSON Admin API operations, all flagged: " + admin);
+    }
+
+    @Test
+    @DisplayName("Every JSON Admin API operation needs credentials")
+    void adminApiOperationsNeedCredentials() {
+        // All of them require ACCESS_ADMIN_JSON. Declaring it means a session without
+        // credentials is told so locally, rather than by a 401 from a server that had nothing
+        // better to say.
+        for (ServerOperation operation : plugin.availableOperations()) {
+            if (operation.isAdministration()) {
+                assertTrue(operation.requiresAuthentication(),
+                        operation.id() + " reaches the admin API and must require credentials");
+            }
         }
     }
 

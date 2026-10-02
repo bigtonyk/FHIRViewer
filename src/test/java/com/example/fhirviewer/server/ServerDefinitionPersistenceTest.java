@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -83,6 +84,72 @@ class ServerDefinitionPersistenceTest {
         assertFalse(replaced, "an unknown server must not be replaced");
         assertEquals(1, manager.servers().size());
         assertEquals("Real", manager.servers().get(0).name());
+    }
+
+    @Test
+    @DisplayName("An administration URL survives a save and a load")
+    void administrationUrlSurvivesARestart() throws IOException {
+        // Without this the field would look saved and quietly revert on the next launch, and
+        // the symptom would be Smile's admin operations failing against port 8000.
+        Path file = directory.resolve("server-definitions.properties");
+        FhirServerManager before = new FhirServerManager();
+        before.add(ServerDefinition.named("Smile", "https://smile.example.org:8000/fhir")
+                .pluginId(SmileCdrPlugin.PLUGIN_ID)
+                .administrationBaseUrl("https://smile.example.org:9000")
+                .build());
+        before.save(file);
+
+        FhirServerManager after = new FhirServerManager();
+        after.load(file);
+
+        assertEquals(1, after.servers().size());
+        assertEquals("https://smile.example.org:8000/fhir", after.servers().get(0).baseUrl());
+        assertEquals("https://smile.example.org:9000",
+                after.servers().get(0).administrationBaseUrl(),
+                "the administration URL did not survive a restart");
+    }
+
+    @Test
+    @DisplayName("A server with no administration URL writes no key for one")
+    void noAdministrationUrlMeansNoKey() throws IOException {
+        // The overwhelmingly common case. Writing an empty key would put a line in every
+        // user's settings file that means nothing, and would make an unrelated diff appear
+        // when the field is added.
+        Path file = directory.resolve("server-definitions.properties");
+        FhirServerManager manager = new FhirServerManager();
+        manager.add(ServerDefinition.named("Plain", "https://plain.example.org/fhir").build());
+        manager.save(file);
+
+        String written = Files.readString(file, StandardCharsets.UTF_8);
+        assertFalse(written.contains("administrationBaseUrl"),
+                "a server with no administration URL wrote a key for one anyway:\n" + written);
+
+        FhirServerManager after = new FhirServerManager();
+        after.load(file);
+        assertNull(after.servers().get(0).administrationBaseUrl(),
+                "a file with no administration key must load as having none");
+    }
+
+    @Test
+    @DisplayName("A settings file written before the field existed still loads")
+    void fileWrittenBeforeTheFieldStillLoads() throws IOException {
+        // Hand-written rather than saved, so it is genuinely the old format.
+        Path file = directory.resolve("server-definitions.properties");
+        Files.writeString(file, String.join("\n",
+                "server.1.name=Old",
+                "server.1.baseUrl=https://old.example.org/fhir",
+                "server.1.fhirVersion=R4",
+                "server.1.pluginId=standard-rest",
+                "active=Old",
+                ""), StandardCharsets.UTF_8);
+
+        FhirServerManager manager = new FhirServerManager();
+        manager.load(file);
+
+        assertEquals(1, manager.servers().size(),
+                "a file written before the administration URL existed no longer loads");
+        assertEquals("Old", manager.servers().get(0).name());
+        assertNull(manager.servers().get(0).administrationBaseUrl());
     }
 
     @Test

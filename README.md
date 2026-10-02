@@ -2,7 +2,8 @@
 
 A cross-platform desktop application for loading, viewing and inspecting **FHIR R4**
 resources. It runs on Windows, macOS and Linux and is built with Java, JavaFX and
-HAPI FHIR. No FHIR server is required.
+HAPI FHIR. It works entirely offline on files you already have, and can additionally
+read from and write back to a FHIR server when you point it at one.
 
 The application is a developer/inspection tool: it answers questions such as
 *what is this element called, what datatype is it, what cardinality does it have, and
@@ -86,7 +87,7 @@ missing"*). `mvn javafx:run` uses the module path and therefore `Main`.
 - **Undo** (`Ctrl+Z`) reverts the last edit; when the last change is undone the resource
   matches the saved file again.
 - **Pretty View tab** (the default view) renders the resource the way a human would
-  read it â€” see [The Pretty View](#the-pretty-view).
+  read it — see [The Pretty View](#the-pretty-view).
 - **JSON and XML tabs** render the parsed resource pretty printed.
 - **Bundle navigator**: inspect the Bundle itself or jump into any entry.
 - **Validation** (Tools > Validate, `Ctrl+T`) reports errors and warnings with their
@@ -189,7 +190,7 @@ plus Encounter, Organization and a minimal Patient for the Pretty View).
 
 The **Pretty** tab is the default document view. It renders the resource as labelled
 sections instead of raw JSON/XML, the way a clinical application would present it.
-Like the tree it is completely generic â€” the same rules work for Patient, Observation,
+Like the tree it is completely generic — the same rules work for Patient, Observation,
 Encounter, Organization, Bundles, contained resources and extensions:
 
 - **Document header**: resource type, logical id, and resource level metadata
@@ -213,7 +214,7 @@ Encounter, Organization, Bundles, contained resources and extensions:
   - `Narrative` (xhtml) is reduced to plain text, `base64Binary` is summarised by size
 - **Backbone elements** (`Observation.component`), **contained resources** and
   **Bundle entries** become nested sections; a Bundle entry section is titled
-  `Entry 1 â€” Patient/patient-a`.
+  `Entry 1 — Patient/patient-a`.
 - **Bundle navigation** works with the Pretty View: selecting an entry in the Bundle
   navigator renders that entry's pretty document.
 
@@ -271,9 +272,10 @@ The working documents live under `docs/`, out of the repository root:
   the server features rather than changing them.
 - **`docs/plans/`** — the implementation plans, one per feature. Read the plan for a
   feature before changing it; each one records the design decisions behind the code.
-  Note that the phase numbers here are per-plan and do not always match the "Phase"
-  column in the status table above (the packaging plan and the Open/Save plan are
-  both numbered 7), so link to a plan by filename rather than by number.
+  Note that the plan filenames and the "Phase" column in the status table above are
+  **not** a single sequence: the security review, backward compatibility and the
+  Open/Save work each have their own numbering, so link to a plan by filename
+  rather than by number.
 - **`docs/notes/`** — the original project plan and the loose requirement notes the
   plans were written from.
 - **`docs/architecture/`** — assessments of the code as it actually stands. Start with
