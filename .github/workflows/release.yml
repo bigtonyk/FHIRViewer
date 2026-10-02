@@ -1,0 +1,143 @@
+name: Release
+
+# Builds a launcher for each tagged release and attaches it to the GitHub
+# release. Triggered by pushing a version tag, so the tag is the single thing
+# that defines a release.
+on:
+  push:
+    tags: [ 'v*' ]
+  # For testing the workflow without publishing anything: run it from the
+  # Actions tab, optionally overriding the version.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, e.g. 0.1.0 (no leading v)'
+        required: true
+        type: string
+
+# Never two releases at once: a newer tag supersedes an in-flight one.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  # Required to create the release and upload the launcher. Least privilege
+  # for it: the release job needs write, nothing else does.
+  contents: write
+
+jobs:
+  build:
+    name: Build and publish ${{ inputs.version || github.ref_name }}
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # The build JDK must be 25, as in ci.yml: JavaFX 25 ships class files at
+      # major version 67 and an older javac refuses to read them. jpackage also
+      # has to be present, which every standard JDK from 21 onwards includes.
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      - name: Work out the version
+        id: version
+        # From a tag, v0.1.0 becomes 0.1.0. On a manual run the version is
+        # supplied. Either way it reaches the pom as -Ddist.version.
+        run: |
+          $raw = "${{ inputs.version || github.ref_name }}"
+          $v = $raw -replace '^v', ''
+          if ($v -notmatch '^\d+\.\d+(\.\d+)?([-+].*)?$') {
+            Write-Error "'$raw' is not a version like 0.1 or 0.1.0"
+            exit 1
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "tag=v$v" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      # Tests are skipped because ci.yml has already run them on this commit and
+      # they take several minutes. The release is built from a tag on a
+      # long-lived branch, so that run has happened; if it did not, the tag
+      # would not exist on the remote.
+      #
+      # The property is quoted: unquoted, Maven parses the dot in
+      # "dist.version" as the start of a lifecycle phase and fails with
+      # "Unknown lifecycle phase .version=0.1.0".
+      - name: Build the launcher
+        run: ./mvnw --batch-mode --no-transfer-progress -Pdist -DskipTests '-Ddist.version=${{ steps.version.outputs.version }}' package
+        shell: pwsh
+
+      # The image is proven by being started here rather than by inspecting it.
+      # Both launch failures found while building this - the missing JVM library
+      # and the missing java.logging module - passed every test and produced a
+      # complete-looking 250 MB artifact that could not start, so "the build
+      # succeeded" says nothing on its own.
+      #
+      # Every FHIRViewer process is polled, not just the one Start-Process
+      # returns: the launcher is a small native stub that starts the JVM in a
+      # second process, and it is that second one that owns the window. Watching
+      # only the first reports "no window" for an application that is working.
+      - name: Check the launcher actually starts
+        run: |
+          $exe = 'target\dist-image\FHIRViewer\FHIRViewer.exe'
+          if (-not (Test-Path $exe)) { Write-Error "no launcher at $exe"; exit 1 }
+
+          $first = Start-Process $exe -PassThru
+          # Generous: the first run of a freshly packed image pays for jlink's
+          # output being read from disk.
+          $opened = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 2
+
+            if ($first.HasExited -and -not (Get-Process -Name FHIRViewer -ErrorAction SilentlyContinue)) {
+              Write-Error "the launcher exited with code $($first.ExitCode) and left nothing running - it cannot start on this platform"
+              exit 1
+            }
+
+            $live = Get-Process -Name FHIRViewer -ErrorAction SilentlyContinue |
+                    Where-Object { $_.MainWindowHandle -ne 0 }
+            if ($live) {
+              Write-Host "launcher started and opened a window (pid $($live[0].Id))"
+              $opened = $true
+              break
+            }
+          }
+
+          Get-Process -Name FHIRViewer -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not $opened) {
+            Write-Error 'the launcher ran for two minutes without opening a window'
+            exit 1
+          }
+        shell: pwsh
+
+      # Zipped because a release asset has to be a single file, and because a
+      # zip is what someone unzips to get a runnable folder.
+      - name: Zip the launcher
+        run: |
+          $name = "FHIRViewer-${{ steps.version.outputs.version }}-windows"
+          Compress-Archive -Path 'target\dist-image\FHIRViewer' -DestinationPath "$name.zip"
+          Write-Host "created $name.zip"
+        shell: pwsh
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          # On a manual run there is no tag, so the release is made from the
+          # current branch instead; a tag push attaches to the tag that
+          # triggered it.
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.version }}
+          # Re-running a release replaces the asset rather than failing on the
+          # duplicate name.
+          fail_on_unmatched_files: false
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            FHIRViewer-${{ steps.version.outputs.version }}-windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
