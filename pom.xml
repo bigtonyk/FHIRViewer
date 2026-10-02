@@ -55,6 +55,8 @@
     <maven-compiler-plugin.version>3.14.1</maven-compiler-plugin.version>
     <maven-surefire-plugin.version>3.5.6</maven-surefire-plugin.version>
     <maven-dependency-plugin.version>3.8.1</maven-dependency-plugin.version>
+    <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
+    <exec-maven-plugin.version>3.6.4</exec-maven-plugin.version>
     <javafx-maven-plugin.version>0.0.8</javafx-maven-plugin.version>
 
     <main.class>com.example.fhirviewer.Main</main.class>
@@ -64,6 +66,17 @@
         mvn javafx:run "-Djavafx.args=C:\path\to\patient.json"
     -->
     <javafx.args></javafx.args>
+
+    <!--
+      Version string handed to jpackage.
+
+      ${project.version} cannot be used directly: "0.1.0-SNAPSHOT" is rejected
+      outright by the Windows packager ("contains invalid component"), and a macOS
+      or Linux build has its own restrictions. This strips the pre-release
+      suffix, which is what a shipped build should say anyway - a build offered
+      to someone is not a snapshot.
+    -->
+    <dist.version>0.1.0</dist.version>
   </properties>
 
   <dependencies>
@@ -229,7 +242,495 @@
         </executions>
       </plugin>
 
+      <!--
+        Lets 'mvn clean' succeed after a dist package.
+
+        jpackage marks FHIRViewer.exe read-only. maven-clean-plugin has no
+        attribute handling, so on Windows it reports only "Failed to delete
+        ...\FHIRViewer.exe" and leaves target/ half-deleted, after which every
+        later build fails for a reason unrelated to the change being built.
+        This is the recurring "mvn clean fails on this project" report, and
+        the application being open is a red herring: nothing holds the file.
+
+        In the main build rather than the dist profile, because a profile is
+        only active when asked for and 'mvn clean' does not ask. Bound inside
+        the profile this step is silently skipped - no warning, and nothing in
+        the output to say so.
+
+        Runs before the clean plugin's own execution. Reads the helper from the
+        source tree, because the clean is about to delete target. When nothing
+        has been packed the directory is absent and this is a no-op.
+      -->
+      <!--
+        Makes 'mvn clean' succeed after a dist package.
+
+        jpackage marks FHIRViewer.exe read-only. maven-clean-plugin's default
+        handling does not clear the attribute, so on Windows it reports only
+        "Failed to delete ...\FHIRViewer.exe" and leaves target/ half-deleted,
+        after which every later build fails for a reason unrelated to the
+        change being built. This is the recurring "mvn clean fails on this
+        project" report, and the application being open is a red herring:
+        nothing holds the file.
+
+        Implemented as an extra fileset in this plugin rather than as a step
+        bound to a phase. Two other approaches were tried and failed:
+
+          - a separate exec step on the clean phase: Maven orders same-phase
+            executions by the lifecycle mapping, not by declaration, so this
+            always ran *after* default-clean - confirmed with -X.
+          - the same step on pre-clean and on initialize: neither phase is
+            part of the clean lifecycle, so it was silently skipped, with no
+            warning and nothing in the output to show for it.
+
+        This handles the case where nothing is running but the file is still
+        read-only, which jpackage makes it: maven-clean-plugin reports a
+        warning and skips it, so target/ would otherwise keep a stale image
+        that the next build has to clear anyway.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-clean-plugin</artifactId>
+        <configuration>
+          <failOnError>false</failOnError>
+          <filesets>
+            <!--
+              The launcher jpackage writes read-only. Listed first so it is
+              removed while the directory is still empty of anything else.
+            -->
+            <fileset>
+              <directory>${project.build.directory}/dist-image</directory>
+              <includes>
+                <include>**/*.exe</include>
+              </includes>
+            </fileset>
+          </filesets>
+        </configuration>
+      </plugin>
+
     </plugins>
   </build>
+
+  <!--
+    ===================================================================
+    dist profile: produces a build a user can launch by double-clicking.
+
+        mvnw -Pdist package
+
+    Without -Pdist the ordinary build is unchanged and produces only the
+    plain jar. This profile is opt-in because it needs the jpackage tool
+    from the JDK and takes far longer than a normal package.
+
+    What comes out:
+
+      dist-image/FHIRViewer/   the application image: an .exe launcher
+                               plus a private copy of the Java runtime,
+                               so the user needs no JDK installed.
+      dist/FHIRViewer.msi      an installer (Windows only).
+
+    Each is built for the machine that built it. jpackage cannot
+    cross-compile: a Windows image is produced on Windows, a macOS .dmg
+    on macOS, and a .deb on Linux.
+    ===================================================================
+  -->
+  <profiles>
+    <profile>
+      <id>dist</id>
+      <build>
+        <plugins>
+
+          <!--
+            Step 1: collect this application's jar and every runtime
+            dependency into one directory for jpackage to copy from.
+
+            Built as its own step rather than pointed straight at target/lib,
+            because target/lib also holds jars only the test run needs, and
+            because jpackage cannot be handed target/classes - it wants jars.
+          -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <version>${maven-dependency-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>assemble-dist-input</id>
+                <phase>prepare-package</phase>
+                <goals><goal>copy-dependencies</goal></goals>
+                <configuration>
+                  <includeScope>runtime</includeScope>
+                  <outputDirectory>${project.build.directory}/dist-input</outputDirectory>
+                  <!--
+                    okio is a multi-release jar that depends on okio-jvm for
+                    the actual classes. Both land in dist-input, and jpackage
+                    resolves modules from that directory, so it refuses:
+
+                      Two versions of module okio found
+                      (okio-jvm-3.16.4.jar and okio-3.16.4.jar)
+
+                    okio-jvm alone is the complete artifact, so it is the one
+                    kept. Excluded rather than renamed: renaming would leave
+                    two jars claiming to be the same module and fail again.
+
+                    Written as excludeArtifactIds rather than the dependency
+                    plugin's exclusions element, which this goal ignores -
+                    tried first, and it silently copied both jars anyway.
+
+                    The javafx-* and xmlresolver pairs in dist-input are not
+                    affected - those are the platform-classifier variants
+                    (javafx-base-25.0.4.jar and javafx-base-25.0.4-win.jar),
+                    which carry distinct file names.
+                  -->
+                  <excludeArtifactIds>okio</excludeArtifactIds>
+                  <!--
+                    Stale jars here would be copied into the shipped image,
+                    and the image is what a user runs. Always take the
+                    current ones.
+                  -->
+                  <overWriteReleases>true</overWriteReleases>
+                  <overWriteSnapshots>true</overWriteSnapshots>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+          <!--
+            Step 2: put this application's own jar in the same directory.
+            The dependency plugin only handles dependencies, so without this
+            step jpackage has no main jar to launch.
+
+            Runs in the package phase, not prepare-package, because it has to
+            run *after* the jar is built. Bound earlier it copies nothing - the
+            log says "Copying 0 resource" and jpackage then fails with "the
+            configured main jar does not exist", which points at jpackage
+            rather than at the ordering mistake that caused it.
+          -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-resources-plugin</artifactId>
+            <version>${maven-resources-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>copy-application-jar</id>
+                <phase>package</phase>
+                <goals><goal>copy-resources</goal></goals>
+                <configuration>
+                  <outputDirectory>${project.build.directory}/dist-input</outputDirectory>
+                  <resources>
+                    <resource>
+                      <directory>${project.build.directory}</directory>
+                      <includes>
+                        <include>${project.build.finalName}.jar</include>
+                      </includes>
+                    </resource>
+                  </resources>
+                </configuration>
+              </execution>
+
+              <!--
+                The clean-up helper step 3 runs. Copied here rather than read
+                from src/main/dist at run time so that it lives in target,
+                where nothing is picked up by the application build, and so
+                the file actually used by a build is the one in the build
+                output - visible in target if a build ever misbehaves.
+              -->
+              <execution>
+                <id>copy-clear-helper</id>
+                <phase>prepare-package</phase>
+                <goals><goal>copy-resources</goal></goals>
+                <configuration>
+                  <outputDirectory>${project.build.directory}</outputDirectory>
+                  <resources>
+                    <resource>
+                      <!--
+                        Referenced by name in the argument list below, so the
+                        name has to match exactly. It need not match the class
+                        name: Maven copies the file verbatim and nothing
+                        compiles it here.
+                      -->
+                      <directory>src/main/dist</directory>
+                      <filtering>false</filtering>
+                      <includes>
+                        <include>clear-previous-image.java</include>
+                      </includes>
+                    </resource>
+                  </resources>
+                </configuration>
+              </execution>
+
+              <!--
+                The jpackage module path: the JavaFX jars and nothing else.
+
+                Only the JavaFX jars are named here because jlink, which
+                jpackage runs internally, needs a module descriptor for
+                everything on that path. The other jars - xpp3 and its
+                neighbours - have none, so a module path containing them
+                fails with "Unable to derive module descriptor".
+
+                The JavaFX jars stay in dist-input as well and still travel
+                on the class path; this directory exists only to satisfy
+                jlink.
+              -->
+              <execution>
+                <id>stage-javafx-modules</id>
+                <phase>prepare-package</phase>
+                <goals><goal>copy-resources</goal></goals>
+                <configuration>
+                  <outputDirectory>${project.build.directory}/dist-modules</outputDirectory>
+                  <resources>
+                    <resource>
+                      <directory>${project.build.directory}/dist-input</directory>
+                      <filtering>false</filtering>
+                      <includes>
+                        <include>javafx-*.jar</include>
+                      </includes>
+                    </resource>
+                  </resources>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+          <!--
+            Step 3: remove any previous image, then (step 4) build the
+            application image - the launcher .exe together with a private copy
+            of the Java runtime, so the person receiving it needs nothing
+            installed.
+
+            Both steps are in ONE plugin block on purpose. Declaring
+            exec-maven-plugin twice makes Maven discard all but the last,
+            silently taking the clean-up with it - which is exactly what
+            happened the first time, and why a second build of a clean checkout
+            failed with only "Application destination directory ..." to show
+            for it. The unlock-packaged-image step for 'mvn clean' lives in
+            this same block for the same reason.
+
+            Uses the JDK's single-file source launcher, which needs nothing
+            but java itself and behaves the same everywhere. The source lives
+            in src/main/dist, outside the application source tree so it is
+            never compiled into the shipped jar, and is copied into target by
+            the resources step above.
+
+            Ignores a missing directory: that is the ordinary first-build case.
+
+            Bound to prepare-package so it runs before step 4. Two executions
+            of one plugin that share a phase are ordered only by where they are
+            declared, which is a fragile thing to rely on.
+          -->
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <version>${exec-maven-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>clear-previous-image</id>
+                <phase>package</phase>
+                <goals><goal>exec</goal></goals>
+                <configuration>
+                  <executable>${java.home}/bin/java</executable>
+                  <arguments>
+                    <!--
+                      Read from src/main/dist, not target: this runs in
+                      prepare-package, and a build that has just been cleaned
+                      has no copy in target to run.
+                    -->
+                    <argument>src/main/dist/clear-previous-image.java</argument>
+                    <argument>${project.build.directory}/dist-image/FHIRViewer</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+
+              <!--
+                Step 4: build the application image.
+
+                The module-path option points at a directory holding only the
+                JavaFX jars, and that is what makes this build work at all.
+                The reasoning, because the obvious thing fails twice:
+
+                  - omitting it entirely leaves jlink unable to resolve
+                    javafx.* ("Module javafx.base not found"), since those
+                    modules are not in the JDK.
+                  - pointing it at the whole input directory is worse: jlink
+                    then demands a module descriptor from *every* jar there,
+                    and fails on the first that has none, e.g. "Unable to
+                    derive module descriptor for xpp3-1.1.6.jar".
+
+                So the JavaFX jars are copied out into dist-modules and that
+                alone is the module path. Everything else - including the
+                JavaFX jars - also stays in the input directory and travels on
+                the class path, which is what a class-path application wants.
+
+                The main-jar option makes this a class-path application. The
+                main class is Launcher rather than Main on purpose: on a class
+                path the JVM refuses to start a main class that extends
+                Application, reporting "JavaFX runtime components are missing".
+
+                (Note for editors: XML comments cannot contain a double dash, so
+                jpackage options are named here without their leading dashes.)
+              -->
+              <execution>
+                <id>package-app-image</id>
+                <phase>package</phase>
+                <goals><goal>exec</goal></goals>
+                <configuration>
+                  <executable>${java.home}/bin/jpackage</executable>
+                  <arguments>
+                    <argument>--type</argument>
+                    <argument>app-image</argument>
+                    <argument>--name</argument>
+                    <argument>FHIRViewer</argument>
+                    <argument>--app-version</argument>
+                    <argument>${dist.version}</argument>
+                    <argument>--vendor</argument>
+                    <argument>FHIR Resource Viewer</argument>
+                    <argument>--description</argument>
+                    <argument>Desktop viewer for FHIR R4 resources</argument>
+                    <argument>--dest</argument>
+                    <argument>${project.build.directory}/dist-image</argument>
+                    <argument>--input</argument>
+                    <argument>${project.build.directory}/dist-input</argument>
+                    <argument>--main-jar</argument>
+                    <argument>${project.build.finalName}.jar</argument>
+                    <argument>--main-class</argument>
+                    <argument>com.example.fhirviewer.Launcher</argument>
+                    <argument>--module-path</argument>
+                    <argument>${project.build.directory}/dist-modules</argument>
+                    <argument>--add-modules</argument>
+                    <!--
+                      Every JDK module the application needs, not only the
+                      JavaFX ones.
+
+                      jlink, which jpackage runs internally, follows requires
+                      directives and nothing else. The application's libraries
+                      are plain jars on the class path with no module
+                      descriptor, so their JDK module requirements are invisible
+                      to that resolution. Naming the three JavaFX modules alone
+                      produced a nine-module runtime, and an image that started
+                      and then died the moment it touched an absent module: the
+                      packaged launcher reported only
+
+                        Failed to launch JVM
+
+                      over a NoClassDefFoundError for java/util/logging/Logger -
+                      a Logger field in MainWindow, and java.logging is not
+                      pulled in by any module in the JavaFX closure.
+
+                      This list is what jdeps reports as the root modules for the
+                      jars that ship, with the JavaFX modules added by hand: the
+                      JavaFX jars are on the module path, but the application
+                      uses them from the class path, so jdeps reports them as
+                      missing and never names their modules.
+
+                      Naming roots is enough. jlink walks their requires closure
+                      itself, which is why java.logging, java.xml and jdk.zipfs
+                      do not appear below and are still present in the runtime.
+
+                      After a dependency change, refresh the list by running
+                      jdeps over the application jar with dist-input on the class
+                      path:
+
+                        jdeps multi-release 25 ignore-missing-deps
+                          print-module-deps
+                          module-path "target/dist-modules"
+                          class-path "target/dist-input/*"
+                          target/dist-input/fhir-viewer-0.1.0-SNAPSHOT.jar
+
+                      Options are written without their leading dashes, as the
+                      note above about XML comments explains.
+
+                      Cryptographic providers are deliberately absent. On the
+                      JDK in use SunEC lives in java.base and jdk.crypto.ec
+                      holds little more than a module descriptor, and an HTTPS
+                      request from the trimmed runtime was checked to work
+                      without it.
+                    -->
+                    <argument>javafx.base,javafx.graphics,javafx.controls,java.base,java.desktop,java.instrument,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml.crypto,jdk.attach,jdk.httpserver,jdk.javadoc,jdk.jdi,jdk.jfr,jdk.unsupported</argument>
+                    <!--
+                      The two opens the development launcher has always
+                      passed. Carried across rather than left out: without
+                      them the packaged application starts and then fails
+                      later, which is much harder to diagnose than a build
+                      error.
+                    -->
+                    <argument>--java-options</argument>
+                    <argument>--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+
+              <!--
+                Clears the read-only attribute jpackage puts on the launcher.
+
+                Without it 'mvn clean' leaves the image behind: the clean
+                plugin skips a read-only file, warns, and carries on, so
+                target/ keeps a stale copy that the next build has to clear
+                anyway. Clearing the attribute as part of the build is the
+                point at which the file is definitely not running, so nothing
+                can be holding it.
+
+                Runs after jpackage, so it sees the file the build just made.
+
+                Read from the source tree rather than from target, like every
+                other use of it: a build that starts from a clean target has no
+                copy in target yet, and the one made in prepare-package is not
+                there if anything cleaned in between.
+              -->
+              <!--
+                Repairs the runtime image on JDKs whose native layout differs
+                from what jlink expects, then clears the read-only attribute
+                jpackage puts on the launcher.
+
+                Without the repair the packaged application fails at startup
+                with "Failed to start JVM" on Microsoft's JDK, which is not
+                obviously a missing file: the image is otherwise complete, and
+                the runtime is tens of megabytes. A no-op on a conventional
+                JDK, where the library is already in place.
+
+                The read-only part is what makes 'mvn clean' work afterwards;
+                the clean plugin skips a read-only file and leaves the whole
+                image behind.
+
+                Both flags come first: the helper reads them positionally, so a
+                trailing flag is taken as the path and it reports its usage
+                instead of doing anything.
+              -->
+              <execution>
+                <id>finish-app-image</id>
+                <phase>package</phase>
+                <goals><goal>exec</goal></goals>
+                <configuration>
+                  <executable>${java.home}/bin/java</executable>
+                  <arguments>
+                    <argument>src/main/dist/clear-previous-image.java</argument>
+                    <argument>--repair-jvm</argument>
+                    <argument>${project.build.directory}/dist-image/FHIRViewer</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+
+              <!--
+                Clears the read-only attribute jpackage puts on the launcher.
+                A separate invocation from the repair above because each mode of
+                the helper takes its own argument shape, and passing both in
+                one call makes it report its usage and do nothing.
+              -->
+              <execution>
+                <id>unlock-launcher</id>
+                <phase>package</phase>
+                <goals><goal>exec</goal></goals>
+                <configuration>
+                  <executable>${java.home}/bin/java</executable>
+                  <arguments>
+                    <argument>src/main/dist/clear-previous-image.java</argument>
+                    <argument>--unlock-only</argument>
+                    <argument>${project.build.directory}/dist-image/FHIRViewer/FHIRViewer.exe</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 
 </project>

@@ -244,24 +244,21 @@ validation messages at the bottom.
 ## Packaging (Phase 7)
 
 
-`mvn package` copies all runtime dependencies into `target/lib`, which makes packaging
-with jpackage straightforward:
+`mvnw -Pdist package` produces the build that can be handed to someone: a launcher
+plus a trimmed, private Java runtime, so the recipient needs no JDK and no commands to
+type. On Windows that writes `target\dist-image\FHIRViewer\FHIRViewer.exe`; macOS and
+Linux get the same application image in their own form. Because JavaFX is resolved by
+Maven, the platform specific JavaFX jars already sit in `target/lib` for the platform
+that performed the build. Build the package on the target operating system to produce
+a native bundle - jpackage cannot cross-compile.
 
-```bat
-:: Windows (app-image; add --type msi for an installer)
-jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-0.1.0-SNAPSHOT.jar ^
-  --main-class com.example.fhirviewer.Launcher --type app-image
-```
+A bare `jpackage` command over `target/lib` is not enough on its own: the runtime it
+packs would miss modules the application reaches from the class path, and the app
+would then fail at startup. The module list lives with the `jpackage` invocation in
+the `dist` profile in `pom.xml`.
 
-```bash
-# macOS / Linux
-jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-0.1.0-SNAPSHOT.jar \
-  --main-class com.example.fhirviewer.Launcher --type app-image
-```
-
-Because JavaFX is resolved by Maven, the platform specific JavaFX jars already sit in
-`target/lib` for the platform that performed the build. Build the package on the target
-operating system to produce a native bundle.
+See **`docs/building-a-launchable-build.md`** for what lands where and how to diagnose
+a misbehaving image.
 
 ## Documentation
 
@@ -270,6 +267,9 @@ The working documents live under `docs/`, out of the repository root:
 - **`docs/user-guide/FHIR-Server-Functions.md`** — how to point the viewer at a FHIR
   server, read resources from it and write changes back. Start here if you are using
   the server features rather than changing them.
+- **`docs/building-a-launchable-build.md`** — how to produce a build someone can
+  launch by double-clicking, with no JDK installed on their machine. Read this
+  if you are handing the viewer to someone rather than running it yourself.
 - **`docs/plans/`** — the implementation plans, one per feature. Read the plan for a
   feature before changing it; each one records the design decisions behind the code.
   Note that the plan filenames and the "Phase" column in the status table above are
