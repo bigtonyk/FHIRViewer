@@ -97,12 +97,31 @@ still produces just the jar.
 2. **Remove any previous image** from `target/dist-image`, because `jpackage`
    refuses to write into a directory that already exists.
 3. **Run `jpackage`** to build the application image.
-4. **Clear the read-only attribute** `jpackage` puts on the launcher, so that
-   `mvnw clean` can delete it afterwards.
+4. **Finish the image**: repair the JVM library if the JDK that built it names
+   it differently (see below), and clear the read-only attribute `jpackage`
+   puts on the launcher so that `mvnw clean` can delete it afterwards.
 
-`src/main/dist/clear-previous-image.java` does the file removal in steps 2 and 4.
-It is a single-file Java program rather than a shell script so it behaves the
-same on all three platforms.
+`src/main/dist/clear-previous-image.java` does the file removal in steps 2 and 4,
+and the repair in step 4. It is a single-file Java program rather than a shell
+script so it behaves the same on all three platforms.
+
+### The JDK-layout repair
+
+`jlink` assumes the JVM library is called `server.jvm.dll`. Some JDKs - notably
+Microsoft's - call it `jvm.dll` instead, so the image `jlink` produces has no
+`lib/server` directory at all and the packaged application fails at startup with
+`Failed to start JVM`.
+
+The build copies the library into the image under the expected name, and says so
+in the log:
+
+```
+added server\server.jvm.dll - this JDK names the JVM library differently
+```
+
+On a conventional JDK this step does nothing at all. It is harmless anywhere, and
+necessary on at least one commonly used JDK - worth knowing if you build on
+several machines.
 
 ## Troubleshooting
 
@@ -135,6 +154,19 @@ appears, a new dependency has introduced another such pair - check
 The application jar was not collected. This happens if the copy step runs before
 the jar is built; if you have moved that step in the pom, move it back to the
 `package` phase.
+
+**The packaged application fails with "Failed to start JVM"**
+
+Not expected, and it should not happen from a build made by this project - the
+build repairs this. If you see it, the build predates that repair, or the image
+was assembled by hand. Delete `target\dist-image` and build again.
+
+The cause is a JDK whose native layout differs from what `jlink` assumes -
+Microsoft's JDK, for one, keeps the JVM library as `bin/server/jvm.dll` rather
+than the conventional `server.jvm.dll`, so `jlink` produces an image with no
+`lib/server` directory. The image looks complete - the runtime is tens of
+megabytes and `modules` is present - which is why the error is confusing. See
+`repairJvmLibrary` in `src/main/dist/clear-previous-image.java`.
 
 **`Module javafx.base not found`**
 

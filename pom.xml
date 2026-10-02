@@ -673,6 +673,45 @@
                 copy in target yet, and the one made in prepare-package is not
                 there if anything cleaned in between.
               -->
+              <!--
+                Repairs the runtime image on JDKs whose native layout differs
+                from what jlink expects, then clears the read-only attribute
+                jpackage puts on the launcher.
+
+                Without the repair the packaged application fails at startup
+                with "Failed to start JVM" on Microsoft's JDK, which is not
+                obviously a missing file: the image is otherwise complete, and
+                the runtime is tens of megabytes. A no-op on a conventional
+                JDK, where the library is already in place.
+
+                The read-only part is what makes 'mvn clean' work afterwards;
+                the clean plugin skips a read-only file and leaves the whole
+                image behind.
+
+                Both flags come first: the helper reads them positionally, so a
+                trailing flag is taken as the path and it reports its usage
+                instead of doing anything.
+              -->
+              <execution>
+                <id>finish-app-image</id>
+                <phase>package</phase>
+                <goals><goal>exec</goal></goals>
+                <configuration>
+                  <executable>${java.home}/bin/java</executable>
+                  <arguments>
+                    <argument>src/main/dist/clear-previous-image.java</argument>
+                    <argument>--repair-jvm</argument>
+                    <argument>${project.build.directory}/dist-image/FHIRViewer</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+
+              <!--
+                Clears the read-only attribute jpackage puts on the launcher.
+                A separate invocation from the repair above because each mode of
+                the helper takes its own argument shape, and passing both in
+                one call makes it report its usage and do nothing.
+              -->
               <execution>
                 <id>unlock-launcher</id>
                 <phase>package</phase>
@@ -681,11 +720,6 @@
                   <executable>${java.home}/bin/java</executable>
                   <arguments>
                     <argument>src/main/dist/clear-previous-image.java</argument>
-                    <!--
-                      The flag comes first: the helper reads it positionally,
-                      so a trailing flag is taken as the path and it reports
-                      its usage instead of doing anything.
-                    -->
                     <argument>--unlock-only</argument>
                     <argument>${project.build.directory}/dist-image/FHIRViewer/FHIRViewer.exe</argument>
                   </arguments>
