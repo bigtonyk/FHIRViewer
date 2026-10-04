@@ -21,7 +21,7 @@ plugin layer and is sitting there unused by the UI. This plan is mostly about ex
 
 | # | Requirement | Where it lands |
 |---|-------------|----------------|
-| R1 | Get a bearer token | Auth selector + `Bearer` token field, held in memory for the console's lifetime |
+| R1 | Get a bearer token | Auth selector + `Bearer` token field, plus a **Fetch token…** button that runs an OAuth client-credentials grant against a token endpoint (Phase E). Held in memory for the console's lifetime. |
 | R2 | Enter user name and password | Auth selector + user/password fields → `BasicServerAuthentication` |
 | R3 | Enter a REST URL base and the rest | Base URL field + path field, joined by `RestUrls` |
 | R4 | Enter parameters | Editable, ordered, repeatable query-parameter grid |
@@ -128,15 +128,21 @@ in a status line before the request goes out, and a write body is only enabled f
 that can carry one (`RestMethod.allowsRequestBody()`), so the UI cannot build a request
 the transport would reject.
 
-**DD12 — "Get a bearer token" means paste one, plus an optional token-endpoint fetch.**
-The requirement is ambiguous between *accept a token* and *obtain one by running an OAuth
-flow*. This plan implements the first (a token field, sent via `BearerServerAuthentication`,
-which already exists) and, as a clearly-marked optional step, a "Fetch token…" button
-that POSTs client-credentials to a user-supplied token endpoint and puts the result in the
-field. **No SMART on FHIR, no authorization-code flow, no browser hand-off, no token
-cache** — those need a client registration and a token store, and a half-built version of
-one is worse than none. This is the same boundary `BearerServerAuthentication`'s own
-Javadoc already draws; see *Open questions* before starting the fetch step.
+**DD12 — "Get a bearer token" means paste one, *and* fetch one from a token endpoint.**
+*Confirmed with the user: both.* The console offers a token field for a pasted token, sent
+via `BearerServerAuthentication`, **and** a **Fetch token…** button that runs an OAuth 2.0
+`client_credentials` grant against a token endpoint the user types, putting the returned
+`access_token` into that field. Phase E is therefore in scope, not optional.
+
+The boundary is still the same one `BearerServerAuthentication`'s own Javadoc draws, and it
+is deliberately narrow: **no SMART on FHIR, no authorization-code flow, no browser
+hand-off, no token cache and no refresh.** Those need a client registration and a durable
+token store — a different piece of work with its own persistence and expiry questions, and
+a half-built version of one is worse than none.
+
+`client_credentials` is the right grant here precisely because it needs no user interaction:
+there is no login, no browser and nothing to store between runs, which is what makes it fit
+inside a debugging window that is already holding a client secret in memory.
 
 ## Implementation phases
 
@@ -326,19 +332,59 @@ because its whole purpose is calling endpoints no plugin declares. That is a rea
 to the architecture's central rule and it should be written down, not left for a reader to
 work out.
 
-### Phase E — Optional: fetch a bearer token
+### Phase E — Fetch a bearer token (in scope, per DD12)
 
-**Only after DD12 is confirmed**, and only as:
+Sits after Phase D so the console it plugs into already exists.
 
-- **`server/TokenEndpointClient.java`** — POST `grant_type=client_credentials` with a client
-  id and secret to a user-entered token endpoint, and read `access_token` out of the JSON
-  answer. Reuses `RestClient`; no new transport, no new JSON stack.
-- **`ui/TokenFetchDialog.java`** — collects the endpoint, client id and secret; puts the
-  returned token into the console's token field.
+**`server/TokenFetchResult.java`** — the outcome, as data.
 
-The client secret is held as a `char[]` for the dialog's lifetime and wiped on close. The
-token is **never persisted** by this path (DD3). A non-JSON or error answer is reported
-through `RestResponse.diagnostics()` like anything else.
+```java
+public record TokenFetchResult(String accessToken, String tokenType, Long expiresInSeconds) { }
+public static Optional<TokenFetchResult> from(String json);   // empty when the body is not one
+```
+
+Parsing the answer is separated from issuing the request for the same reason
+`RestOutcomeParser` is separate from `JdkHttpRestClient`: "the server said no" and "there
+was no server" are different failures and need different handling. `from` never throws — an
+HTML error page from a misconfigured endpoint yields `Optional.empty()`, not an exception.
+
+An OAuth error answer (`{"error":"invalid_client", …}`) is a `RestResponse`, not a
+transport failure, so it arrives through the normal path and is reported with
+`RestResponse.diagnostics()`. That is the case where the user mistyped the client secret,
+and the server's own words are the useful part.
+
+**`server/TokenEndpointClient.java`** — the grant.
+
+```java
+public TokenFetchResult fetch(String tokenEndpoint, String clientId, char[] clientSecret,
+                              String scope) throws ServerOperationException;
+```
+
+- `POST`, `application/x-www-form-urlencoded`, body `grant_type=client_credentials`,
+  `client_id`, and `client_secret` — a `RestRequest` through the existing `RestClient`, so
+  there is no new transport and no new JSON stack.
+- `Accept: application/json`.
+- The secret is a `char[]` so the caller can wipe it; it is never turned into a `String`
+  beyond the single form-encoding the transport requires, and `toString()` never prints it.
+- **Reuses `TransportSecurity.warningFor(tokenEndpoint)`** — a client secret sent over plain
+  `http://` to a non-loopback host is the same risk as a password, and the warning already
+  exists and is already worded. Skipping it here would be an inconsistency a reviewer would
+  rightly flag.
+
+**`ui/TokenFetchDialog.java`** — collects the token endpoint, client id, secret (a
+`PasswordField`) and an optional scope; shows a busy state; on success puts the token in the
+console's token field and switches the auth selector to `BEARER`; on failure shows the
+server's message through `ServerErrors`.
+
+**Wiring** — a **Fetch token…** button beside the token field in `RestRequestPane`, enabled
+only when the auth kind is `BEARER` and the field is empty. It is beside the field rather
+than inside the auth row because obtaining a token is a separate act from choosing how a
+request authenticates, and hiding it inside a dropdown would make a first-class capability
+look like a sub-option.
+
+**Expiry.** When `expires_in` is present the dialog says so — "expires in 3600 seconds" —
+because a token that expires mid-debugging produces a 401 that looks like a server fault.
+The token is **never persisted** and there is no refresh (DD12): re-fetch when it expires.
 
 ## Tests
 
@@ -356,6 +402,13 @@ follows that split.
 | `RestParameterListTest` | Order is preserved; a repeated name keeps both values; `parse` round-trips `toQueryString`; a bare flag parses to an empty value; percent-decoding works |
 | `RestConsoleFormTest` | `problem()` names the offending field; a body on `GET` is refused; `toRequest()` produces the expected `RestRequest` with ordered parameters; `resolvedUrl()` matches `RestUrls.join` |
 | `RestConsoleIntegrationTest` | End to end against `com.sun.net.httpserver.HttpServer` on `127.0.0.1:0`, the pattern `StandardFhirRestPluginTest` uses: a `RestConsoleForm` → `RestClient` → `RestAnswers.classify` round trip for a JSON resource, an XML resource, a plain-text refusal and a 404 |
+| `TokenFetchResultTest` | A well-formed grant yields the token and `expires_in`; `{"error":"invalid_client"}` yields empty rather than a bogus token; an HTML body yields empty; a missing `access_token` yields empty; `toString()` never prints the token |
+| `TokenEndpointClientTest` | Against a stub `HttpServer`: the request really is `POST`, form-encoded, carrying `grant_type=client_credentials`; the client secret reaches the stub and the client id does; a 401 surfaces as a `ServerOperationException` carrying the server's message; the `char[]` is not retained after `fetch` returns |
+
+The two token tests are the ones that matter most for Phase E. A token client that silently
+accepts an error body as if it were a token would present the user with a blank
+`Authorization` header and a 401 that looks like a permissions problem rather than a
+credential problem.
 
 That last one is the test that proves the whole feature rather than its parts. The offline
 suite stays offline; anything against `hapi.fhir.org` is marked network-dependent, as
@@ -373,9 +426,10 @@ These are constraints on the implementation, not advice.
    shown to the user goes through `ServerErrors.redact(String)`, which is already applied
    to everything that class returns; the console adds no path that bypasses it.
 2. **Never persist console credentials.** No write path to `PluginSettingsStore`, no
-   properties file, no Java preferences (DD3).
-3. **Password and token fields are `PasswordField`s**, never `TextField`s, so they are not
-   rendered in a screenshot or a screen share.
+   properties file, no Java preferences (DD3). This covers the **client secret** of the
+   Phase E token fetch as well as a password and a token.
+3. **Password, token and client-secret fields are `PasswordField`s**, never `TextField`s, so
+   they are not rendered in a screenshot or a screen share.
 4. **Plain HTTP with a credential is warned about**, not refused, using
    `TransportSecurity.warningFor(baseUrl)` — the existing rule and the existing wording.
    Refusing outright would break the local-development case the rule was written to allow.
@@ -389,7 +443,9 @@ These are constraints on the implementation, not advice.
 ## What this deliberately does not do
 
 - **No OAuth 2.0 authorization-code flow, no SMART on FHIR, no browser hand-off, no token
-  cache or refresh.** Phase E covers client-credentials and nothing more.
+  cache and no refresh.** Phase E does `client_credentials` and nothing more (DD12).
+- **No persisted client secret and no persisted token.** Both live only as long as the
+  window that holds them (DD3).
 - **No persistence of the console's own history**, and no saved "recent requests".
 - **No response paging or streaming.** A body is held in memory as text, which is what
   `RestResponse` already does; a multi-hundred-megabyte bundle export is out of scope and is
@@ -404,16 +460,20 @@ These are constraints on the implementation, not advice.
 
 ## Open questions
 
-1. **Does "a way to get a bearer token" mean accept a pasted token, or run a flow to obtain
-   one?** This plan implements paste, plus an optional client-credentials fetch. If SMART on
-   FHIR is actually wanted, it needs a client registration and a token store and is a plan
-   of its own, not a button.
-2. **Should the console be able to send to a configured server using its *saved*
+Resolved before implementation began:
+
+- ~~*Does "a way to get a bearer token" mean accept a pasted token, or run a flow to obtain
+  one?*~~ **Answered: both.** A pasted token field *and* a **Fetch token…** client-credentials
+  grant. Recorded as DD12; Phase E promoted from optional to in scope.
+
+Still open, none of which blocks Phases A–D:
+
+1. **Should the console be able to send to a configured server using its *saved*
    credentials, or always start anonymous?** This plan adds the *Custom…* entry and, for a
    configured server, resolves saved credentials through `ServerCredentials`. If a user
    would rather the console never touch the credential store, remove that branch and leave
    *Custom…* as the only path.
-3. **Should write verbs ship at all in the first version?** DD11 says yes. If the first
+2. **Should write verbs ship at all in the first version?** DD11 says yes. If the first
    release should be read-only, `RestConsoleForm` simply offers `GET` alone, and nothing else
    in the design changes.
 
@@ -431,11 +491,13 @@ These are constraints on the implementation, not advice.
 | `RestConsoleDialog.java` | `ui` | yes |
 | `RestRequestPane.java` | `ui` | yes |
 | `RestResponsePane.java` | `ui` | yes |
-| `TokenEndpointClient.java`, `TokenFetchDialog.java` | `server`, `ui` | no / yes | *(Phase E only)* |
+| `TokenFetchResult.java`, `TokenEndpointClient.java` | `server` | no |
+| `TokenFetchDialog.java` | `ui` | yes |
 
 **Added — tests:** `AdhocAuthenticationTest`, `AdhocServerTest` (`server`);
 `RestAnswersTest` (`server.rest`); `RestParameterListTest`, `RestConsoleFormTest`,
-`RestConsoleIntegrationTest` (`ui`); one addition to `ServerUiSmokeTest`.
+`RestConsoleIntegrationTest` (`ui`); `TokenFetchResultTest`, `TokenEndpointClientTest`
+(`server`); one addition to `ServerUiSmokeTest`.
 
 **Modified:** `MainWindow.java` — one menu item and one handler, nothing else.
 
@@ -445,7 +507,7 @@ These are constraints on the implementation, not advice.
 
 ## Estimated size
 
-Roughly 11 new production classes (5 of them small and JavaFX-free), 6 test classes, and a
+Ten new production classes (five of them small and JavaFX-free), eight test classes, and a
 two-hunk change to `MainWindow`. The bulk of the effort is Phase B's layout and the tests,
 not the logic — the transport, authentication, error wording, redaction and background
 threading all already exist and are only being called.
@@ -459,9 +521,12 @@ test suite passes, and:
    `Authorization` header and nothing else.
 2. A returned `Patient`, in JSON or XML, opens in the main viewer with the raw body still
    available in the console.
-3. A `404`, a `500` with an `OperationOutcome`, and a transport failure each produce a
+3. **Fetch token…** obtains a real token from a stub token endpoint and puts it in the token
+   field, and a wrong client secret reports the server's own OAuth error rather than
+   producing a blank `Authorization` header.
+4. A `404`, a `500` with an `OperationOutcome`, and a transport failure each produce a
    message a user can act on, with no credential in it.
-4. No token or password appears in any log line, any `toString()`, or any string reachable
-   from a dialog.
-5. `docs/user-guide/FHIR-Server-Functions.md` describes the screen, and the *Known gaps*
-   section says what it does not do.
+5. No token, password or client secret appears in any log line, any `toString()`, or any
+   string reachable from a dialog — including after a failed token fetch.
+6. `docs/user-guide/FHIR-Server-Functions.md` describes the screen, and the *Known gaps*
+   section says what it does not do, including that SMART on FHIR is not supported.
