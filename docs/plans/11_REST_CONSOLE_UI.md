@@ -1,5 +1,17 @@
 # Phase 11 — REST Console UI
 
+> **V1 is built.** Phases A–E and the V1 Postman-parity items (P1 cURL, P5 headers, P6
+> Bundle entries, P8 bytes-and-timing) are implemented on branch `feature/rest-ui`; 726 tests
+> pass. The **V2** items — request tabs, saved collections, `{{variables}}`,
+> CapabilityStatement-driven suggestions — are listed under *Postman parity* below and are
+> **not** built. OpenAPI import and Postman-style test scripts are not planned.
+>
+> What is implemented differs from the plan in two small ways, both forced by the code as it
+> stands: the server picker uses a small `ServerChoice` record rather than a cell converter
+> (`ComboBoxCellConverter` does not exist in JavaFX 25), and `RestAnswers` fills in
+> `OperationOutcome` issues from the resource it has already parsed when a caller-built
+> response carries none.
+
 ## Goal
 
 A screen where a user can type in **any** REST request — base URL, path, method,
@@ -488,10 +500,12 @@ always shown alongside any parsed view (DD8), arbitrary verbs and bodies (DD11).
 | P9 | **Import an OpenAPI/Swagger document** | Would generate a starter collection of FHIR calls. Attractive, large, and goes stale as vendors change their specs. | L |
 | P10 | **Postman-style test scripts** | A JavaScript sandbox inside a Java application. | L |
 
-**Suggested split:** v1 = P1, P5, P6, P8 (each small, each removes a concrete frustration).
-v2 = P4 **with** P2 — tabs are not worth much without collections to put in them — plus P7.
-Not planned: P9 and P10, and both should be written into the user guide's *Known gaps* so
-their absence is a decision rather than an oversight.
+**Suggested split — and what actually happened:** the user chose **V1**, so v1 = P1, P5, P6,
+P8 (all small, each removes a concrete frustration) **and that is what was built**; Phases A–E
+went with it. **Not built:** P2, P3, P4 (request tabs together with saved collections, and
+`{{variables}}`) and P7 (CapabilityStatement-driven suggestions). **Not planned:** P9 and P10.
+All of these, built and unbuilt, are stated in the user guide's *Known gaps* so their absence
+is a decision rather than an oversight.
 
 ## Open questions
 

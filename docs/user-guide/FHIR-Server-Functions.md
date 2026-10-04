@@ -25,7 +25,8 @@ describing an ideal.
 12. [Reading error messages](#12-reading-error-messages)
 13. [Where your settings live](#13-where-your-settings-live)
 14. [Troubleshooting](#14-troubleshooting)
-15. [Known gaps](#15-known-gaps)
+15. [The REST console](#15-the-rest-console)
+16. [Known gaps](#16-known-gaps)
 
 ---
 
@@ -766,7 +767,86 @@ action, because that is a defect worth reporting.
 
 ---
 
-## 15. Known gaps
+## 15. The REST console
+
+**Tools → REST Console...**
+
+The screens elsewhere are curated: they offer the operations a plugin declared. The console
+is the opposite — it lets you type *any* REST call and see exactly what came back. Use it
+for a vendor endpoint nobody declared, an operation with an argument the forms do not offer,
+or just to find out what a server actually does when you ask it something.
+
+It deliberately does not go through the plugin layer, because calling an endpoint no plugin
+declares is the whole point. Everything else is shared: the same HTTP transport, the same
+authentication, the same error messages, the same TLS behaviour.
+
+### Filling in the request
+
+| Field | What it is |
+|---|---|
+| **Server** | A server you have already configured, or **Custom URL…** to type any address. A server you have not configured can still be called. |
+| **Method** | `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. `GET` is the default. |
+| **Base URL** | The server root, e.g. `https://example.com/fhir`. Shown and used when **Custom URL…** is selected. |
+| **Path** | The rest, e.g. `Patient/123` or `/Patient?name=Smith`. The full address is previewed underneath as you type. |
+| **Query parameters** | A grid of name and value. A name may repeat — `_include` often does — and the order you type is the order that is sent. |
+| **Headers** | Any header you need: `If-Match`, `Prefer`, `_format`, a vendor's own. |
+| **Request body** | Enabled only for a method that can carry one. |
+
+The **Send** button refuses to send an incomplete request and tells you which field is
+missing, rather than opening a connection first.
+
+### Authentication
+
+Choose from **None**, **User name and password**, or **Bearer token**. Only the fields that
+kind needs are shown.
+
+- **Fetch token...** runs an OAuth 2.0 **client-credentials** grant against a token endpoint
+  you type, and puts the returned token in the token field. It reports when the token
+  expires, because one that expires mid-debugging looks like a server fault.
+- You may also paste a token you already have.
+
+There is deliberately **no `Authorization` header you can type yourself** — the console
+points you at the authentication selector instead, so a credential cannot end up sitting in
+a text field that gets screenshotted.
+
+Credentials typed here are **not saved**. They are forgotten when the window closes.
+
+### Reading the answer
+
+Four tabs:
+
+- **Body** — the raw response, exactly as the server sent it, whatever it turned out to be.
+  Use **Copy body** or **Save body to file...** when you need it elsewhere.
+- **Bundle entries** — when the answer is a Bundle, its entries are listed here. Double-click
+  one to open that resource in the main viewer; you rarely want the wrapper when you wanted
+  a search result.
+- **Headers** — the response headers, with any credential-bearing value replaced.
+- **Diagnostics** — what the server said when it refused.
+
+The line above the tabs gives the kind, the HTTP status, the size in bytes and how long it
+took, and repeats the server's own explanation on a failure.
+
+### Opening a resource in the viewer
+
+**Open in FHIR Viewer** is enabled when the body turned out to be a FHIR resource, and works
+for any verb — not just a search. The resource is opened with no server attached, so a later
+**Save to FHIR Server** will not write it back somewhere you did not choose.
+
+### Pasting and copying cURL
+
+- **Paste cURL...** fills the form from a `curl` command. This is the quickest way to run
+  something from a bug report, a wiki page or a vendor's documentation.
+- **Copy as cURL** puts the current request on the clipboard as a command you can paste into
+  a ticket. **Credentials are left out** of what it copies.
+
+`--insecure` is refused with an explanation rather than quietly ignored, because ignoring it
+would produce a request that behaves differently from the one you are looking at. Fix the
+certificate instead.
+
+
+---
+
+## 16. Known gaps
 
 Stated plainly, so nothing here reads as working when it does not.
 
@@ -777,15 +857,18 @@ Stated plainly, so nothing here reads as working when it does not.
 | **Bulk jobs are started, not finished** | `$export` and `$import` return `202` with a polling URL. The screen shows that acknowledgement; it does not follow the job to completion. Use `$export-poll-status` by hand to check on one. |
 | **Writing conformance resources** | Firely's administration API allows it; the viewer deliberately offers those searches read-only. |
 | **FHIRPath patch** | The three body-shaped patch formats only. A FHIRPath patch is a `Parameters` resource, and sending it as a merge patch would be wrong. |
-| **A raw REST console** | Deliberately excluded. Arbitrary GET/POST/PUT/DELETE would need its own authentication, error mapping and paging. Use the operation screen. |
+| ~~**A raw REST console**~~ | **Built** — **Tools → REST Console...** See [The REST console](#15-the-rest-console). It reuses the existing transport, authentication and error mapping rather than having its own. |
 | **Extra request headers per server** | Not persisted. A header *value* is a secret, and `ServerDefinition` has no way to hold one. |
 | **Transaction bundles** | No multi-resource write. Write one resource at a time. |
 | **Subscriptions and push notifications** | Out of scope. |
 | **Smile CDR's connection half has no automated test** | Its test file is disabled. The operation declarations added here are covered separately. |
 | **Most specification operations are unverified** | Four were run against a public server. The rest come from the specification and may not be implemented by your server. See [How far this has been checked](#the-specifications-operations-on-every-server). |
+| **Console requests are not saved** | The console holds one request at a time and keeps nothing between sessions — no saved collections, no request history, no `{{variable}}` environment. You can copy a request out as cURL and paste it back. |
+| **SMART on FHIR is not supported** | The console can *use* a bearer token and can *fetch* one with an OAuth client-credentials grant. It does not run an authorization-code flow, open a browser, or refresh an expired token. Re-fetch when one expires. |
+| **Console credentials are never stored** | A password or token typed into the console is forgotten when the window closes. Use the server manager to store one that should persist. |
+| **Very large responses are held in memory** | The whole body is loaded as text. A multi-hundred-megabyte bulk export is not something this handles well. |
 
 ---
-
 ## See also
 
 - [`Current-Plugin-Architecture.md`](../architecture/Current-Plugin-Architecture.md) —

@@ -134,7 +134,7 @@ private GridPane layout() {
 
         fetchButton.setDisable(true);
         busy.setVisible(true);
-        setStatus("Requesting a token ...");
+        setStatus("Requesting a token ...", false);
 
         running = BackgroundTasks.runAttempt("rest-console-token",
                 () -> BackgroundTasks.attempt(() -> {
