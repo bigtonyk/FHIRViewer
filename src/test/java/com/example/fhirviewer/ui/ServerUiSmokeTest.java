@@ -1382,6 +1382,38 @@ class ServerUiSmokeTest {
         return false;
     }
 
+    @Test
+    @DisplayName("The REST console builds on a real toolkit and says what is missing")
+    void theRestConsoleBuildsAndSaysWhatIsMissing() throws Exception {
+        // The console is the only screen here that does not go through a plugin, so nothing
+        // else in this file exercises it. Constructing it is the assertion that matters: a
+        // scene graph that throws while being built, or a handler wired to a node that was
+        // never added to a layout, is invisible to every logic-only test in the suite.
+        //
+        // Built and closed without show(), which is the pattern the rest of this file uses
+        // for dialogs: the content pane is constructed in the constructor either way, and a
+        // window left open here would keep the JavaFX thread alive after the class ended.
+        AtomicReference<RestConsoleDialog> built = new AtomicReference<>();
+        runOnFxThread(() -> {
+            // A null FhirService is the "no Bundle expansion" mode, which keeps this
+            // assertion about the console's own construction. Entry listing is covered
+            // against a real service by RestConsoleIntegrationTest.
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+            built.set(dialog);
+            dialog.close();
+        });
+        RestConsoleDialog dialog = built.get();
+        assertNotNull(dialog);
+
+        // A console with nothing configured is still usable: an empty server list is not a
+        // reason to refuse, because calling an unconfigured URL is the point of the screen.
+        // What it must do is name what is missing rather than open ready to send.
+        AtomicReference<String> problem = new AtomicReference<>("none");
+        runOnFxThread(() -> problem.set(dialog.problem().orElse("none")));
+        assertEquals("a base URL", problem.get(),
+                "an empty console should say what it needs, not open ready to send");
+    }
+
     /** Runs an action on the JavaFX thread and waits for it, so a throw is not swallowed. */
     private static void runOnFxThread(Runnable action) throws Exception {
         AtomicReference<Throwable> failure = new AtomicReference<>();
