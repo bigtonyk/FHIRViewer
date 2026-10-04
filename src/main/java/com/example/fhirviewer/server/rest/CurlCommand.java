@@ -98,6 +98,12 @@ public final class CurlCommand {
 
         for (int i = 0; i < tokens.size(); i++) {
             String token = tokens.get(i);
+            // The program name is the first token and is not part of the request. Without
+            // this it becomes the URL, and every command pastes in as "curl".
+            if (url == null && body == null && method == null && i == 0
+                    && token.equalsIgnoreCase("curl")) {
+                continue;
+            }
             if (!token.startsWith("-")) {
                 if (url == null) {
                     url = token;
