@@ -327,10 +327,13 @@ reaches into `MainWindow`, and `MainWindow` never reaches into the dialog.
   diagram (UI → `RestClient`, *below* the plugin layer rather than through it) and add a
   row to the gap table.
 
-The last point matters for review: the console deliberately bypasses the plugin layer,
-because its whole purpose is calling endpoints no plugin declares. That is a real exception
-to the architecture's central rule and it should be written down, not left for a reader to
-work out.
+The last point matters, but not in the way this plan first assumed. **Confirmed with the user:
+the console bypasses the plugin layer by design** — that is what makes it a Postman for FHIR
+rather than a second operation screen. It is a *peer* of the plugin path, not a subordinate
+of it: UI → `RestClient` sits alongside UI → `FhirServerService` → plugin, and the plugin
+layer keeps its rule for everything it does serve. The architecture document should say that
+plainly, because "the console is allowed to do this and the rest of the UI is not" is only
+a maintainable position if it is written down.
 
 ### Phase E — Fetch a bearer token (in scope, per DD12)
 
@@ -446,7 +449,9 @@ These are constraints on the implementation, not advice.
   cache and no refresh.** Phase E does `client_credentials` and nothing more (DD12).
 - **No persisted client secret and no persisted token.** Both live only as long as the
   window that holds them (DD3).
-- **No persistence of the console's own history**, and no saved "recent requests".
+- **No saved requests and no request history.** Ruled out for the first release because it is
+  a new persisted format rather than a missing control; see **Postman parity** below, where
+  it is the largest outstanding item (P2/P3/P4).
 - **No response paging or streaming.** A body is held in memory as text, which is what
   `RestResponse` already does; a multi-hundred-megabyte bundle export is out of scope and is
   stated as a gap in the user guide.
@@ -458,6 +463,36 @@ These are constraints on the implementation, not advice.
 - **No replacement for `Tools → Run Server Operation…`**, which stays the curated path
   (DD1).
 
+## Postman parity — what a Postman user will expect that this plan does not have
+
+Confirmed with the user: the console is meant to be **"Postman, but specific to FHIR"**.
+That is a larger product than the single-shot debugging dialog described above, and the
+framing invalidates or under-specifies several decisions here. Listing it explicitly is
+cheaper than discovering it as a bug report.
+
+**Still correct under the new framing:** bypassing the plugin layer by design (DD1), raw body
+always shown alongside any parsed view (DD8), arbitrary verbs and bodies (DD11).
+
+**Gaps, most valuable first:**
+
+| # | Feature | Why it matters for FHIR | Cost |
+|---|---|---|---|
+| P1 | **Copy as cURL / paste a cURL command** | The most-used Postman feature for a developer. The killer case here: a bug report, a Confluence page or a vendor doc contains `curl -H 'Authorization: Bearer …' '…/fhir/Patient?name=Smith'`, and the user wants to run it. Needs a shell-quoting **parser** *and* a generator — parser and generator must agree, or copy/paste round-trips drift. | M |
+| P2 | **Saved collections and request history** | Postman's organising idea. Without it every call is typed from scratch. Needs a new persisted format (a JSON file via `FileSupport.writeText`, **not** `PluginSettingsStore`). | L |
+| P3 | **Environment variables, `{{baseUrl}}`** | Switching a whole saved set of requests between test and production is the second-most-used feature. FHIR-specific wins: `{{fhirVersion}}`, `{{patientId}}`. Must refuse to persist a secret in a variable (DD3). | M |
+| P4 | **Multiple request tabs** | A `Dialog` holds exactly one request; Postman holds many. **This is a structural change to Phase B**, from `Dialog` to a resizable `Stage` with a `TabPane` of requests — not an addition to it. | M |
+| P5 | **Arbitrary request headers, except `Authorization`** | A Postman user expects a Headers tab. The rule against a free-text `Authorization` box stands (it is the classic way credentials reach a screenshot), but `If-Match`, `Prefer`, `_format`, `X-Request-ID` and vendor headers are legitimate and currently impossible. | S |
+| P6 | **Open a Bundle entry, not just the Bundle** | FHIR-specific. A search returns a Bundle; *Open in FHIR Viewer* today shows the whole Bundle. Clicking entry `[3]` to open that resource is what a FHIR user actually wants, and `MainWindow` already has `displayBundleEntry` for it. | S |
+| P7 | **CapabilityStatement-driven suggestions** | The "specific to FHIR" differentiator. Offer the resource types, search parameters and operations the *connected server* advertises, so `Patient?` suggests `name`, `birthdate`, `_include`, `$everything`. `ServerCapabilityReader` and `ServerCapabilitiesCache` already do the reading — only the UI wiring is new. | M |
+| P8 | **Response size in bytes, and timing, properly** | The plan shows characters and milliseconds. Postman shows bytes and milliseconds. Trivial to fix, but "1,204 characters" is not the number an HTTP-minded user expects. | S |
+| P9 | **Import an OpenAPI/Swagger document** | Would generate a starter collection of FHIR calls. Attractive, large, and goes stale as vendors change their specs. | L |
+| P10 | **Postman-style test scripts** | A JavaScript sandbox inside a Java application. | L |
+
+**Suggested split:** v1 = P1, P5, P6, P8 (each small, each removes a concrete frustration).
+v2 = P4 **with** P2 — tabs are not worth much without collections to put in them — plus P7.
+Not planned: P9 and P10, and both should be written into the user guide's *Known gaps* so
+their absence is a decision rather than an oversight.
+
 ## Open questions
 
 Resolved before implementation began:
@@ -468,12 +503,16 @@ Resolved before implementation began:
 
 Still open, none of which blocks Phases A–D:
 
-1. **Should the console be able to send to a configured server using its *saved*
+1. **Which Postman-parity items are in the first release?** The list above is ordered by
+   value, and the suggested v1 (P1, P5, P6, P8) is all small. If collections and tabs are
+   wanted up front, **P4 changes Phase B from a `Dialog` to a `Stage`**, and A–D should be
+   re-planned around that rather than built first and refactored after.
+2. **Should the console be able to send to a configured server using its *saved*
    credentials, or always start anonymous?** This plan adds the *Custom…* entry and, for a
    configured server, resolves saved credentials through `ServerCredentials`. If a user
    would rather the console never touch the credential store, remove that branch and leave
    *Custom…* as the only path.
-2. **Should write verbs ship at all in the first version?** DD11 says yes. If the first
+3. **Should write verbs ship at all in the first version?** DD11 says yes. If the first
    release should be read-only, `RestConsoleForm` simply offers `GET` alone, and nothing else
    in the design changes.
 
