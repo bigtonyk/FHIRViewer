@@ -1,0 +1,23 @@
+=== FhirServerPlugin public API ===
+default IBaseResource localCopy(IBaseResource resource) {
+default ServerWriteResult create(ServerSession session, IBaseResource resource)
+default ServerWriteResult update(ServerSession session, IBaseResource resource, ServerOrigin origin)
+default void delete(ServerSession session, ServerOrigin origin) throws ServerOperationException {
+default boolean supportsWrite() {
+default List<ServerVendorAction> vendorActions() {
+default void openVendorTool(String actionId, ServerSession session, Object owner)
+
+=== FhirServerService public API ===
+public List<FhirServerPlugin> plugins() {
+public FhirServerPluginRegistry registry() {
+public ConnectionResult testConnection(FhirServerConfiguration server) {
+public ServerCapabilities capabilities(FhirServerConfiguration server) throws ServerOperationException {
+public SearchResultPage search(FhirServerConfiguration server, SearchRequest request)
+public SearchResultPage nextPage(FhirServerConfiguration server, SearchRequest request, String pageToken)
+public ServerWriteResult create(FhirServerConfiguration server,
+public ServerWriteResult create(FhirServerConfiguration server,
+public ServerWriteResult update(FhirServerConfiguration server,
+public ServerWriteResult update(FhirServerConfiguration server,
+public void delete(FhirServerConfiguration server, ServerOrigin origin)
+public void delete(FhirServerConfiguration server, ServerOrigin origin,
+public boolean supportsWrite(FhirServerConfiguration server) {

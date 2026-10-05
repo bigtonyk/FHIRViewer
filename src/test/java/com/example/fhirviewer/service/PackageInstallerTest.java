@@ -23,7 +23,6 @@ import com.example.fhirviewer.service.PackageInstaller.PlannedPackage;
 import com.example.fhirviewer.service.PackageInstaller.Status;
 import com.example.fhirviewer.service.PackageRegistryService.PackageInfo;
 
-import ca.uhn.fhir.context.FhirContext;
 
 /**
  * Tests dependency-resolved package planning and installation.

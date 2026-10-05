@@ -2,7 +2,8 @@
 
 A cross-platform desktop application for loading, viewing and inspecting **FHIR R4**
 resources. It runs on Windows, macOS and Linux and is built with Java, JavaFX and
-HAPI FHIR. No FHIR server is required.
+HAPI FHIR. It works entirely offline on files you already have, and can additionally
+read from and write back to a FHIR server when you point it at one.
 
 The application is a developer/inspection tool: it answers questions such as
 *what is this element called, what datatype is it, what cardinality does it have, and
@@ -86,7 +87,7 @@ missing"*). `mvn javafx:run` uses the module path and therefore `Main`.
 - **Undo** (`Ctrl+Z`) reverts the last edit; when the last change is undone the resource
   matches the saved file again.
 - **Pretty View tab** (the default view) renders the resource the way a human would
-  read it â€” see [The Pretty View](#the-pretty-view).
+  read it — see [The Pretty View](#the-pretty-view).
 - **JSON and XML tabs** render the parsed resource pretty printed.
 - **Bundle navigator**: inspect the Bundle itself or jump into any entry.
 - **Validation** (Tools > Validate, `Ctrl+T`) reports errors and warnings with their
@@ -189,7 +190,7 @@ plus Encounter, Organization and a minimal Patient for the Pretty View).
 
 The **Pretty** tab is the default document view. It renders the resource as labelled
 sections instead of raw JSON/XML, the way a clinical application would present it.
-Like the tree it is completely generic â€” the same rules work for Patient, Observation,
+Like the tree it is completely generic — the same rules work for Patient, Observation,
 Encounter, Organization, Bundles, contained resources and extensions:
 
 - **Document header**: resource type, logical id, and resource level metadata
@@ -213,7 +214,7 @@ Encounter, Organization, Bundles, contained resources and extensions:
   - `Narrative` (xhtml) is reduced to plain text, `base64Binary` is summarised by size
 - **Backbone elements** (`Observation.component`), **contained resources** and
   **Bundle entries** become nested sections; a Bundle entry section is titled
-  `Entry 1 â€” Patient/patient-a`.
+  `Entry 1 — Patient/patient-a`.
 - **Bundle navigation** works with the Pretty View: selecting an entry in the Bundle
   navigator renders that entry's pretty document.
 
@@ -243,24 +244,47 @@ validation messages at the bottom.
 ## Packaging (Phase 7)
 
 
-`mvn package` copies all runtime dependencies into `target/lib`, which makes packaging
-with jpackage straightforward:
+`mvnw -Pdist package` produces the build that can be handed to someone: a launcher
+plus a trimmed, private Java runtime, so the recipient needs no JDK and no commands to
+type. On Windows that writes `target\dist-image\FHIRViewer\FHIRViewer.exe`; macOS and
+Linux get the same application image in their own form. Because JavaFX is resolved by
+Maven, the platform specific JavaFX jars already sit in `target/lib` for the platform
+that performed the build. Build the package on the target operating system to produce
+a native bundle - jpackage cannot cross-compile.
 
-```bat
-:: Windows (app-image; add --type msi for an installer)
-jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-0.1.0-SNAPSHOT.jar ^
-  --main-class com.example.fhirviewer.Launcher --type app-image
-```
+A bare `jpackage` command over `target/lib` is not enough on its own: the runtime it
+packs would miss modules the application reaches from the class path, and the app
+would then fail at startup. The module list lives with the `jpackage` invocation in
+the `dist` profile in `pom.xml`.
 
-```bash
-# macOS / Linux
-jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-0.1.0-SNAPSHOT.jar \
-  --main-class com.example.fhirviewer.Launcher --type app-image
-```
+See **`docs/building-a-launchable-build.md`** for what lands where and how to diagnose
+a misbehaving image.
 
-Because JavaFX is resolved by Maven, the platform specific JavaFX jars already sit in
-`target/lib` for the platform that performed the build. Build the package on the target
-operating system to produce a native bundle.
+## Documentation
+
+The working documents live under `docs/`, out of the repository root:
+
+- **`docs/user-guide/FHIR-Server-Functions.md`** — how to point the viewer at a FHIR
+  server, read resources from it and write changes back. Start here if you are using
+  the server features rather than changing them.
+- **`docs/building-a-launchable-build.md`** — how to produce a build someone can
+  launch by double-clicking, with no JDK installed on their machine. Read this
+  if you are handing the viewer to someone rather than running it yourself.
+- **`docs/plans/`** — the implementation plans, one per feature. Read the plan for a
+  feature before changing it; each one records the design decisions behind the code.
+  Note that the plan filenames and the "Phase" column in the status table above are
+  **not** a single sequence: the security review, backward compatibility and the
+  Open/Save work each have their own numbering, so link to a plan by filename
+  rather than by number.
+- **`docs/notes/`** — the original project plan and the loose requirement notes the
+  plans were written from.
+- **`docs/architecture/`** — assessments of the code as it actually stands. Start with
+  `Current-Plugin-Architecture.md` before changing anything in `com.example.fhirviewer.server`
+  or the FHIR server dialogs: it records the plugin API, the UI/service/plugin path, the
+  reusable HTTP/authentication/FHIR infrastructure, and the gaps the REST integration
+  work has to fill.
+
+Nothing outside `docs/` is required to build, test or run the application.
 
 ## Roadmap (from the plan's future enhancements)
 
