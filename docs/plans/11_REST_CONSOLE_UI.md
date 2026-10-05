@@ -156,6 +156,37 @@ a half-built version of one is worse than none.
 there is no login, no browser and nothing to store between runs, which is what makes it fit
 inside a debugging window that is already holding a client secret in memory.
 
+### DD13 — The clamp uses the requested size, never the window's current size
+
+After two attempts at "make it wider" that changed nothing on screen, the cause was found
+in `fitToScreen()`, not in the numbers at the call site.
+
+The dialog sizes itself in `setOnShowing`. At that point the stage has only its *natural*
+size — `getDialogPane()`'s preferred size as JavaFX computes it — and **not** the 1400×820
+the constructor asked for. The clamp was therefore reading `window.getWidth()`, which was
+around 900–1000, and clamping *that* down to a comfortable value. Raising the requested
+width could never take effect, because the requested width was never read back.
+
+`fitToScreen()` now takes `requestedWidth` / `requestedHeight`, which the constructor stores
+when it applies the remembered size. So the requested size flows straight through to the
+window, and the clamp only ever reduces it when the screen genuinely cannot hold it.
+
+Two consequences worth stating plainly:
+
+- **The screen still wins.** On a display whose logical width is below the request — 150%
+  scaling on a 1920 screen gives 1280 — the window manager would clip a 1400 window, which is
+  what the screenshot showed. Requesting the screen's width minus a margin is the correct
+  answer, and asking for *more* is worse, not better.
+- **The divider is applied after the window has a size.** Set during construction it is
+  applied to a zero-width `SplitPane`, does not survive the first real layout, and left the
+  request side a 157px sliver while the response side took everything. It is now set inside
+  `fitToScreen()`. The request side additionally has a 380px floor, because a divider
+  position is only a proportion and without a floor the fields behind it become unusable.
+
+The four result tabs were also shortened — `Body` / `Entries` / `Headers` / `Errors`. A
+`TabPane` does not shrink its headers to fit; it inserts scroll arrows over the overflow,
+which is why `Diagnostics` was rendering as `Diagnosti…` behind a chevron.
+
 ## Implementation phases
 
 ### Phase A — Non-UI foundations (no JavaFX)

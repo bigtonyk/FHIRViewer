@@ -52,8 +52,19 @@ public final class RestResponsePane extends VBox {
     private final Button saveButton = new Button("Save body to file…");
     private final Button copyButton = new Button("Copy body");
 
+    /** The four result tabs.
+     *
+     * <p><b>The titles are short on purpose.</b> Tab headers are not shrunk to fit — a
+     * {@code TabPane} keeps them at their natural width and inserts a pair of scroll arrows
+     * over the overflow, which is why "Diagnostics" was showing as "Diagnosti…" behind a
+     * chevron. Each of these fits alongside the other three even in a narrow pane, and what
+     * each one contains still makes its meaning obvious.
+     */
+    public static final String[] TAB_TITLES = { "Body", "Entries", "Headers", "Errors" };
+
     private final FhirService fhirService;
     private final Consumer<IBaseResource> onOpen;
+    private TabPane tabPane;
 
     private RestAnswer lastAnswer;
     private List<BundleEntryInfo> lastEntries = List.of();
@@ -91,12 +102,13 @@ public final class RestResponsePane extends VBox {
         });
 
         TabPane tabs = new TabPane(
-                new Tab("Body", bodyArea),
-                new Tab("Bundle entries", entryList),
-                new Tab("Headers", headersArea),
-                new Tab("Diagnostics", diagnosticsArea));
+                new Tab(TAB_TITLES[0], bodyArea),
+                new Tab(TAB_TITLES[1], entryList),
+                new Tab(TAB_TITLES[2], headersArea),
+                new Tab(TAB_TITLES[3], diagnosticsArea));
         tabs.getTabs().forEach(tab -> tab.setClosable(false));
         VBox.setVgrow(tabs, Priority.ALWAYS);
+        tabPane = tabs;
 
         // A FlowPane, not an HBox, and that is the whole fix for a button being cut off. An
         // HBox lays its children out at their preferred widths and clips whatever does not
@@ -291,6 +303,11 @@ public final class RestResponsePane extends VBox {
     /** The copy button, for the same reason as {@link #openButton()}. */
     public Button copyButton() {
         return copyButton;
+    }
+
+    /** The tab pane, so a test can measure whether its headers overflow. */
+    public TabPane tabPane() {
+        return tabPane;
     }
 
     /** The save button, for the same reason as {@link #openButton()}. */

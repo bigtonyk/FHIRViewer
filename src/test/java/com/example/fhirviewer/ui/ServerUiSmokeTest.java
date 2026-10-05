@@ -1481,6 +1481,26 @@ class ServerUiSmokeTest {
                 "the screen wins when the floor is wider than the screen has room for");
     }
 
+    @Test
+    @DisplayName("The result tab headers are short enough to fit side by side")
+    void tabHeadersAreShort() {
+        // The screenshot showed "Diagnostics" rendered as "Diagnosti..." behind a chevron. A
+        // TabPane does not shrink its headers - it inserts scroll arrows over the overflow -
+        // so a long title is a title the user cannot read or reach.
+        //
+        // This is a proxy rather than a measurement, and deliberately so: it does not ask the
+        // skin whether it overflowed, because a headless toolkit does not produce the arrows
+        // to look for. A measurement was tried and removed - it passed with the long titles
+        // too, so it proved nothing. Holding the titles to a length that fits at the
+        // narrowest pane the dialog can be given is what actually stops the regression.
+        assertEquals(4, RestResponsePane.TAB_TITLES.length, "there should still be four result tabs");
+        for (String title : RestResponsePane.TAB_TITLES) {
+            assertTrue(title.length() <= 8,
+                    "\"" + title + "\" is longer than eight characters and will not fit beside "
+                            + "the other three in a narrow pane");
+        }
+    }
+
     /**
      * Forgets the remembered console settings.
      *

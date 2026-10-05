@@ -87,6 +87,11 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
     private static final double MIN_WIDTH = 900;
     private static final double MIN_HEIGHT = 520;
 
+    /** The size asked for, kept so {@link #fitToScreen()} can use it rather than the live one. */
+    private double requestedWidth = DEFAULT_WIDTH;
+    private double requestedHeight = DEFAULT_HEIGHT;
+    private double dividerPosition = 0.45;
+
     private final Button sendButton = new Button("Send");
     private final Button cancelRequestButton = new Button("Cancel");
     private final ProgressIndicator busy = new ProgressIndicator();
@@ -131,6 +136,10 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
         ScrollPane requestScroller = new ScrollPane(requestPane);
         requestScroller.setFitToWidth(true);
         requestScroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        // A floor, because a divider position is only a proportion: without one the request
+        // side can be dragged to a sliver, and the fields in it become unusable while the
+        // response side keeps all the space.
+        requestScroller.setMinWidth(380);
 
         split = new SplitPane(requestScroller, responsePane);
         VBoxWithPadding content = new VBoxWithPadding(split, footer);
@@ -144,6 +153,7 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
         // the same read as the form, or the window reopens at last run's size with this
         // run's divider.
         RestConsoleState remembered = RestConsoleState.load(baseUrlsOf(servers));
+        this.dividerPosition = clampDivider(remembered.dividerPosition());
         applySize(remembered);
         requestPane.restoreState(remembered);
 
@@ -159,32 +169,30 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
     private void applySize(RestConsoleState state) {
         double width = state.windowWidth() < MIN_WIDTH ? DEFAULT_WIDTH : state.windowWidth();
         double height = state.windowHeight() < MIN_HEIGHT ? DEFAULT_HEIGHT : state.windowHeight();
+        this.requestedWidth = width;
+        this.requestedHeight = height;
         getDialogPane().setPrefSize(width, height);
-        if (split != null) {
-            split.setDividerPositions(clampDivider(state.dividerPosition()));
-        }
 
         // Clamped to the screen, and only once the window exists. Asking for 1400 on a
         // display whose *logical* width is 1280 — which is what 150% scaling on a 1920
         // screen gives — leaves the window manager to clamp it, and it clips the right-hand
-        // edge. Widening the request makes that worse rather than better, which is exactly
-        // what a wider dialog with a button missing reported.
+        // edge. Widening the request makes that worse rather than better.
         setOnShowing(event -> fitToScreen());
-
-        // A minimum is set after the screen is known rather than here, because a fixed 900
-        // is itself wider than a narrow screen and would defeat the clamp below.
     }
 
     /**
      * Fits the dialog inside the screen it is opening on.
      *
-     * <p>Works on the {@link javafx.stage.Stage} rather than the {@code DialogPane}: the
-     * pane's {@code setWidth} is protected, and it is the stage's size that the window
-     * manager clamps anyway. Doing it in {@code setOnShowing} is what makes the stage
-     * available at all.
+     * <p><b>The requested size is used, not the window's current one.</b> That distinction
+     * is the whole bug this method fixes. At {@code onShowing} the window has only its
+     * natural size — not the 1400 that was asked for — so clamping <em>that</em> would
+     * actively shrink the dialog to the floor, and raising the requested width would change
+     * nothing at all. That is exactly the behaviour that was reported: a wider number in
+     * the source, an identically-sized window on screen.
      *
-     * <p>Both the size and the floor are clamped. A floor larger than the screen would keep
-     * the window from being shrunk back and reintroduce the clipping this removes.
+     * <p>Works on the {@link javafx.stage.Stage} rather than the {@code DialogPane}: the
+     * pane's {@code setWidth} is protected, and it is the stage's size the window manager
+     * would clamp anyway.
      */
     private void fitToScreen() {
         javafx.stage.Window window = getDialogPane().getScene() == null
@@ -201,8 +209,13 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
 
         getDialogPane().setMinSize(Math.min(MIN_WIDTH, availableWidth),
                 Math.min(MIN_HEIGHT, availableHeight));
-        window.setWidth(fitWithin(window.getWidth(), MIN_WIDTH, availableWidth));
-        window.setHeight(fitWithin(window.getHeight(), MIN_HEIGHT, availableHeight));
+        window.setWidth(fitWithin(requestedWidth, MIN_WIDTH, availableWidth));
+        window.setHeight(fitWithin(requestedHeight, MIN_HEIGHT, availableHeight));
+
+        // The divider is set here, after the window has a size. Set during construction it
+        // is applied to a zero-width pane and does not survive the first real layout, which
+        // is what left the request side a sliver and the response side everything else.
+        split.setDividerPositions(clampDivider(dividerPosition));
     }
 
     /**
