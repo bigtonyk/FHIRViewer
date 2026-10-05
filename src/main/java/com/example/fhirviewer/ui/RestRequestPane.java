@@ -453,8 +453,49 @@ private void configureControls() {
      * @throws IllegalArgumentException when the command asks for something this project will
      *         not do, such as {@code --insecure}
      */
-    public void pasteCurl(String command, BiConsumer<String, String> onAuthorization) {
-        CurlCommand.parse(command).ifPresent(parsed -> applyCurl(parsed, onAuthorization));
+    public boolean pasteCurl(String command, BiConsumer<String, String> onAuthorization) {
+        if (!startsLikeCurl(command)) {
+            // Refused rather than half-applied. CurlCommand.parse is deliberately lenient —
+            // it will take any text and make its first word the URL — so without this a
+            // paragraph of prose pastes in as a request with a nonsense address, and the form
+            // is quietly wrong instead of the button simply saying no.
+            return false;
+        }
+        java.util.Optional<CurlCommand.CurlRequest> parsed = CurlCommand.parse(command);
+        parsed.ifPresent(found -> applyCurl(found, onAuthorization));
+        // Whether anything was recognised. Returning nothing would force the caller to guess,
+        // and "the clipboard was not a curl command" and "it was, the form is filled in" would
+        // look exactly the same — which is how a button with no handler and a button that
+        // quietly declined both read as "does nothing".
+        return parsed.isPresent();
+    }
+
+    /**
+     * True when the first word of the text is {@code curl}.
+     *
+     * <p>The check lives here rather than in {@link CurlCommand#parse}: parsing without the
+     * program name is a thing a caller may legitimately want, so "is this a cURL command?" is
+     * a question about the paste button rather than about the format.
+     *
+     * <p>A leading shell prompt is skipped, because a command copied straight out of a
+     * terminal usually arrives with one.
+     */
+    private static boolean startsLikeCurl(String command) {
+        if (command == null) {
+            return false;
+        }
+        String text = command.stripLeading();
+        while (text.startsWith("$ ")) {
+            text = text.substring(2).stripLeading();
+        }
+        if (text.isEmpty()) {
+            return false;
+        }
+        int end = 0;
+        while (end < text.length() && !Character.isWhitespace(text.charAt(end))) {
+            end++;
+        }
+        return "curl".equalsIgnoreCase(text.substring(0, end));
     }
 
     private void applyCurl(CurlCommand.CurlRequest parsed, BiConsumer<String, String> onAuthorization) {
@@ -511,6 +552,23 @@ private void configureControls() {
         tokenField.setText(token);
         if (authBox.getValue() != ServerAuthKind.BEARER) {
             authBox.getSelectionModel().select(ServerAuthKind.BEARER);
+        }
+        refresh();
+    }
+
+    /**
+     * Fills the Basic credentials and selects basic auth.
+     *
+     * <p>For a pasted cURL whose {@code Authorization} was {@code Basic}: that value is
+     * base64 of {@code name:secret}, so it can be put back where the form expects it instead
+     * of being dropped. Dropping it would send an unauthenticated request and produce a 401
+     * with nothing to explain it.
+     */
+    public void adoptBasicCredentials(String userName, String password) {
+        userNameField.setText(userName == null ? "" : userName);
+        passwordField.setText(password == null ? "" : password);
+        if (authBox.getValue() != ServerAuthKind.BASIC) {
+            authBox.getSelectionModel().select(ServerAuthKind.BASIC);
         }
         refresh();
     }
@@ -636,19 +694,27 @@ private void configureControls() {
         copyCurlButton.setOnAction(event -> onCopy.run());
     }
 
-    /** The command most recently offered to the clipboard, for a test or a status line. */
-    public void copyToClipboard() {
+    /**
+     * Puts the current request on the system clipboard as a cURL command.
+     *
+     * @return true only when something really was written, so the caller can say so rather
+     *         than report a copy that never happened. Two separate ways to fail: there is no
+     *         URL to render yet, and there is no clipboard to write to — a headless or remote
+     *         session has none, and {@code getSystemClipboard()} throws rather than returning
+     *         null.
+     */
+    public boolean copyToClipboard() {
         String command = asCurl();
         if (command.isBlank()) {
-            return;
+            return false;
         }
         try {
             ClipboardContent content = new ClipboardContent();
             content.putString(command);
             Clipboard.getSystemClipboard().setContent(content);
+            return true;
         } catch (IllegalStateException noClipboard) {
-            // No clipboard on this platform or session. The dialog reports it; nothing else
-            // about the request is affected.
+            return false;
         }
     }
 

@@ -187,6 +187,30 @@ The four result tabs were also shortened — `Body` / `Entries` / `Headers` / `E
 `TabPane` does not shrink its headers to fit; it inserts scroll arrows over the overflow,
 which is why `Diagnostics` was rendering as `Diagnosti…` behind a chevron.
 
+### DD14 — Every cURL button outcome is reported, and the wiring is asserted
+
+The cURL feature was complete and dead: `CurlCommand` parsed and rendered, `RestRequestPane`
+had `pasteCurl`, `asCurl`, `copyToClipboard` and `clipboardText`, `CurlCommandTest` covered the
+round trip — and `setCurlActions` was never called from anywhere. The buttons were built, laid
+out and clickable, with a null `onAction`. Clicking dispatched to nothing.
+
+That is the failure mode this plan should assume for any "pane exposes an action, dialog wires
+it" split: **nothing fails at compile time and no test looks at the last inch.** The guard is
+`curlButtonsAreWired`, which asserts both handlers are non-null after the dialog is built. It
+fails, with the reported symptom as its message, the moment the call is removed.
+
+Two related decisions came out of it:
+
+- **`pasteCurl` and `copyToClipboard` return a `boolean`.** Both previously returned nothing,
+  so "the clipboard was empty", "this is not a command", "there is no clipboard here" and
+  "it worked" were all indistinguishable from the outside. A silent no-op and a broken button
+  read identically to a user, which is most of why this looked like a dead control rather than
+  a picky one.
+- **`pasteCurl` refuses text whose first word is not `curl`.** `CurlCommand.parse` is
+  deliberately lenient — it makes the first token the URL — so parsing alone would fill the
+  form with a paragraph of prose. The check lives beside the button rather than in the parser,
+  because parsing without a program name is a legitimate thing for another caller to want.
+
 ## Implementation phases
 
 ### Phase A — Non-UI foundations (no JavaFX)

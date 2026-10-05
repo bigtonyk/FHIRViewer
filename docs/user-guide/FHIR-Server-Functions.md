@@ -850,9 +850,20 @@ for any verb — not just a search. The resource is opened with no server attach
 ### Pasting and copying cURL
 
 - **Paste cURL...** fills the form from a `curl` command. This is the quickest way to run
-  something from a bug report, a wiki page or a vendor's documentation.
+  something from a bug report, a wiki page or a vendor's documentation. A leading `$` shell
+  prompt is ignored, but the text has to actually be a cURL command — if it is not, the button
+  says so and leaves the form alone rather than filling it with whatever came first.
 - **Copy as cURL** puts the current request on the clipboard as a command you can paste into
-  a ticket. **Credentials are left out** of what it copies.
+  a ticket. **Credentials are left out** of what it copies, and the status line says so.
+
+Both buttons report what they did in the status line. An empty clipboard, a piece of text that
+is not a command, a clipboard that does not exist in this session, and nothing to copy yet all
+get their own message, because a button that silently does nothing reads as broken.
+
+An `Authorization` header found in a pasted command is **not** put in the header grid — that
+grid would refuse it. `Bearer ...` becomes the bearer token field, and `Basic ...` is decoded
+into the user name and password fields, with the status line naming what it took. Anything else
+is reported as left out, so an unexplained 401 cannot come from a credential quietly dropped.
 
 `--insecure` is refused with an explanation rather than quietly ignored, because ignoring it
 would produce a request that behaves differently from the one you are looking at. Fix the

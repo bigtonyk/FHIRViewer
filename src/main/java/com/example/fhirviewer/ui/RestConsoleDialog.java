@@ -114,6 +114,13 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
         responsePane = new RestResponsePane(fhirService, this::requestOpen);
         requestPane = new RestRequestPane(servers, preselect, ignored -> fetchToken());
 
+        // The cURL buttons are built and laid out by the pane, but what they do belongs to the
+        // dialog: reading and writing the clipboard, reporting on the status line, and offering
+        // a pasted Authorization to the auth selector. Without this call neither button has an
+        // onAction at all, so clicking them does nothing — which is exactly what happened.
+        // setCurlActions was written and then never called from anywhere.
+        requestPane.setCurlActions(this::pasteCurlFromClipboard, this::copyAsCurl);
+
         sendButton.setDefaultButton(true);
         sendButton.setOnAction(event -> send());
         cancelRequestButton.setDisable(true);
@@ -400,6 +407,125 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
     void adoptFetchedToken(String token, String description) {
         requestPane.adoptToken(token);
         setStatus(description, true);
+    }
+
+    /**
+     * Fills the form from whatever cURL command is on the clipboard.
+     *
+     * <p>Every branch says what happened. A button that silently does nothing reads as
+     * broken, and there are four distinct ways this one can do nothing: no clipboard at all,
+     * an empty clipboard, something that is not a cURL command, and a command asking for
+     * something this project refuses to do. All four were previously indistinguishable from
+     * the button simply not working.
+     */
+    private void pasteCurlFromClipboard() {
+        String text = requestPane.clipboardText();
+        if (text.isBlank()) {
+            setStatus("The clipboard is empty, so there is no cURL command to paste.", true);
+            return;
+        }
+        boolean applied;
+        try {
+            applied = requestPane.pasteCurl(text, this::offerPastedAuthorization);
+        } catch (IllegalArgumentException refused) {
+            setStatus(refused.getMessage() == null || refused.getMessage().isBlank()
+                    ? "That cURL command asks for something this console will not do."
+                    : refused.getMessage(), true);
+            return;
+        }
+        if (!applied) {
+            setStatus("That is not a cURL command — expecting one that starts with \"curl\".", true);
+            return;
+        }
+        setStatus("Form filled in from the pasted cURL command.", false);
+    }
+
+    /**
+     * Takes the {@code Authorization} value from a pasted command into the auth selector.
+     *
+     * <p>It is adopted rather than asked about, but it is never quiet: the status line says
+     * so. The alternative designs both fail — putting it in a credential field without a word
+     * is a surprise, and dropping it silently sends an unauthenticated request that comes back
+     * as a 401 with nothing to explain it. The value came from the user's own clipboard, into
+     * a button they pressed deliberately, into fields that are never written to disk, so
+     * adopting it and saying so is the honest middle.
+     *
+     * <p>Called by {@link RestRequestPane#pasteCurl} with the value first and the header name
+     * second, for every header {@link com.example.fhirviewer.server.rest.RestHeaders} treats
+     * as a secret.
+     */
+    private void offerPastedAuthorization(String value, String headerName) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        int space = value.indexOf(' ');
+        String scheme = (space < 0 ? value : value.substring(0, space)).trim();
+        String remainder = space < 0 ? "" : value.substring(space + 1).trim();
+
+        if ("bearer".equalsIgnoreCase(scheme)) {
+            requestPane.adoptToken(remainder);
+            setStatus("Bearer token taken from the pasted command.", false);
+            return;
+        }
+        if ("basic".equalsIgnoreCase(scheme)) {
+            String[] credentials = splitBasic(remainder);
+            if (credentials == null) {
+                setStatus("The pasted Authorization value is not readable as Basic credentials, "
+                        + "so it was left out.", true);
+                return;
+            }
+            requestPane.adoptBasicCredentials(credentials[0], credentials[1]);
+            setStatus("User name and password taken from the pasted command.", false);
+            return;
+        }
+        // Not a scheme this form can express. Saying it was left out is the point: a silently
+        // dropped credential is a 401 the user has no way to diagnose.
+        setStatus("The pasted Authorization (" + headerName + ") is neither Basic nor Bearer, "
+                + "so it was left out.", true);
+    }
+
+    /**
+     * Splits a Basic credential's base64 payload into its two halves, or null if it is not one.
+     *
+     * <p>Split on the first colon, not the last: the password may itself contain colons and
+     * the user name may not.
+     */
+    private static String[] splitBasic(String payload) {
+        if (payload == null || payload.isBlank()) {
+            return null;
+        }
+        try {
+            String decoded = new String(
+                    java.util.Base64.getDecoder().decode(payload.trim()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            int colon = decoded.indexOf(':');
+            if (colon < 0) {
+                return null;
+            }
+            return new String[] { decoded.substring(0, colon), decoded.substring(colon + 1) };
+        } catch (IllegalArgumentException notBase64) {
+            return null;
+        }
+    }
+
+    /**
+     * Puts the current request on the clipboard as a cURL command, without its credentials.
+     *
+     * <p>Leaving the credentials out is deliberate — this is the command you paste into a
+     * ticket — and the status line says so, because a user who expected them has a reason to
+     * notice. The empty-URL case is reported too: asCurl() renders nothing when there is no
+     * URL, and a copy button that copies nothing has to say why.
+     */
+    private void copyAsCurl() {
+        if (requestPane.asCurl().isBlank()) {
+            setStatus("Enter a URL first — there is nothing to copy.", true);
+            return;
+        }
+        if (requestPane.copyToClipboard()) {
+            setStatus("Copied as cURL. Credentials are not included.", false);
+        } else {
+            setStatus("There is no clipboard in this session, so it could not be copied.", true);
+        }
     }
 
     private void setBusy(boolean working) {

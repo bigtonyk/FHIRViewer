@@ -1501,6 +1501,79 @@ class ServerUiSmokeTest {
         }
     }
 
+    @Test
+    @DisplayName("Both cURL buttons actually do something when clicked")
+    void curlButtonsAreWired() throws Exception {
+        // Reported as "the paste and copy cURL buttons don't do anything", and the cause was
+        // that RestRequestPane.setCurlActions was written and never called from anywhere.
+        // The buttons existed, were laid out, and had a null onAction - so a click was
+        // dispatched to nothing. Everything they needed (parse, render, clipboard) was already
+        // implemented and individually tested; only the last inch was missing.
+        //
+        // This is the assertion that would have caught it: a handler has to be present.
+        AtomicReference<RestRequestPane> pane = new AtomicReference<>();
+        runOnFxThread(() -> {
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+            pane.set(dialog.requestPane());
+            dialog.close();
+        });
+
+        assertNotNull(pane.get().pasteCurlButton().getOnAction(),
+                "Paste cURL has no handler, so clicking it does nothing");
+        assertNotNull(pane.get().copyCurlButton().getOnAction(),
+                "Copy as cURL has no handler, so clicking it does nothing");
+    }
+
+    @Test
+    @DisplayName("A pasted cURL fills the form, and the form renders back to cURL")
+    void pasteAndCopyRoundTrip() throws Exception {
+        // The two halves have to agree: paste in, copy out, and the command survives. If they
+        // drift the user pastes a command, edits nothing, and quietly gets a different request.
+        AtomicReference<RestRequestPane> pane = new AtomicReference<>();
+        AtomicReference<Boolean> applied = new AtomicReference<>();
+        runOnFxThread(() -> {
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+            pane.set(dialog.requestPane());
+            // No Authorization header here, so nothing offers a credential and this stays a
+            // test of the form rather than of the auth selector.
+            applied.set(pane.get().pasteCurl(
+                    "curl -X POST 'https://example.com/fhir/Patient?name=Smith' "
+                            + "-H 'Accept: application/fhir+json'",
+                    (value, header) -> { }));
+            dialog.close();
+        });
+
+        assertTrue(applied.get(), "a well-formed cURL command should be recognised");
+        RestConsoleForm form = pane.get().form();
+        assertEquals(RestMethod.POST, form.method(), "the -X POST should be picked up");
+        assertTrue(form.resolvedUrl().contains("example.com/fhir/Patient"),
+                "the URL should have been taken from the command, got " + form.resolvedUrl());
+        assertTrue(form.resolvedUrl().contains("name=Smith"),
+                "the query string should have become a parameter, got " + form.resolvedUrl());
+
+        String copied = pane.get().asCurl();
+        assertTrue(copied.startsWith("curl"), "copying should produce a command, got: " + copied);
+        assertTrue(copied.contains("example.com/fhir/Patient"),
+                "the copy should contain the URL it was pasted from, got: " + copied);
+    }
+
+    @Test
+    @DisplayName("Something that is not a cURL command is declined rather than half-applied")
+    void pasteRejectsANonCommand() throws Exception {
+        // The declined case and the empty-clipboard case were both previously silent, which
+        // is a second way for the button to look broken: it "did nothing" because it decided
+        // not to, and never said which of the two it was.
+        AtomicReference<Boolean> applied = new AtomicReference<>(true);
+        runOnFxThread(() -> {
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+            applied.set(dialog.requestPane()
+                    .pasteCurl("not a command at all", (value, header) -> { }));
+            dialog.close();
+        });
+
+        assertFalse(applied.get(), "text that is not a cURL command must not report success");
+    }
+
     /**
      * Forgets the remembered console settings.
      *
