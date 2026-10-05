@@ -160,13 +160,95 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
         double width = state.windowWidth() < MIN_WIDTH ? DEFAULT_WIDTH : state.windowWidth();
         double height = state.windowHeight() < MIN_HEIGHT ? DEFAULT_HEIGHT : state.windowHeight();
         getDialogPane().setPrefSize(width, height);
-        // Without a minimum the dialog can be dragged to a width where nothing is readable,
-        // and the remembered value would then make it stay that way next time.
-        getDialogPane().setMinSize(MIN_WIDTH, MIN_HEIGHT);
         if (split != null) {
             split.setDividerPositions(clampDivider(state.dividerPosition()));
         }
+
+        // Clamped to the screen, and only once the window exists. Asking for 1400 on a
+        // display whose *logical* width is 1280 — which is what 150% scaling on a 1920
+        // screen gives — leaves the window manager to clamp it, and it clips the right-hand
+        // edge. Widening the request makes that worse rather than better, which is exactly
+        // what a wider dialog with a button missing reported.
+        setOnShowing(event -> fitToScreen());
+
+        // A minimum is set after the screen is known rather than here, because a fixed 900
+        // is itself wider than a narrow screen and would defeat the clamp below.
     }
+
+    /**
+     * Fits the dialog inside the screen it is opening on.
+     *
+     * <p>Works on the {@link javafx.stage.Stage} rather than the {@code DialogPane}: the
+     * pane's {@code setWidth} is protected, and it is the stage's size that the window
+     * manager clamps anyway. Doing it in {@code setOnShowing} is what makes the stage
+     * available at all.
+     *
+     * <p>Both the size and the floor are clamped. A floor larger than the screen would keep
+     * the window from being shrunk back and reintroduce the clipping this removes.
+     */
+    private void fitToScreen() {
+        javafx.stage.Window window = getDialogPane().getScene() == null
+                ? null
+                : getDialogPane().getScene().getWindow();
+        if (window == null) {
+            // No scene yet, which should not happen during onShowing, but a dialog that
+            // cannot be sized is still a working dialog.
+            return;
+        }
+        javafx.geometry.Rectangle2D bounds = screenBoundsOf(window);
+        double availableWidth = Math.max(600, bounds.getWidth() - MARGIN);
+        double availableHeight = Math.max(400, bounds.getHeight() - MARGIN);
+
+        getDialogPane().setMinSize(Math.min(MIN_WIDTH, availableWidth),
+                Math.min(MIN_HEIGHT, availableHeight));
+        window.setWidth(fitWithin(window.getWidth(), MIN_WIDTH, availableWidth));
+        window.setHeight(fitWithin(window.getHeight(), MIN_HEIGHT, availableHeight));
+    }
+
+    /**
+     * Brings a requested size inside what the screen allows.
+     *
+     * <p>The window is never made smaller than {@code minimum} and never larger than
+     * {@code available}. {@code available} wins when the two conflict, because a minimum
+     * larger than the screen is what reintroduces the clipping this exists to remove.
+     *
+     * <p>Package-visible and free of JavaFX so it can be tested directly. That matters: the
+     * alternative is a test that opens a window, which is either skipped headless or, worse,
+     * passes without having exercised the arithmetic at all.
+     */
+    static double fitWithin(double requested, double minimum, double available) {
+        return Math.min(Math.max(requested, minimum), available);
+    }
+
+    /**
+     * The screen this dialog should fit inside.
+     *
+     * <p>{@code Screen.getScreensForRectangle} rather than anything on the window: {@code
+     * Window} has no {@code getScreen()}, and asking which screens the window's own
+     * rectangle touches is also the more accurate answer — it handles the window straddling
+     * two monitors by picking the one it mostly sits on, and puts a dialog opened from a
+     * second monitor on that monitor rather than the primary.
+     */
+    private static javafx.geometry.Rectangle2D screenBoundsOf(javafx.stage.Window window) {
+        javafx.stage.Screen screen = null;
+        if (window != null && window.getWidth() > 0 && window.getHeight() > 0) {
+            java.util.List<javafx.stage.Screen> touching = javafx.stage.Screen
+                    .getScreensForRectangle(window.getX(), window.getY(),
+                            window.getWidth(), window.getHeight());
+            // The first is the one the rectangle mostly covers, which is the one whose
+            // bounds a dialog should fit inside.
+            screen = touching.isEmpty() ? null : touching.get(0);
+        }
+        if (screen == null) {
+            screen = javafx.stage.Screen.getPrimary();
+        }
+        return screen == null
+                ? new javafx.geometry.Rectangle2D(0, 0, DEFAULT_WIDTH, DEFAULT_HEIGHT)
+                : screen.getVisualBounds();
+    }
+
+    /** Space left around the window, so it does not sit flush against the screen edge. */
+    private static final double MARGIN = 40;
 
     private static double clampDivider(double position) {
         // A divider dragged to the very edge leaves one pane unusable; keep both workable.

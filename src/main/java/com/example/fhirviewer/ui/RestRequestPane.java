@@ -9,6 +9,7 @@ import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
@@ -21,6 +22,7 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -227,13 +229,18 @@ private void configureControls() {
     }
 
     private static javafx.scene.layout.Region labelled(String label, javafx.scene.Node field) {
-        javafx.scene.layout.HBox box = new javafx.scene.layout.HBox(8, new Label(label), field);
+        FlowPane box = new FlowPane(8, 8, new Label(label), field);
+        box.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(field, Priority.ALWAYS);
         return box;
     }
 
     private static javafx.scene.layout.Region row(javafx.scene.Node... nodes) {
-        return new javafx.scene.layout.HBox(8, nodes);
+        // A FlowPane for the same reason the response pane's buttons use one: an HBox cannot
+        // wrap, so on a narrow pane the right-hand node is clipped rather than moved down.
+        FlowPane row = new FlowPane(8, 8, nodes);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
     }
 
 /**

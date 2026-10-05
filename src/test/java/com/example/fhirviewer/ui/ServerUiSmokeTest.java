@@ -1461,6 +1461,26 @@ class ServerUiSmokeTest {
         }
     }
 
+    @Test
+    @DisplayName("The console is never opened wider than the screen it opens on")
+    void theConsoleNeverExceedsTheScreen() {
+        // The report was "the last button on the right is still cut off", and widening the
+        // dialog did not fix it - which was the clue. Asking for 1400 on a display whose
+        // logical width is less than that (150% scaling on a 1920 screen gives 1280) leaves
+        // the window manager to clamp the window, and it clips the right-hand edge. Widening
+        // the request makes that worse, not better.
+        //
+        // So the invariant is that the applied size is bounded by the space available.
+        assertEquals(1400, RestConsoleDialog.fitWithin(1400, 900, 1920),
+                "a width the screen has room for is used as asked");
+        assertEquals(1280, RestConsoleDialog.fitWithin(1400, 900, 1280),
+                "a width the screen does not have is reduced to what it has");
+        assertEquals(900, RestConsoleDialog.fitWithin(400, 900, 1920),
+                "a window the user shrank below the floor comes back to the floor");
+        assertEquals(800, RestConsoleDialog.fitWithin(500, 900, 800),
+                "the screen wins when the floor is wider than the screen has room for");
+    }
+
     /**
      * Forgets the remembered console settings.
      *

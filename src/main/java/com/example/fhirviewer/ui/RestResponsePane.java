@@ -4,13 +4,14 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TextArea;
-import javafx.scene.layout.HBox;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
@@ -97,8 +98,33 @@ public final class RestResponsePane extends VBox {
         tabs.getTabs().forEach(tab -> tab.setClosable(false));
         VBox.setVgrow(tabs, Priority.ALWAYS);
 
-        getChildren().addAll(summaryLabel, tabs, new HBox(8, openButton, copyButton, saveButton));
+        // A FlowPane, not an HBox, and that is the whole fix for a button being cut off. An
+        // HBox lays its children out at their preferred widths and clips whatever does not
+        // fit, so the last button simply disappears on a narrow window — and no amount of
+        // making the dialog wider fixes it, because the buttons wrap nowhere. A FlowPane
+        // moves them onto a second line instead.
+        getChildren().addAll(summaryLabel, tabs, buttonRow());
         clear();
+    }
+
+    /** The buttons, on a pane that wraps them rather than clipping the last one. */
+    private FlowPane buttonRow() {
+        FlowPane row = new FlowPane(8, 8, openButton, copyButton, saveButton);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("rest-button-row");
+        return row;
+    }
+
+    /** The widest the row would like to be, so a test can prove it is not being clipped. */
+    double buttonRowPreferredWidth() {
+        double widest = 0;
+        for (javafx.scene.Node child : buttonRow().getChildren()) {
+            double childWidth = child.prefWidth(-1);
+            if (childWidth > widest) {
+                widest = childWidth;
+            }
+        }
+        return widest;
     }
 
 /**
@@ -257,8 +283,18 @@ public final class RestResponsePane extends VBox {
         return !openButton.isDisable();
     }
 
-    /** The Open button, so a test can drive it. */
+    /** The Open button, so a test can drive it and measure where it landed. */
     public Button openButton() {
         return openButton;
+    }
+
+    /** The copy button, for the same reason as {@link #openButton()}. */
+    public Button copyButton() {
+        return copyButton;
+    }
+
+    /** The save button, for the same reason as {@link #openButton()}. */
+    public Button saveButton() {
+        return saveButton;
     }
 }
