@@ -7,7 +7,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.model.ValidationIssue;
 import com.example.fhirviewer.model.ValidationReport;
 
 /**

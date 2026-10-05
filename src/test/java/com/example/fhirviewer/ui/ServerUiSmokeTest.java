@@ -1365,24 +1365,6 @@ class ServerUiSmokeTest {
         }
     }
 
-    /**
-     * Waits briefly for the stub to record a request.
-     *
-     * <p>Discovery and capability reads are background work by design, so the screen has
-     * finished constructing before the request has necessarily been made. Polling here
-     * asserts the call really happens without making the test depend on how quickly.</p>
-     */
-    private boolean awaitRequest() throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
-        while (System.nanoTime() < deadline) {
-            if (server.requestCount() > 0) {
-                return true;
-            }
-            Thread.sleep(50);
-        }
-        return false;
-    }
-
     @Test
     @DisplayName("The REST console builds on a real toolkit and says what is missing")
     void theRestConsoleBuildsAndSaysWhatIsMissing() throws Exception {

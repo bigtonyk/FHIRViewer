@@ -6,7 +6,6 @@ import java.util.concurrent.Callable;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
 
-import com.example.fhirviewer.model.LoadedResource;
 import com.example.fhirviewer.server.FhirServerConfiguration;
 import com.example.fhirviewer.server.FhirServerManager;
 import com.example.fhirviewer.server.FhirServerService;
@@ -15,8 +14,6 @@ import com.example.fhirviewer.server.SearchRequest;
 import com.example.fhirviewer.server.ServerCapabilities;
 
 import javafx.beans.property.ReadOnlyStringWrapper;
-import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
 import javafx.event.ActionEvent;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -40,7 +37,6 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.util.Callback;
 
 /**
  * "Open from Server": picks a resource on a chosen FHIR server and hands it to the editor.

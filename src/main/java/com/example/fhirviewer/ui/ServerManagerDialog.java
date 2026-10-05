@@ -1,7 +1,6 @@
 package com.example.fhirviewer.ui;
 
 import java.util.List;
-import java.util.Optional;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -18,7 +17,6 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
 import com.example.fhirviewer.server.ConnectionResult;
-import com.example.fhirviewer.server.FhirServerConfiguration;
 import com.example.fhirviewer.server.FhirServerManager;
 import com.example.fhirviewer.server.FhirServerService;
 import com.example.fhirviewer.server.ServerAuthKind;

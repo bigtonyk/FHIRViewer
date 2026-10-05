@@ -714,23 +714,6 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
         return null;
     }
 
-    /** Extracts the trailing id from a {@code Location} like {@code Patient/123/_history/4}. */
-    private static String lastPathSegment(String location) {
-        String path = location;
-        int query = path.indexOf('?');
-        if (query >= 0) {
-            path = path.substring(0, query);
-        }
-        String[] segments = path.split("/");
-        for (int i = segments.length - 1; i >= 0; i--) {
-            String segment = segments[i].trim();
-            if (!segment.isEmpty() && !segment.startsWith("_")) {
-                return segment;
-            }
-        }
-        return null;
-    }
-
     private static void requireResource(IBaseResource resource, String action) throws ServerOperationException {
         if (resource == null) {
             throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,

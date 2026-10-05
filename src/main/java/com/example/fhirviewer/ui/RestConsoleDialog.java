@@ -2,7 +2,6 @@ package com.example.fhirviewer.ui;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.Callable;
 
 import javafx.geometry.Insets;
 import javafx.scene.control.Button;
@@ -20,7 +19,6 @@ import javafx.scene.layout.Region;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 
 import com.example.fhirviewer.server.FhirServerConfiguration;
-import com.example.fhirviewer.server.ServerOperationException;
 import com.example.fhirviewer.server.rest.JdkHttpRestClient;
 import com.example.fhirviewer.server.rest.RestAnswer;
 import com.example.fhirviewer.server.rest.RestAnswers;
