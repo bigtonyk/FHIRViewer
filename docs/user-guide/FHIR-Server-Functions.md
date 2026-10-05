@@ -809,7 +809,22 @@ There is deliberately **no `Authorization` header you can type yourself** — th
 points you at the authentication selector instead, so a credential cannot end up sitting in
 a text field that gets screenshotted.
 
-Credentials typed here are **not saved**. They are forgotten when the window closes.
+Credentials typed here are **not saved**, anywhere. They are forgotten when the window
+closes, and they are deliberately not part of what the console remembers.
+
+### It remembers how you left it
+
+The console **closes itself** whenever you open something in the viewer, so this matters:
+the next time you open **REST Console...** the screen comes back the way you left it.
+
+Remembered: the server, the method, the base URL, the path, every query parameter and header
+(in order), the content type, the authentication kind, the user name, and the window's size
+and divider position.
+
+**Not** remembered: the password, the bearer token, and the request body. The first two are
+credentials. The third is left out because a request body is far more likely to be a patient
+resource than anything else, and writing one to disk without being asked is not a decision
+this tool should make for you.
 
 ### Reading the answer
 
@@ -865,7 +880,8 @@ Stated plainly, so nothing here reads as working when it does not.
 | **Most specification operations are unverified** | Four were run against a public server. The rest come from the specification and may not be implemented by your server. See [How far this has been checked](#the-specifications-operations-on-every-server). |
 | **Console requests are not saved** | The console holds one request at a time and keeps nothing between sessions — no saved collections, no request history, no `{{variable}}` environment. You can copy a request out as cURL and paste it back. |
 | **SMART on FHIR is not supported** | The console can *use* a bearer token and can *fetch* one with an OAuth client-credentials grant. It does not run an authorization-code flow, open a browser, or refresh an expired token. Re-fetch when one expires. |
-| **Console credentials are never stored** | A password or token typed into the console is forgotten when the window closes. Use the server manager to store one that should persist. |
+| **Console credentials are never stored** | A password or token typed into the console is forgotten when the window closes, and is not part of what it remembers. Use the server manager to store one that should persist. |
+| **The console's request body is not remembered** | Everything else about the last request is, including the URL, parameters and headers. The body is left out because it is usually a patient resource. |
 | **Very large responses are held in memory** | The whole body is loaded as text. A multi-hundred-megabyte bulk export is not something this handles well. |
 
 ---

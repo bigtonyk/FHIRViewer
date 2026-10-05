@@ -11,6 +11,7 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -64,6 +65,27 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
     private final RestRequestPane requestPane;
     private final RestResponsePane responsePane;
     private final FhirService fhirService;
+    private final SplitPane split;
+
+    /**
+     * The default window size.
+     *
+     * <p>Wide on purpose. The two halves are two forms of fields side by side, and the
+     * response side — status, four tabs, three buttons — is not usable when the request side
+     * takes most of the width. 1400 comfortably fits both at a readable field width on a
+     * 1080p screen, and is comfortably under the width of anything larger.
+     */
+    private static final double DEFAULT_WIDTH = 1400;
+    private static final double DEFAULT_HEIGHT = 820;
+
+    /**
+     * The smallest the window may be dragged to.
+     *
+     * <p>Without a floor the dialog can be squeezed until neither pane is usable, and
+     * {@link #remember()} would then persist that size and make it stick on every reopening.
+     */
+    private static final double MIN_WIDTH = 900;
+    private static final double MIN_HEIGHT = 520;
 
     private final Button sendButton = new Button("Send");
     private final Button cancelRequestButton = new Button("Cancel");
@@ -102,19 +124,73 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
         HBox footer = new HBox(8, controls, spacer, statusLabel);
         HBox.setHgrow(statusLabel, Priority.ALWAYS);
 
-        SplitPane split = new SplitPane(requestPane, responsePane);
-        split.setDividerPositions(0.5);
+        // The request side is much taller than the response side — a URL, three kinds of
+        // credential, two grids and a body — so it scrolls rather than being squeezed. A
+        // fixed-height VBox with no scroller silently squashes the two grids to nothing,
+        // which is what made this screen look broken at a fixed size.
+        ScrollPane requestScroller = new ScrollPane(requestPane);
+        requestScroller.setFitToWidth(true);
+        requestScroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+
+        split = new SplitPane(requestScroller, responsePane);
         VBoxWithPadding content = new VBoxWithPadding(split, footer);
         getDialogPane().setContent(content);
-        getDialogPane().setPrefWidth(1100);
-        getDialogPane().setPrefHeight(720);
 
         ButtonType close = new ButtonType("Close", ButtonBar.ButtonData.OK_DONE);
         getDialogPane().getButtonTypes().addAll(close);
         setResultConverter(button -> outcome());
 
-        // The credentials live only as long as this window does.
-        setOnCloseRequest(event -> requestPane.forgetCredentials());
+        // Read once, then apply in one go: the remembered size and divider must come from
+        // the same read as the form, or the window reopens at last run's size with this
+        // run's divider.
+        RestConsoleState remembered = RestConsoleState.load(baseUrlsOf(servers));
+        applySize(remembered);
+        requestPane.restoreState(remembered);
+
+        // Save on every way out, including the "open in viewer" path — which closes this
+        // window, and is the case that made remembering settings worth doing at all.
+        setOnCloseRequest(event -> {
+            remember();
+            requestPane.forgetCredentials();
+        });
+    }
+
+    /** Applies a remembered size and divider, rejecting values a resized window could produce. */
+    private void applySize(RestConsoleState state) {
+        double width = state.windowWidth() < MIN_WIDTH ? DEFAULT_WIDTH : state.windowWidth();
+        double height = state.windowHeight() < MIN_HEIGHT ? DEFAULT_HEIGHT : state.windowHeight();
+        getDialogPane().setPrefSize(width, height);
+        // Without a minimum the dialog can be dragged to a width where nothing is readable,
+        // and the remembered value would then make it stay that way next time.
+        getDialogPane().setMinSize(MIN_WIDTH, MIN_HEIGHT);
+        if (split != null) {
+            split.setDividerPositions(clampDivider(state.dividerPosition()));
+        }
+    }
+
+    private static double clampDivider(double position) {
+        // A divider dragged to the very edge leaves one pane unusable; keep both workable.
+        return Math.min(0.85, Math.max(0.25, position));
+    }
+
+    private static List<String> baseUrlsOf(List<FhirServerConfiguration> servers) {
+        if (servers == null) {
+            return List.of();
+        }
+        return servers.stream().map(FhirServerConfiguration::baseUrl).toList();
+    }
+
+    /** Captures and stores the state, including the size the user dragged the window to. */
+    private void remember() {
+        double width = getDialogPane().getWidth();
+        double height = getDialogPane().getHeight();
+        double[] positions = split == null ? null : split.getDividerPositions();
+        // Before the window is laid out there are no dividers yet, so there is no position to
+        // remember; the default keeps the next opening sensible rather than storing a zero.
+        double divider = positions == null || positions.length == 0
+                ? RestConsoleState.defaults().dividerPosition()
+                : positions[0];
+        requestPane.captureState(width, height, divider).save();
     }
 
     private static final class VBoxWithPadding extends javafx.scene.layout.VBox {

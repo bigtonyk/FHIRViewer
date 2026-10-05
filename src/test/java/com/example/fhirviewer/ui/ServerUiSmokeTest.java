@@ -30,6 +30,7 @@ import com.example.fhirviewer.server.SearchCriterion;
 import com.example.fhirviewer.server.SearchRequest;
 import com.example.fhirviewer.server.ServerDefinition;
 import com.example.fhirviewer.server.ServerOrigin;
+import com.example.fhirviewer.server.rest.RestMethod;
 
 import javafx.application.Platform;
 import javafx.geometry.Bounds;
@@ -1393,6 +1394,10 @@ class ServerUiSmokeTest {
         // Built and closed without show(), which is the pattern the rest of this file uses
         // for dialogs: the content pane is constructed in the constructor either way, and a
         // window left open here would keep the JavaFX thread alive after the class ended.
+        //
+        // Started from cleared settings, so this asserts what an empty console does rather
+        // than inheriting whatever another test remembered.
+        clearRememberedConsole();
         AtomicReference<RestConsoleDialog> built = new AtomicReference<>();
         runOnFxThread(() -> {
             // A null FhirService is the "no Bundle expansion" mode, which keeps this
@@ -1414,7 +1419,62 @@ class ServerUiSmokeTest {
                 "an empty console should say what it needs, not open ready to send");
     }
 
-    /** Runs an action on the JavaFX thread and waits for it, so a throw is not swallowed. */
+    @Test
+    @DisplayName("The console comes back the way it was left")
+    void theConsoleRemembersItsSettings() throws Exception {
+        // The scenario that motivates remembering anything: search, open a result, come back
+        // and adjust the search. Without this, every reopening starts from an empty form.
+        clearRememberedConsole();
+        try {
+            RestConsoleState remembered = new RestConsoleState(
+                    "", RestMethod.POST, "https://example.com/fhir", "Patient",
+                    List.of(new RestParameterList.Parameter("name", "Smith"),
+                            new RestParameterList.Parameter("_include", "Patient:organization")),
+                    List.of(new RestParameterList.Parameter("Prefer", "return=representation")),
+                    "application/fhir+json", ServerAuthKind.BASIC, "alice", 1400, 820, 0.5);
+            remembered.save();
+
+            AtomicReference<RestRequestPane> pane = new AtomicReference<>();
+            runOnFxThread(() -> {
+                RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+                pane.set(dialog.requestPane());
+                dialog.close();
+            });
+
+            RestConsoleForm restored = pane.get().form();
+            assertEquals(RestMethod.POST, restored.method());
+            assertEquals("https://example.com/fhir", restored.baseUrl());
+            assertEquals("Patient", restored.path());
+            assertEquals("Smith", restored.parameters().value("name"));
+            assertEquals("Patient:organization", restored.parameters().value("_include"));
+            assertEquals("return=representation", restored.headers().value("Prefer"));
+            assertEquals(ServerAuthKind.BASIC, restored.authKind());
+            assertEquals("alice", restored.userName(),
+                    "the user name is not a secret and retyping it is pure friction");
+
+            // The point of the whole exercise: a reopened console is ready to send, not an
+            // empty form the user has to rebuild.
+            assertTrue(restored.problem().isEmpty(),
+                    "a restored console should be ready to send, but reports: " + restored.problem());
+        } finally {
+            clearRememberedConsole();
+        }
+    }
+
+    /**
+     * Forgets the remembered console settings.
+     *
+     * <p>The console writes to the real preferences store, which is what makes these tests
+     * worth writing — so the tests are obliged to clean up after themselves, or one test's
+     * saved URL becomes the next test's starting state.
+     */
+    private static void clearRememberedConsole() throws Exception {
+        RestConsoleState.nodeForTest().clear();
+    }
+
+    /**
+     * Runs an action on the JavaFX thread and waits for it, so a throw is not swallowed.
+     */
     private static void runOnFxThread(Runnable action) throws Exception {
         AtomicReference<Throwable> failure = new AtomicReference<>();
         CountDownLatch done = new CountDownLatch(1);

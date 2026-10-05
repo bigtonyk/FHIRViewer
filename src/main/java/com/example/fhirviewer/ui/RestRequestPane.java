@@ -534,7 +534,80 @@ private void configureControls() {
         refresh();
     }
 
-    /** The cURL buttons, so the dialog can place them with its own controls. */
+    /**
+     * What the pane currently holds, as something storable.
+     *
+     * <p>The password and the token are not part of {@link RestConsoleState} and so cannot be
+     * captured here even by accident — which is the point. A credential in this application
+     * has exactly one route to disk, and this is not it.
+     */
+    public RestConsoleState captureState(double windowWidth, double windowHeight,
+            double dividerPosition) {
+        FhirServerConfiguration selected = selectedServer();
+        return new RestConsoleState(
+                selected == null ? "" : selected.baseUrl(),
+                methodBox.getValue(),
+                baseUrlField.getText(),
+                pathField.getText(),
+                List.copyOf(parameters),
+                List.copyOf(headers),
+                contentTypeField.getText(),
+                authBox.getValue(),
+                userNameField.getText(),
+                windowWidth, windowHeight, dividerPosition);
+    }
+
+    /**
+     * Fills the pane from a remembered state.
+     *
+     * <p>A server that is still configured is re-selected by name; anything else — a deleted
+     * server, or a URL typed by hand — is restored as a custom base URL, so the console comes
+     * back looking the way the user left it rather than silently switched to something else.
+     */
+    public void restoreState(RestConsoleState state) {
+        if (state == null) {
+            return;
+        }
+        ServerChoice match = null;
+        for (ServerChoice choice : serverBox.getItems()) {
+            if (choice.server() != null
+                    && choice.server().baseUrl().equals(state.serverBaseUrl())) {
+                match = choice;
+                break;
+            }
+        }
+        if (match != null) {
+            serverBox.getSelectionModel().select(match);
+            usingCustomUrl = false;
+        } else {
+            serverBox.getSelectionModel().select(ServerChoice.custom());
+            usingCustomUrl = true;
+            baseUrlField.setText(state.baseUrl());
+        }
+        if (state.method() != null) {
+            methodBox.getSelectionModel().select(state.method());
+        }
+        pathField.setText(state.path() == null ? "" : state.path());
+        if (state.contentType() != null && !state.contentType().isBlank()) {
+            contentTypeField.setText(state.contentType());
+        }
+        if (state.authKind() != null) {
+            authBox.getSelectionModel().select(state.authKind());
+        }
+        userNameField.setText(state.userName() == null ? "" : state.userName());
+
+        // Cleared first, so a remembered list replaces rather than adds to whatever is there.
+        parameters.clear();
+        state.parameters().forEach(parameters::add);
+        headers.clear();
+        state.headers().forEach(headers::add);
+
+        // The body is deliberately not restored: see RestConsoleState.
+        bodyArea.clear();
+        refresh();
+    }
+
+/** The cURL buttons, so the dialog can place them with its own controls. */
     public Button pasteCurlButton() {
         return pasteCurlButton;
     }
