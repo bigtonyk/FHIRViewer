@@ -9,6 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.GraphicsEnvironment;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -23,7 +26,11 @@ import org.junit.jupiter.api.Test;
 
 import com.example.fhirviewer.server.FhirServerConfiguration;
 import com.example.fhirviewer.server.FhirServerManager;
+import com.example.fhirviewer.server.FhirServerPlugin;
 import com.example.fhirviewer.server.FhirServerPluginRegistry;
+import com.example.fhirviewer.server.PluginConfig;
+import com.example.fhirviewer.server.PluginLoader;
+import com.example.fhirviewer.server.PluginSettingsStore;
 import com.example.fhirviewer.server.FhirServerService;
 import com.example.fhirviewer.server.ServerAuthKind;
 import com.example.fhirviewer.server.SearchCriterion;
@@ -1352,6 +1359,67 @@ class ServerUiSmokeTest {
 
         runOnFxThread(() -> screen.close());
     }
+
+    @Test
+    @DisplayName("The plugin page offers Smile CDR, and picking it enables the passphrase form")
+    void pluginPageOffersSmileAndEnablesItsForm() throws Exception {
+        // This is the page the server dialog sends you to by name when you save a password:
+        // "Set a passphrase in Tools > Server Plugins... first, then enter the password
+        // again." That instruction is worthless if the page does not offer the plugin you
+        // are configuring, or if choosing one leaves the form disabled - and both were
+        // reported.
+        //
+        // Selection is made programmatically rather than by dispatching a click, on purpose.
+        // The form used to be wired to a mouse-click handler, so a row could be selected
+        // while the settings form still said "No plugin selected." with Save greyed out. The
+        // form has to follow the selection model for any of these assertions to hold.
+        AtomicReference<List<String>> offered = new AtomicReference<>();
+        AtomicReference<String> selectedId = new AtomicReference<>();
+        AtomicReference<Boolean> saveEnabled = new AtomicReference<>();
+
+        runOnFxThread(() -> {
+            FhirServerPluginRegistry registry = PluginLoader.load(PluginConfig.defaults());
+            // createTempFile is checked, and the FX action is a Runnable, so it is surfaced
+            // as an unchecked one: runOnFxThread rethrows whatever the action throws, and a
+            // failure to make a temp file deserves to fail the test rather than vanish.
+            Path settings;
+            Path configFile;
+            try {
+                settings = Files.createTempFile("fhirviewer-plugin-settings", ".properties");
+                configFile = Files.createTempFile("fhirviewer-plugin-config", ".properties");
+            } catch (IOException cannotMakeTempFile) {
+                throw new java.io.UncheckedIOException(cannotMakeTempFile);
+            }
+
+            PluginManagerDialog dialog = new PluginManagerDialog(null, registry,
+                    new PluginSettingsStore(settings), configFile, ignored -> { });
+
+            List<String> ids = new ArrayList<>();
+            for (FhirServerPlugin plugin : dialog.loadedPluginsList().getItems()) {
+                ids.add(plugin.id());
+            }
+            offered.set(ids);
+
+            FhirServerPlugin smile = registry.plugin("smile-cdr");
+            if (smile != null) {
+                dialog.loadedPluginsList().getSelectionModel().select(smile);
+                FhirServerPlugin picked =
+                        dialog.loadedPluginsList().getSelectionModel().getSelectedItem();
+                selectedId.set(picked == null ? "none" : picked.id());
+                saveEnabled.set(!dialog.saveSettingsButton().isDisable());
+            }
+            dialog.close();
+        });
+
+        assertTrue(offered.get().contains("smile-cdr"),
+                "the plugin page did not offer Smile CDR; it offered " + offered.get());
+        assertEquals("smile-cdr", selectedId.get(),
+                "selecting the Smile CDR row did not actually select it");
+        assertTrue(saveEnabled.get(),
+                "selecting a plugin must enable the settings form, or its passphrase field "
+                        + "can never be used - which is how the passphrase message dead-ends");
+    }
+
     private void awaitCount(int expected, ServerOperationDialog dialog) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
         while (System.nanoTime() < deadline) {

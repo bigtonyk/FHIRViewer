@@ -233,10 +233,24 @@ public class PluginManagerDialog extends Dialog<Void> {
     private VBox createPluginsPane() {
         loadedPluginsList = new ListView<>();
         VBox.setVgrow(loadedPluginsList, javafx.scene.layout.Priority.ALWAYS);
-        loadedPluginsList.setOnMouseClicked(e -> {
-            FhirServerPlugin selected = loadedPluginsList.getSelectionModel().getSelectedItem();
-            refreshConfiguredLabel(selected);
-        });
+        // Driven by the selection model rather than by a mouse click.
+        //
+        // Mouse-only was the whole of the wiring, which meant the settings form only ever
+        // reacted to one specific way of choosing a row. A keyboard selection, a selection
+        // made programmatically, or any click that did not land as a mouse-click event on
+        // the list left the form saying "No plugin selected." with Save disabled - so the
+        // plugin could be chosen and appear not to take. Listening to the selection covers
+        // every way a row can become selected, mouse or otherwise.
+        // Driven by the selection model rather than by a mouse click.
+        //
+        // Mouse-only was the whole of the wiring, so the settings form reacted to exactly
+        // one way of choosing a row. Select one any other way - keyboard, programmatic, a
+        // click that did not arrive as a mouse-click event - and the form stayed on "No
+        // plugin selected." with Save disabled: the plugin appears chosen, and nothing
+        // happens. The reported "I can't select the Smile Plugin" is this. Listening to the
+        // selection covers every way a row can become selected.
+        loadedPluginsList.getSelectionModel().selectedItemProperty()
+                .addListener((observable, previous, selected) -> refreshConfiguredLabel(selected));
         return new VBox(loadedPluginsList);
     }
 
@@ -425,6 +439,16 @@ public class PluginManagerDialog extends Dialog<Void> {
         } catch (IOException e) {
             status("Could not read settings: " + e.getMessage());
         }
+    }
+
+    /** The loaded-plugins list, so a test can see what this page offers for selection. */
+    ListView<FhirServerPlugin> loadedPluginsList() {
+        return loadedPluginsList;
+    }
+
+    /** The Save Settings button, so a test can assert a selection actually enables it. */
+    Button saveSettingsButton() {
+        return saveButton;
     }
 
     /**
