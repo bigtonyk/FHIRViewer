@@ -1375,6 +1375,7 @@ class ServerUiSmokeTest {
         // form has to follow the selection model for any of these assertions to hold.
         AtomicReference<List<String>> offered = new AtomicReference<>();
         AtomicReference<String> selectedId = new AtomicReference<>();
+        AtomicReference<String> shown = new AtomicReference<>();
         AtomicReference<Boolean> saveEnabled = new AtomicReference<>();
 
         runOnFxThread(() -> {
@@ -1395,18 +1396,21 @@ class ServerUiSmokeTest {
                     new PluginSettingsStore(settings), configFile, ignored -> { });
 
             List<String> ids = new ArrayList<>();
-            for (FhirServerPlugin plugin : dialog.loadedPluginsList().getItems()) {
+            for (FhirServerPlugin plugin : dialog.pluginChoice().getItems()) {
                 ids.add(plugin.id());
             }
             offered.set(ids);
 
             FhirServerPlugin smile = registry.plugin("smile-cdr");
             if (smile != null) {
-                dialog.loadedPluginsList().getSelectionModel().select(smile);
+                dialog.pluginChoice().getSelectionModel().select(smile);
                 FhirServerPlugin picked =
-                        dialog.loadedPluginsList().getSelectionModel().getSelectedItem();
+                        dialog.pluginChoice().getSelectionModel().getSelectedItem();
                 selectedId.set(picked == null ? "none" : picked.id());
                 saveEnabled.set(!dialog.saveSettingsButton().isDisable());
+                // A closed drop-down shows one line through the converter, so it has to read
+                // as the name rather than as a class name and a hash.
+                shown.set(dialog.pluginChoice().getConverter().toString(smile));
             }
             dialog.close();
         });
@@ -1414,7 +1418,9 @@ class ServerUiSmokeTest {
         assertTrue(offered.get().contains("smile-cdr"),
                 "the plugin page did not offer Smile CDR; it offered " + offered.get());
         assertEquals("smile-cdr", selectedId.get(),
-                "selecting the Smile CDR row did not actually select it");
+                "choosing Smile CDR in the drop-down did not actually select it");
+        assertEquals("Smile CDR", shown.get(),
+                "the drop-down must show the plugin's name, not its toString()");
         assertTrue(saveEnabled.get(),
                 "selecting a plugin must enable the settings form, or its passphrase field "
                         + "can never be used - which is how the passphrase message dead-ends");

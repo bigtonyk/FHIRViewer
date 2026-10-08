@@ -25,11 +25,14 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
+import javafx.util.StringConverter;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
@@ -82,7 +85,6 @@ public class PluginManagerDialog extends Dialog<Void> {
 
     private TextField folderField;
     private ListView<PluginJarScanner.ScannedJar> foundJarsList;
-    private ListView<FhirServerPlugin> loadedPluginsList;
     private Label statusLabel;
 
     private TextField baseUrlField;
@@ -90,6 +92,7 @@ public class PluginManagerDialog extends Dialog<Void> {
     private PasswordField passwordField;
     private PasswordField passphraseField;
     private CheckBox loadOnStartCheck;
+    private ComboBox<FhirServerPlugin> pluginChoice;
     private Button saveButton;
     private Button removeButton;
     private Label configuredForLabel;
@@ -183,7 +186,7 @@ public class PluginManagerDialog extends Dialog<Void> {
         VBox left = new VBox(6, heading("Jars found in the folder"), foundJarsList, createConfigBar());
         VBox.setVgrow(left, javafx.scene.layout.Priority.ALWAYS);
 
-        VBox right = new VBox(6, heading("Loaded plugins"), createPluginsPane(), createSettingsPane());
+        VBox right = new VBox(6, heading("Plugin settings"), createPluginsPane(), createSettingsPane());
         VBox.setVgrow(right, javafx.scene.layout.Priority.ALWAYS);
 
         HBox.setHgrow(left, javafx.scene.layout.Priority.ALWAYS);
@@ -229,29 +232,51 @@ public class PluginManagerDialog extends Dialog<Void> {
         return configBar;
     }
 
-    /** The middle-right: the plugins actually loaded in this run. */
+    /** Which plugin the settings form below is editing. */
     private VBox createPluginsPane() {
-        loadedPluginsList = new ListView<>();
-        VBox.setVgrow(loadedPluginsList, javafx.scene.layout.Priority.ALWAYS);
-        // Driven by the selection model rather than by a mouse click.
-        //
-        // Mouse-only was the whole of the wiring, which meant the settings form only ever
-        // reacted to one specific way of choosing a row. A keyboard selection, a selection
-        // made programmatically, or any click that did not land as a mouse-click event on
-        // the list left the form saying "No plugin selected." with Save disabled - so the
-        // plugin could be chosen and appear not to take. Listening to the selection covers
-        // every way a row can become selected, mouse or otherwise.
+        pluginChoice = new ComboBox<>();
+        pluginChoice.setMaxWidth(Double.MAX_VALUE);
+        pluginChoice.setPromptText("no plugins loaded");
+
+        // The display name, not toString(). A closed drop-down shows a single line, and the
+        // default rendering would put the class name and hash on it - too long to fit, and
+        // no more readable than the plain name it is replacing.
+        pluginChoice.setConverter(new StringConverter<FhirServerPlugin>() {
+            @Override
+            public String toString(FhirServerPlugin plugin) {
+                return plugin == null ? "" : plugin.displayName();
+            }
+
+            @Override
+            public FhirServerPlugin fromString(String text) {
+                return null;
+            }
+        });
+        pluginChoice.setCellFactory(view -> new ListCell<FhirServerPlugin>() {
+            @Override
+            protected void updateItem(FhirServerPlugin item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.displayName());
+            }
+        });
+
         // Driven by the selection model rather than by a mouse click.
         //
         // Mouse-only was the whole of the wiring, so the settings form reacted to exactly
         // one way of choosing a row. Select one any other way - keyboard, programmatic, a
-        // click that did not arrive as a mouse-click event - and the form stayed on "No
-        // plugin selected." with Save disabled: the plugin appears chosen, and nothing
-        // happens. The reported "I can't select the Smile Plugin" is this. Listening to the
-        // selection covers every way a row can become selected.
-        loadedPluginsList.getSelectionModel().selectedItemProperty()
+        // drop-down pick that arrives as a value change rather than as a click on a list -
+        // and the form stayed on "No plugin selected." with Save disabled: the plugin looks
+        // chosen and nothing happens. That is how "I can't select the Smile Plugin" reads.
+        // Listening to the selection covers every way a choice can be made, in either control.
+        pluginChoice.getSelectionModel().selectedItemProperty()
                 .addListener((observable, previous, selected) -> refreshConfiguredLabel(selected));
-        return new VBox(loadedPluginsList);
+
+        Label label = new Label("Plugin:");
+        label.setMinWidth(Region.USE_PREF_SIZE);
+        HBox.setHgrow(pluginChoice, javafx.scene.layout.Priority.ALWAYS);
+        HBox row = new HBox(8, label, pluginChoice);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return new VBox(row);
     }
 
     /** A one-line status area at the bottom of the dialog. */
@@ -303,6 +328,9 @@ public class PluginManagerDialog extends Dialog<Void> {
         VBox box = new VBox(6, configuredForLabel, urlRow, credentialsRow, phraseRow,
                 loadOnStartCheck, buttons);
         box.setPadding(new Insets(10, 0, 0, 0));
+        // The drop-down above is one line tall, so the form takes the height the column has
+        // left. The column used to spend nearly all of it on a list of three rows.
+        VBox.setVgrow(box, javafx.scene.layout.Priority.ALWAYS);
         return box;
     }
 
@@ -405,9 +433,9 @@ public class PluginManagerDialog extends Dialog<Void> {
         }
     }
 
-    /** Fills the loaded-plugins list from the registry. */
+    /** Fills the plugin drop-down from the registry. */
     private void refreshLoadedPlugins() {
-        loadedPluginsList.getItems().setAll(registry.plugins());
+        pluginChoice.getItems().setAll(registry.plugins());
     }
 
     /**
@@ -441,9 +469,9 @@ public class PluginManagerDialog extends Dialog<Void> {
         }
     }
 
-    /** The loaded-plugins list, so a test can see what this page offers for selection. */
-    ListView<FhirServerPlugin> loadedPluginsList() {
-        return loadedPluginsList;
+    /** The plugin drop-down, so a test can see what this page offers for selection. */
+    ComboBox<FhirServerPlugin> pluginChoice() {
+        return pluginChoice;
     }
 
     /** The Save Settings button, so a test can assert a selection actually enables it. */
@@ -457,7 +485,7 @@ public class PluginManagerDialog extends Dialog<Void> {
      * storing that would silently produce a half-configured credential.
      */
     private void saveSettings() {
-        FhirServerPlugin plugin = loadedPluginsList.getSelectionModel().getSelectedItem();
+        FhirServerPlugin plugin = pluginChoice.getSelectionModel().getSelectedItem();
         if (plugin == null) {
             status("Select a plugin to save settings for.");
             return;
@@ -513,7 +541,7 @@ public class PluginManagerDialog extends Dialog<Void> {
 
     /** Deletes a plugin's saved settings, leaving the plugin itself loaded. */
     private void removeFromConfig() {
-        FhirServerPlugin plugin = loadedPluginsList.getSelectionModel().getSelectedItem();
+        FhirServerPlugin plugin = pluginChoice.getSelectionModel().getSelectedItem();
         if (plugin == null) {
             status("Select a plugin first.");
             return;
