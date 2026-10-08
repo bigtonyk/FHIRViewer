@@ -124,7 +124,10 @@ public class PluginManagerDialog extends Dialog<Void> {
         folderField.setText(rememberedPluginFolder());
 
         refreshLoadedPlugins();
-        refreshConfiguredLabel(null);
+        // The current selection rather than null. Selecting above fires the listener, and
+        // clearing the form here would leave a chosen plugin showing "No plugin selected."
+        // with Save disabled - a plugin picked, and a form that denies it.
+        refreshConfiguredLabel(pluginChoice.getSelectionModel().getSelectedItem());
         initOwner(parentWindow);
         initModality(Modality.WINDOW_MODAL);
     }
@@ -433,9 +436,17 @@ public class PluginManagerDialog extends Dialog<Void> {
         }
     }
 
-    /** Fills the plugin drop-down from the registry. */
+    /** Fills the plugin drop-down from the registry, opening on the first plugin. */
     private void refreshLoadedPlugins() {
         pluginChoice.getItems().setAll(registry.plugins());
+        // Open on a plugin rather than on "No plugin selected." The form exists to edit
+        // whichever plugin is chosen, and starting with nothing chosen meant the first thing
+        // anyone saw was a greyed-out Save button and a form whose instructions were above
+        // it rather than in it. An empty registry selects nothing, which is the honest state
+        // there and leaves the form cleared and disabled as before.
+        if (pluginChoice.getSelectionModel().getSelectedItem() == null) {
+            pluginChoice.getSelectionModel().selectFirst();
+        }
     }
 
     /**
@@ -479,6 +490,49 @@ public class PluginManagerDialog extends Dialog<Void> {
         return saveButton;
     }
 
+    /** The passphrase field, so a test can fill it the way a user would. */
+    PasswordField passphraseInput() {
+        return passphraseField;
+    }
+
+    /**
+     * Takes a passphrase into the session without writing anything to the store.
+     *
+     * <p>Proves it first against whatever password this plugin has saved. Adopting a value
+     * that does not unlock what is already on disk would look like it had worked, then fail
+     * later as an anonymous request and a 401 with nothing to explain it.
+     *
+     * <p>A plugin with nothing stored cannot be checked - there is nothing to unlock - and
+     * there the value is simply taken. That is the normal case: the password lives against
+     * the server rather than under the plugin id, so there is usually nothing here to test
+     * against, and this is the branch that removes the second entry of the password.
+     */
+    private void adoptPassphrase(FhirServerPlugin plugin, String passphrase) {
+        boolean hasStoredPassword = false;
+        try {
+            PluginSettings saved = settingsStore.read(plugin.id());
+            hasStoredPassword = saved != null && saved.password() != null
+                    && !saved.password().isBlank();
+            if (hasStoredPassword) {
+                settingsStore.unlock(plugin.id(), passphrase);
+            }
+        } catch (SecretBoxException wrong) {
+            status("That passphrase does not unlock the password saved for "
+                    + plugin.displayName() + ".");
+            return;
+        } catch (IOException e) {
+            status("Could not read settings: " + e.getMessage());
+            return;
+        }
+        passphraseSink.accept(passphrase);
+        passphraseField.clear();
+        status(hasStoredPassword
+                ? "Passphrase accepted; it unlocks the password saved for "
+                        + plugin.displayName() + "."
+                : "Passphrase set for this session. It will be used the next time a password"
+                        + " is saved.");
+    }
+
     /**
      * Saves the settings form for the selected plugin, encrypting the password when one
      * is supplied. A blank password with a non-blank user name is rejected, because
@@ -494,6 +548,33 @@ public class PluginManagerDialog extends Dialog<Void> {
         String user = text(userNameField);
         String password = passwordField.getText() == null ? "" : passwordField.getText();
         String passphrase = passphraseField.getText() == null ? "" : passphraseField.getText();
+
+        // A passphrase on its own, with no password to encrypt.
+        //
+        // This is the way in for someone who only needs the session to hold a passphrase,
+        // which is exactly what the server dialog asks for when it reports NEEDS_PASSPHRASE.
+        // Before this branch existed the passphrase could only be established by typing a
+        // password here first and then typing the same password again on the server - two
+        // entries of one secret, with no way to do it in one.
+        //
+        // Nothing is written. There is no password to encrypt, and a write would either
+        // clear the one that is stored or re-encrypt ciphertext as though it were plaintext.
+        // The session adopts the value and the field is cleared, as it is after a save.
+        // A passphrase on its own, with no password to encrypt.
+        //
+        // This is the way in for someone who only needs the session to hold a passphrase,
+        // which is exactly what the server dialog asks for when it reports NEEDS_PASSPHRASE.
+        // Before this branch existed the passphrase could only be established by typing a
+        // password here first and then typing the same password again on the server - two
+        // entries of one secret, with no way to do it in one.
+        //
+        // Nothing is written. There is no password to encrypt, and a write would either
+        // clear the one that is stored or re-encrypt ciphertext as though it were plaintext.
+        // The session adopts the value and the field is cleared, as it is after a save.
+        if (password.isEmpty() && !passphrase.isEmpty()) {
+            adoptPassphrase(plugin, passphrase);
+            return;
+        }
 
         if (url.isEmpty()) {
             status("A server URL is required.");

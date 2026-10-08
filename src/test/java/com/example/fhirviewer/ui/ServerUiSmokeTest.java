@@ -1380,20 +1380,9 @@ class ServerUiSmokeTest {
 
         runOnFxThread(() -> {
             FhirServerPluginRegistry registry = PluginLoader.load(PluginConfig.defaults());
-            // createTempFile is checked, and the FX action is a Runnable, so it is surfaced
-            // as an unchecked one: runOnFxThread rethrows whatever the action throws, and a
-            // failure to make a temp file deserves to fail the test rather than vanish.
-            Path settings;
-            Path configFile;
-            try {
-                settings = Files.createTempFile("fhirviewer-plugin-settings", ".properties");
-                configFile = Files.createTempFile("fhirviewer-plugin-config", ".properties");
-            } catch (IOException cannotMakeTempFile) {
-                throw new java.io.UncheckedIOException(cannotMakeTempFile);
-            }
-
             PluginManagerDialog dialog = new PluginManagerDialog(null, registry,
-                    new PluginSettingsStore(settings), configFile, ignored -> { });
+                    new PluginSettingsStore(tempFile("plugin-settings")),
+                    tempFile("plugin-config"), ignored -> { });
 
             List<String> ids = new ArrayList<>();
             for (FhirServerPlugin plugin : dialog.pluginChoice().getItems()) {
@@ -1426,6 +1415,71 @@ class ServerUiSmokeTest {
                         + "can never be used - which is how the passphrase message dead-ends");
     }
 
+    @Test
+    @DisplayName("The plugin page opens on a plugin, not on 'No plugin selected.'")
+    void pluginPageOpensOnAPlugin() throws Exception {
+        // The form exists to edit a plugin, so arriving with nothing chosen meant the first
+        // sight of the page was a greyed-out Save button and a caption telling the user to
+        // pick something the page could have picked for them. An empty registry is the one
+        // case where nothing to choose is the honest state.
+        AtomicReference<String> initial = new AtomicReference<>();
+        AtomicReference<Boolean> saveEnabled = new AtomicReference<>();
+
+        runOnFxThread(() -> {
+            FhirServerPluginRegistry registry = PluginLoader.load(PluginConfig.defaults());
+            PluginManagerDialog dialog = new PluginManagerDialog(null, registry,
+                    new PluginSettingsStore(tempFile("settings")), tempFile("config"),
+                    ignored -> { });
+            FhirServerPlugin selected =
+                    dialog.pluginChoice().getSelectionModel().getSelectedItem();
+            initial.set(selected == null ? "none" : selected.id());
+            saveEnabled.set(!dialog.saveSettingsButton().isDisable());
+            dialog.close();
+        });
+
+        assertFalse("none".equals(initial.get()),
+                "the page opened with no plugin chosen, so it shows 'No plugin selected.'");
+        assertTrue(saveEnabled.get(), "the form must be usable as soon as the page opens");
+    }
+
+    @Test
+    @DisplayName("A passphrase can be set on its own, without entering the password twice")
+    void passphraseCanBeSetWithoutAPassword() throws Exception {
+        // The server dialog's NEEDS_PASSPHRASE message told the user to set a passphrase
+        // here and then enter the password again over there. The passphrase could only be
+        // reached through a save that also carried a password, so one secret had to be typed
+        // twice with no way to do it in one. Nothing here but the passphrase is filled in:
+        // no URL, no user name, no password - which is the case that used to be impossible.
+        AtomicReference<String> handedOver = new AtomicReference<>();
+        AtomicReference<String> chosen = new AtomicReference<>();
+        AtomicReference<String> fieldAfter = new AtomicReference<>("not touched");
+
+        runOnFxThread(() -> {
+            FhirServerPluginRegistry registry = PluginLoader.load(PluginConfig.defaults());
+            PluginManagerDialog dialog = new PluginManagerDialog(null, registry,
+                    new PluginSettingsStore(tempFile("settings")), tempFile("config"),
+                    handedOver::set);
+
+            FhirServerPlugin smile = registry.plugin("smile-cdr");
+            assertNotNull(smile, "Smile CDR must be loaded for this to be the reported case");
+            dialog.pluginChoice().getSelectionModel().select(smile);
+            chosen.set(dialog.pluginChoice().getSelectionModel().getSelectedItem().id());
+
+            dialog.passphraseInput().setText("correct horse");
+            dialog.saveSettingsButton().fire();
+
+            fieldAfter.set(dialog.passphraseInput().getText());
+            dialog.close();
+        });
+
+        assertEquals("smile-cdr", chosen.get(), "the Smile CDR entry did not take");
+        assertEquals("correct horse", handedOver.get(),
+                "the passphrase must reach the session without a password being typed too - "
+                        + "otherwise one secret is still entered twice");
+        assertEquals("", fieldAfter.get(),
+                "the passphrase field should be wiped once the value is taken");
+    }
+
     private void awaitCount(int expected, ServerOperationDialog dialog) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
         while (System.nanoTime() < deadline) {
@@ -1454,6 +1508,15 @@ class ServerUiSmokeTest {
             Thread.sleep(50);
         }
         return false;
+    }
+
+    /** A throwaway path for a settings or config file, since the FX action cannot throw. */
+    private static Path tempFile(String prefix) {
+        try {
+            return Files.createTempFile("fhirviewer-" + prefix, ".properties");
+        } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
     }
 
     /** Runs an action on the JavaFX thread and waits for it, so a throw is not swallowed. */
