@@ -36,17 +36,28 @@ public final class BasicServerAuthentication implements ServerAuthentication {
     }
 
     /**
-     * Builds the credentials from saved settings, falling back to anonymous access when
-     * the settings carry no user name.
+     * Builds the credentials from saved settings, honouring the saved kind.
+     *
+     * <p>A token-only entry becomes a bearer authentication; anything with a user
+     * name becomes Basic, and an explicit anonymous kind (or nothing usable at all)
+     * stays anonymous. Bearer needs this branch because its constructor rejects a
+     * blank token, and treating it as Basic would throw on every read.</p>
      */
     public static ServerAuthentication from(PluginSettings settings) {
         Objects.requireNonNull(settings, "settings");
+        ServerAuthKind kind = settings.authKind();
+        String secret = settings.password() == null ? "" : settings.password();
+        if (kind == ServerAuthKind.BEARER) {
+            if (secret.isBlank()) {
+                return AnonymousServerAuthentication.INSTANCE;
+            }
+            return new BearerServerAuthentication(secret);
+        }
         if (!settings.hasCredentials()) {
             return AnonymousServerAuthentication.INSTANCE;
         }
         return new BasicServerAuthentication(
-                settings.userName() == null ? "" : settings.userName(),
-                settings.password() == null ? "" : settings.password());
+                settings.userName() == null ? "" : settings.userName(), secret);
     }
 
     @Override

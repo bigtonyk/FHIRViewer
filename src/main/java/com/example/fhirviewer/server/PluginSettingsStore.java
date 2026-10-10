@@ -52,10 +52,12 @@ import java.util.Set;
  */
 public final class PluginSettingsStore {
 
-    /** Suffix appended to a plugin id for each key. */
+    /** Suffix appended to a settings key for each value. */
+    private static final String PLUGIN_ID_SUFFIX = ".pluginId";
     private static final String BASE_URL_SUFFIX = ".baseUrl";
     private static final String USER_NAME_SUFFIX = ".userName";
     private static final String PASSWORD_SUFFIX = ".password";
+    private static final String AUTH_KIND_SUFFIX = ".authKind";
     private static final String LOAD_ON_START_SUFFIX = ".loadOnStart";
 
     private final Path file;
@@ -79,21 +81,38 @@ public final class PluginSettingsStore {
     }
 
     /**
-     * Reads every saved setting, keyed by plugin id.
+     * Reads every saved setting, keyed by the key it was filed under.
      *
      * <p>Passwords come back as the encrypted text, not as plaintext: a caller without
-     * the passphrase can list which plugins are configured and where they point, but
+     * the passphrase can list which servers are configured and where they point, but
      * cannot recover the secrets. Use {@link #unlock} for the readable form.</p>
      */
     public Map<String, PluginSettings> readAll() throws IOException {
         Map<String, PluginSettings> settings = new LinkedHashMap<>();
         Properties properties = readProperties();
-        for (String pluginId : pluginIdsIn(properties)) {
-            settings.put(pluginId, new PluginSettings(
+        for (String key : keysIn(properties)) {
+            String pluginId = trimmed(properties.getProperty(key + PLUGIN_ID_SUFFIX));
+            if (pluginId == null) {
+                // Entries written before the plugin id was stored used the plugin id
+                // itself as the key; reading them back under the same key keeps them
+                // working without a migration.
+                pluginId = key;
+            }
+            // null, not ANONYMOUS, when no kind was stored. fromName() maps a missing
+            // value to ANONYMOUS, and an explicit non-null ANONYMOUS would override the
+            // inference in PluginSettings.authKind() that recovers the kind from a stored
+            // user name or password — so an entry saved before the kind was recorded came
+            // back as anonymous even when it held a password, which is issue 1. null means
+            // "infer from what is stored"; a genuinely anonymous entry still reads as
+            // anonymous because it carries neither a name nor a secret to infer from.
+            String storedKind = trimmed(properties.getProperty(key + AUTH_KIND_SUFFIX));
+            settings.put(key, new PluginSettings(
                     pluginId,
-                    trimmed(properties.getProperty(pluginId + BASE_URL_SUFFIX)),
-                    trimmed(properties.getProperty(pluginId + USER_NAME_SUFFIX)),
-                    trimmed(properties.getProperty(pluginId + PASSWORD_SUFFIX))));
+                    trimmed(properties.getProperty(key + BASE_URL_SUFFIX)),
+                    trimmed(properties.getProperty(key + USER_NAME_SUFFIX)),
+                    trimmed(properties.getProperty(key + PASSWORD_SUFFIX)),
+                    key,
+                    storedKind == null ? null : ServerAuthKind.fromName(storedKind)));
         }
         return settings;
     }
@@ -246,7 +265,8 @@ public final class PluginSettingsStore {
                 settings.baseUrl(),
                 settings.userName(),
                 encrypted,
-                settings.key()));
+                settings.key(),
+                settings.authKind()));
         writeAll(all);
     }
 
@@ -256,13 +276,28 @@ public final class PluginSettingsStore {
             return;
         }
         String id = pluginId.trim();
-        // Every key for the plugin has to go, not just the ones writeAll happens to
-        // rewrite: leaving e.g. the load-on-start flag behind would keep the id in the
-        // file and the plugin would come back as an empty ghost entry.
+        // Every key for the plugin has to go: the flag under the plugin id itself,
+        // plus any per-server entries carrying this plugin in their stored pluginId.
+        // Leaving either behind keeps the id in the file and the plugin comes back
+        // as an empty ghost entry — and leaving per-server passwords behind keeps
+        // secrets for a plugin the user asked to remove.
+        Set<String> removed = new LinkedHashSet<>();
+        for (Map.Entry<String, PluginSettings> entry : readAll().entrySet()) {
+            if (entry.getKey().equals(id) || id.equals(entry.getValue().pluginId())) {
+                removed.add(entry.getKey());
+            }
+        }
         Properties properties = readProperties();
-        for (String key : List.copyOf(properties.stringPropertyNames())) {
-            if (key.startsWith(id + ".")) {
-                properties.remove(key);
+        for (String name : List.copyOf(properties.stringPropertyNames())) {
+            if (name.startsWith(id + ".")) {
+                properties.remove(name);
+                continue;
+            }
+            for (String key : removed) {
+                if (name.startsWith(key + ".")) {
+                    properties.remove(name);
+                    break;
+                }
             }
         }
         writeProperties(properties);
@@ -298,9 +333,27 @@ public final class PluginSettingsStore {
             // legacy entry writing back to the place it was read from.
             String id = entry.getKey();
             PluginSettings settings = entry.getValue();
+            // The plugin id is stored explicitly: without it a UUID-keyed entry could
+            // never say which plugin it belongs to, and the plugin dialog could not
+            // list it. Legacy entries filed under the plugin id itself carry no such
+            // key on disk, which is how readAll() tells them apart.
+            if (id != null && settings.pluginId() != null
+                    && !id.equals(settings.pluginId().trim())) {
+                properties.setProperty(id + PLUGIN_ID_SUFFIX, settings.pluginId());
+            } else {
+                properties.remove(id + PLUGIN_ID_SUFFIX);
+            }
             put(properties, id + BASE_URL_SUFFIX, settings.baseUrl());
             put(properties, id + USER_NAME_SUFFIX, settings.userName());
             put(properties, id + PASSWORD_SUFFIX, settings.password());
+            // The kind is plain metadata: it says which form to show, not the secret
+            // itself, so it is stored in the clear like the user name.
+            ServerAuthKind kind = settings.authKind();
+            if (kind == null || kind == ServerAuthKind.ANONYMOUS) {
+                properties.remove(id + AUTH_KIND_SUFFIX);
+            } else {
+                properties.setProperty(id + AUTH_KIND_SUFFIX, kind.name());
+            }
         }
         writeProperties(properties);
     }
@@ -321,16 +374,42 @@ public final class PluginSettingsStore {
         return result.isEmpty() ? null : result;
     }
 
-    /** Derives the distinct plugin ids present in a properties file. */
-    private static Set<String> pluginIdsIn(Properties properties) {
+    /**
+     * Derives the distinct settings keys present in a properties file.
+     *
+     * <p>A key is everything before the trailing dotted suffix ({@code baseUrl},
+     * {@code userName}, {@code password}, {@code authKind}, ...), and it may itself
+     * contain dots: a server id is a UUID. Splitting on the first dot worked while
+     * entries were filed under a plugin id, and silently multiplied every UUID-keyed
+     * entry into one "server" per dash-separated segment.</p>
+     */
+    private static Set<String> keysIn(Properties properties) {
         Set<String> ids = new LinkedHashSet<>();
         for (String key : properties.stringPropertyNames()) {
-            int dot = key.indexOf('.');
-            if (dot > 0) {
-                ids.add(key.substring(0, dot));
+            String prefix = prefixOf(key);
+            if (prefix != null) {
+                ids.add(prefix);
             }
         }
         return ids;
+    }
+
+    /**
+     * The settings key a property belongs to, or {@code null} for keys this store
+     * does not own (such as the per-plugin {@code loadOnStart} flag, which is read
+     * separately and must not surface as a ghost server).
+     */
+    private static String prefixOf(String key) {
+        if (key == null) {
+            return null;
+        }
+        for (String suffix : List.of(PLUGIN_ID_SUFFIX, BASE_URL_SUFFIX, USER_NAME_SUFFIX,
+                PASSWORD_SUFFIX, AUTH_KIND_SUFFIX)) {
+            if (key.endsWith(suffix) && key.length() > suffix.length()) {
+                return key.substring(0, key.length() - suffix.length());
+            }
+        }
+        return null;
     }
 
     private Properties readProperties() throws IOException {

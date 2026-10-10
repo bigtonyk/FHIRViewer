@@ -1427,6 +1427,16 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         if (loaded > 0) {
             logger.info("Restored " + loaded + " configured FHIR server(s)");
         }
+        // "Load on start" plugins provision their server here. The flag used to be
+        // write-only — saved and shown back, but never read — so a built-in ticked
+        // in the plugin dialog never gained its server after a restart.
+        int provisioned = com.example.fhirviewer.server.StartupServers.provision(
+                serverManager, serverService.plugins(),
+                new PluginSettingsStore(pluginSettingsFile()));
+        if (provisioned > 0) {
+            logger.info("Added " + provisioned + " load-on-start server(s)");
+            persistServers();
+        }
     }
 
     /**

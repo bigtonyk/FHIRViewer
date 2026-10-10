@@ -239,7 +239,23 @@ public class ServerManagerDialog extends Dialog<Void> {
             // Load the chosen server's details. Without this the selector changed the name
             // and nothing else: the form kept whatever it had, so switching servers looked
             // like it had done nothing.
-            form.load(match);
+            // Prefill the saved authentication choice and user name alongside. The secret
+            // itself is never echoed: a blank password means "keep what is stored".
+            ServerAuthKind savedKind = ServerAuthKind.ANONYMOUS;
+            String savedUser = null;
+            if (credentialSaver != null && credentialSaver.store() != null) {
+                try {
+                    com.example.fhirviewer.server.PluginSettings saved =
+                            credentialSaver.store().readForServer(match);
+                    if (saved != null) {
+                        savedKind = saved.authKind();
+                        savedUser = saved.userName();
+                    }
+                } catch (java.io.IOException e) {
+                    savedKind = ServerAuthKind.ANONYMOUS;
+                }
+            }
+            form.load(match, savedKind, savedUser);
         }
         updateButtonState();
     }
@@ -302,6 +318,11 @@ public class ServerManagerDialog extends Dialog<Void> {
     /**
      * Stores the credentials the form collected, if any.
      *
+     * <p>Uses the passphrase typed in the form when one was typed, falling back to
+     * the session's remembered one otherwise. The form used to have nowhere to type
+     * it, so a password was refused with "set a passphrase in Tools > Server
+     * Plugins first" and the user had to find the other dialog and retype.</p>
+     *
      * @return a sentence for the status line, never {@code null}
      */
     private String saveCredentials(ServerDefinition definition) {
@@ -309,8 +330,11 @@ public class ServerManagerDialog extends Dialog<Void> {
             return "";
         }
         ServerAuthKind kind = form.authKind();
-        ServerCredentialSaver.Outcome outcome =
-                credentialSaver.save(definition, kind, form.userName(), form.secret());
+        ServerCredentialSaver.Outcome outcome = credentialSaver.saveWithPassphrase(
+                definition, kind, form.userName(), form.secret(), form.passphrase());
+        if (outcome.isSuccess()) {
+            form.clearSecrets();
+        }
         StringBuilder message = new StringBuilder(outcome.message()).append(' ');
         // Said alongside the result rather than instead of it, so the warning survives the
         // "Added <server>" text that is written after this returns. A user who does not

@@ -62,9 +62,11 @@ final class ServerFormPanel {
     private final ComboBox<ServerAuthKind> authBox = new ComboBox<>();
     private final TextField userField = new TextField();
     private final PasswordField secretField = new PasswordField();
+    private final PasswordField passphraseField = new PasswordField();
 
     private final Label userLabel;
     private final Label secretLabel;
+    private final Label passphraseLabel;
     private final Label credentialHint;
 
     ServerFormPanel(FhirServerService serverService) {
@@ -85,18 +87,25 @@ final class ServerFormPanel {
         urlField.setPromptText("https://example.com/fhir");
         userField.setPromptText("username");
         secretField.setPromptText("password");
+        passphraseField.setPromptText("passphrase that encrypts the password");
 
         userLabel = rowLabel("User name");
         secretLabel = rowLabel("Password");
+        passphraseLabel = rowLabel("Passphrase");
         credentialHint = new Label();
         credentialHint.getStyleClass().add("app-subtitle");
         credentialHint.setWrapText(true);
         credentialHint.setMaxWidth(Double.MAX_VALUE);
 
         // A password field is never echoed back, so a user cannot check what they typed.
+        // The passphrase is typed here too now: it used to live only in Tools >
+        // Server Plugins, which meant setting a password here silently did nothing
+        // until the user found the other dialog.
         secretField.setTooltip(new Tooltip(
-                "Stored encrypted on this computer, and unlocked with the passphrase from"
-                        + " Tools > Server Plugins..."));
+                "Stored encrypted on this computer, and unlocked with the passphrase below."));
+        passphraseField.setTooltip(new Tooltip(
+                "Encrypts the password above. One passphrase for all servers; leave it here"
+                        + " and it is remembered for this session."));
 
         // Recomputed on every change, so switching to Anonymous and back behaves.
         authBox.getSelectionModel().selectedItemProperty().addListener(
@@ -146,6 +155,7 @@ final class ServerFormPanel {
         // all present, enabled and correctly populated, they were just in the wrong place.
         addRow(grid, row++, userLabel, userField);
         addRow(grid, row++, secretLabel, secretField);
+        addRow(grid, row++, passphraseLabel, passphraseField);
 
         // The hint spans both columns so it can use the full width rather than being
         // squeezed into the control column, which is what made it unreadable.
@@ -158,7 +168,7 @@ final class ServerFormPanel {
     /** The fields a test drives, so it can fill the form as a user would. */
     List<Control> fields() {
         return List.of(serverBox, nameField, urlField, adminUrlField, versionBox, pluginBox,
-                authBox, userField, secretField);
+                authBox, userField, secretField, passphraseField);
     }
 
     /** The server selector, so the dialog can list the configured servers into it. */
@@ -252,8 +262,26 @@ final class ServerFormPanel {
         return secretField;
     }
 
-    /** Fills the form from an existing server, so it can be edited rather than retyped. */
-    void load(ServerDefinition definition) {
+    /**
+     * The passphrase that encrypts the password, typed inline in the server dialog.
+     *
+     * <p>This is the fix for the passphrase confusion: it used to live only in
+     * {@code Tools > Server Plugins}, so a password typed here could not be saved
+     * until the user found the other screen. It is cleared after every save, like
+     * the password field, while the session keeps its own remembered copy.</p>
+     */
+    PasswordField passphraseField() {
+        return passphraseField;
+    }
+
+    /**
+     * Fills the form from an existing server, so it can be edited rather than retyped.
+     *
+     * @param authKind the saved authentication choice, or {@code null} for anonymous
+     * @param userName the saved user name, or {@code null} when none was stored
+     */
+    void load(ServerDefinition definition, com.example.fhirviewer.server.ServerAuthKind authKind,
+            String userName) {
         nameField.setText(definition.name());
         urlField.setText(definition.baseUrl());
         adminUrlField.setText(
@@ -266,7 +294,21 @@ final class ServerFormPanel {
         if (plugin != null) {
             pluginBox.getSelectionModel().select(plugin);
         }
+        // Reopening a server must show the choice it was saved with. The form used to
+        // leave the combo on anonymous unconditionally, so a password protected server
+        // always came back looking public — issue 1 in the desync report. The secret
+        // itself is never echoed: a blank password field means "keep what is stored".
+        authBox.getSelectionModel().select(
+                authKind == null ? com.example.fhirviewer.server.ServerAuthKind.ANONYMOUS : authKind);
+        userField.setText(userName == null ? "" : userName);
+        secretField.clear();
+        passphraseField.clear();
         applyAuthVisibility();
+    }
+
+    /** Fills the form from an existing server, so it can be edited rather than retyped. */
+    void load(ServerDefinition definition) {
+        load(definition, null, null);
     }
 
     /** Clears every field, for the "Add" button. */
@@ -281,6 +323,7 @@ final class ServerFormPanel {
         authBox.getSelectionModel().select(ServerAuthKind.ANONYMOUS);
         userField.clear();
         secretField.clear();
+        passphraseField.clear();
         applyAuthVisibility();
     }
 
@@ -312,6 +355,24 @@ final class ServerFormPanel {
         }
         String typed = secretField.getText();
         return typed == null || typed.isBlank() ? null : typed;
+    }
+
+    /**
+     * The typed passphrase, or {@code null} when none was typed.
+     *
+     * <p>Blank means "no new passphrase": the save falls back to the session's
+     * remembered one, so a user who already unlocked once is not asked to retype
+     * it on every edit.</p>
+     */
+    String passphrase() {
+        String typed = passphraseField.getText();
+        return typed == null || typed.isBlank() ? null : typed;
+    }
+
+    /** Clears both secrets after a save, while the session keeps its own copy. */
+    void clearSecrets() {
+        secretField.clear();
+        passphraseField.clear();
     }
 
     /**
@@ -359,19 +420,21 @@ final class ServerFormPanel {
         boolean anonymous = kind.isAnonymous();
         boolean bearer = kind == ServerAuthKind.BEARER;
 
-        // Anonymous hides both credential rows; Basic shows both; Bearer shows only the
-        // secret, and relabels it because a token is not a password.
+        // Anonymous hides every credential row; Basic shows all three; Bearer shows the
+        // secret and the passphrase but no user name, and relabels the secret because
+        // a token is not a password.
+        boolean showPassphrase = !anonymous;
         userLabel.setVisible(!anonymous && kind.needsUserName());
         userField.setVisible(!anonymous && kind.needsUserName());
         credentialHint.setVisible(!anonymous);
         secretLabel.setVisible(!anonymous);
         secretField.setVisible(!anonymous);
+        passphraseLabel.setVisible(showPassphrase);
+        passphraseField.setVisible(showPassphrase);
         secretLabel.setText(bearer ? "Token" : "Password");
         secretField.setPromptText(bearer ? "access token" : "password");
-        credentialHint.setText(bearer
-                ? "Stored encrypted on this computer. Unlock it with the passphrase from"
-                        + " Tools > Server Plugins..."
-                : "Stored encrypted on this computer, and never written to the server list.");
+        credentialHint.setText("Stored encrypted on this computer, and never written"
+                + " to the server list. The passphrase below encrypts it.");
     }
 
     private void renderPluginNames() {

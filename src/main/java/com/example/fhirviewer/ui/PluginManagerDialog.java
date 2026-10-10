@@ -59,6 +59,11 @@ import javafx.stage.Window;
  * the user has not unlocked shows its saved URL but not its password, and connecting with
  * it requires re-entering the passphrase.</p>
  *
+ * <p>Per-server credentials now live in the FHIR server dialog, which has its own
+ * passphrase field: setting a password no longer requires a detour through this screen.
+ * This form keeps working for the legacy per-plugin entries it used to write, and its
+ * passphrase box remains the session-wide unlock for them.</p>
+ *
  * <p>The passphrase is also handed to the {@code passphraseSink} on a successful save.
  * The fields are cleared the moment settings are written — which is right for the dialog
  * but leaves the session unable to read the password back — so without that hand-off a
@@ -469,6 +474,22 @@ public class PluginManagerDialog extends Dialog<Void> {
         saveButton.setDisable(false);
         try {
             PluginSettings saved = settingsStore.read(plugin.id());
+            if (saved == null) {
+                // Most credentials are filed per server under a generated id, not under
+                // the plugin id this dialog used to write. Showing only the plugin-keyed
+                // entry made the form look empty even when servers for this plugin were
+                // configured. The first per-server entry stands in for the plugin's own.
+                try {
+                    for (PluginSettings entry : settingsStore.readAll().values()) {
+                        if (entry != null && plugin.id().equals(entry.pluginId())) {
+                            saved = entry;
+                            break;
+                        }
+                    }
+                } catch (IOException readAllFailed) {
+                    saved = null;
+                }
+            }
             baseUrlField.setText(saved == null || saved.baseUrl() == null ? "" : saved.baseUrl());
             userNameField.setText(saved == null || saved.userName() == null ? "" : saved.userName());
             // The stored password stays encrypted on disk; it is never echoed into the form.
@@ -511,8 +532,26 @@ public class PluginManagerDialog extends Dialog<Void> {
         boolean hasStoredPassword = false;
         try {
             PluginSettings saved = settingsStore.read(plugin.id());
-            hasStoredPassword = saved != null && saved.password() != null
-                    && !saved.password().isBlank();
+            // A plugin-keyed entry is authoritative when present. Otherwise any
+            // per-server entry for this plugin counts: the dialog's own saves all
+            // land there now, and checking only the legacy key would report "no
+            // stored password" while one exists.
+            if (saved == null || saved.password() == null || saved.password().isBlank()) {
+                try {
+                    for (PluginSettings entry : settingsStore.readAll().values()) {
+                        if (entry != null && plugin.id().equals(entry.pluginId())
+                                && entry.password() != null && !entry.password().isBlank()) {
+                            hasStoredPassword = true;
+                            break;
+                        }
+                    }
+                } catch (IOException readAllFailed) {
+                    status("Could not read settings: " + readAllFailed.getMessage());
+                    return;
+                }
+            } else {
+                hasStoredPassword = true;
+            }
             if (hasStoredPassword) {
                 settingsStore.unlock(plugin.id(), passphrase);
             }
@@ -560,18 +599,16 @@ public class PluginManagerDialog extends Dialog<Void> {
         // Nothing is written. There is no password to encrypt, and a write would either
         // clear the one that is stored or re-encrypt ciphertext as though it were plaintext.
         // The session adopts the value and the field is cleared, as it is after a save.
-        // A passphrase on its own, with no password to encrypt.
-        //
-        // This is the way in for someone who only needs the session to hold a passphrase,
-        // which is exactly what the server dialog asks for when it reports NEEDS_PASSPHRASE.
-        // Before this branch existed the passphrase could only be established by typing a
-        // password here first and then typing the same password again on the server - two
-        // entries of one secret, with no way to do it in one.
-        //
-        // Nothing is written. There is no password to encrypt, and a write would either
-        // clear the one that is stored or re-encrypt ciphertext as though it were plaintext.
-        // The session adopts the value and the field is cleared, as it is after a save.
         if (password.isEmpty() && !passphrase.isEmpty()) {
+            // The tick box is still honoured: unlocking the session is orthogonal to
+            // whether this plugin loads on start, and dropping the flag here would
+            // silently undo it.
+            try {
+                settingsStore.setLoadsOnStart(plugin.id(), loadOnStartCheck.isSelected());
+            } catch (IOException e) {
+                status("Could not save settings: " + e.getMessage());
+                return;
+            }
             adoptPassphrase(plugin, passphrase);
             return;
         }
@@ -585,9 +622,11 @@ public class PluginManagerDialog extends Dialog<Void> {
                 status("A user name needs a password, or leave both blank for anonymous access.");
                 return;
             }
+            // The flag is written first: if the credential write fails, the user's
+            // explicit Load-on-start choice must not be lost with it.
             try {
-                settingsStore.save(new PluginSettings(plugin.id(), url, user, null), "");
                 settingsStore.setLoadsOnStart(plugin.id(), loadOnStartCheck.isSelected());
+                settingsStore.save(new PluginSettings(plugin.id(), url, user, null), "");
                 // The password is gone, so the session must forget the passphrase too, or
                 // it would sit in memory for a credential that no longer exists.
                 passphraseSink.accept(null);
@@ -605,8 +644,10 @@ public class PluginManagerDialog extends Dialog<Void> {
             return;
         }
         try {
-            settingsStore.save(new PluginSettings(plugin.id(), url, user, password), passphrase);
+            // The flag is written first here as well, for the same reason: a failed
+            // credential write must not take the tick-box choice down with it.
             settingsStore.setLoadsOnStart(plugin.id(), loadOnStartCheck.isSelected());
+            settingsStore.save(new PluginSettings(plugin.id(), url, user, password), passphrase);
             // Hand the passphrase to the session before clearing the field: these fields
             // are wiped on purpose, and without this the password could never be used.
             passphraseSink.accept(passphrase);

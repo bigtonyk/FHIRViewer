@@ -107,6 +107,64 @@ public class PluginSettingsStoreTest {
         assertTrue(store.readAll().isEmpty(), "no keys should remain for the removed plugin");
     }
 
+    @Test
+    @DisplayName("The saved auth kind round-trips and is inferred for legacy entries")
+    void authKindRoundTrips() throws Exception {
+        Path file = tempSettings();
+        PluginSettingsStore store = new PluginSettingsStore(file);
+
+        store.save(new PluginSettings(FIRELY, URL, "alice", "s3cret",
+                FIRELY, ServerAuthKind.BASIC), "pass phrase");
+        assertEquals(ServerAuthKind.BASIC, store.read(FIRELY).authKind(),
+                "the saved choice must come back so the form can prefill it");
+
+        store.save(new PluginSettings(SmileCdrPlugin.PLUGIN_ID, URL, null, "tok-123",
+                SmileCdrPlugin.PLUGIN_ID, ServerAuthKind.BEARER), "pass phrase");
+        assertEquals(ServerAuthKind.BEARER,
+                store.read(SmileCdrPlugin.PLUGIN_ID).authKind());
+
+        // Entries written before the kind existed carry no key: inference keeps them
+        // working. A token alone means bearer; a user name (Basic is the only kind that
+        // pairs one with a secret) means Basic. Appended to the file rather than replacing
+        // it, so the round-trips above stay in place.
+        java.util.Properties legacy = new java.util.Properties();
+        try (java.io.Reader in = java.nio.file.Files.newBufferedReader(file,
+                java.nio.charset.StandardCharsets.UTF_8)) {
+            legacy.load(in);
+        }
+        legacy.setProperty("legacy.password", "tok-abc");
+        try (java.io.Writer out = java.nio.file.Files.newBufferedWriter(file,
+                java.nio.charset.StandardCharsets.UTF_8)) {
+            legacy.store(out, null);
+        }
+        assertEquals(ServerAuthKind.BEARER, store.readAll().get("legacy").authKind(),
+                "a token with no user name must read back as bearer");
+    }
+
+    @Test
+    @DisplayName("Load-on-start provisions a missing server once, never duplicates")
+    void loadOnStartProvisionsServers() throws Exception {
+        Path file = tempSettings();
+        PluginSettingsStore store = new PluginSettingsStore(file);
+        store.save(new PluginSettings(FIRELY, URL, "alice", "s3cret",
+                FIRELY, ServerAuthKind.BASIC), "pass phrase");
+        store.setLoadsOnStart(FIRELY, true);
+
+        FhirServerManager manager = new FhirServerManager();
+        FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+        FirelyPlugin firely = new FirelyPlugin();
+        registry.register(firely);
+
+        assertEquals(1, StartupServers.provision(manager, registry.plugins(), store),
+                "a flagged plugin with no server must gain one");
+        assertEquals(1, manager.servers().size());
+        assertEquals(URL, manager.servers().get(0).baseUrl());
+        assertEquals(FIRELY, manager.servers().get(0).pluginId());
+
+        assertEquals(0, StartupServers.provision(manager, registry.plugins(), store),
+                "a second start must not duplicate the server");
+    }
+
     @TempDir
     Path tempDir;
 

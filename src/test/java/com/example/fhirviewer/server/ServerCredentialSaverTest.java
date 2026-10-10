@@ -175,19 +175,71 @@ class ServerCredentialSaverTest {
     }
 
     @Test
-    @DisplayName("A password is refused rather than stored when no passphrase is set")
-    void refusesToStoreWithoutAPassphrase() {
-        // A password nobody can decrypt is worse than none: it would look saved and never
-        // work, which is the hardest kind of failure to diagnose.
-        ServerCredentialSaver saver = new ServerCredentialSaver(store(), new ServerPassphrase());
+    @DisplayName("Without a passphrase the choice is kept while the secret waits")
+    void keepsTheChoiceWhileTheSecretWaitsForAPassphrase() throws IOException {
+        // Used to refuse outright with NEEDS_PASSPHRASE, which dropped the auth choice
+        // as well: the server reopened as anonymous even though Basic was chosen.
+        // Now the name and the kind are stored so a later passphrase completes the
+        // login, while the password itself is never written without one.
+        PluginSettingsStore store = store();
+        ServerCredentialSaver saver = new ServerCredentialSaver(store, new ServerPassphrase());
+        // One server, held across both the save and the read. named() mints a fresh id on
+        // every call, so two server() calls here would file the choice under one key and
+        // look it up under another, which is exactly the orphaned-credential bug the id
+        // exists to prevent — not a passphrase behaviour.
+        ServerDefinition server = server();
 
         ServerCredentialSaver.Outcome outcome =
-                saver.save(server(), ServerAuthKind.BASIC, "alice", "s3cret");
+                saver.save(server, ServerAuthKind.BASIC, "alice", "s3cret");
 
-        assertEquals(ServerCredentialSaver.Outcome.NEEDS_PASSPHRASE, outcome);
+        assertEquals(ServerCredentialSaver.Outcome.SAVED_NEEDS_PASSPHRASE, outcome);
         assertTrue(outcome.message().toLowerCase().contains("passphrase"),
                 "the user must be told what to do about it, but was told: "
                         + outcome.message());
+        assertTrue(outcome.isSuccess(), "the server still saves; only the secret waits");
+        PluginSettings saved = store.readForServer(server);
+        assertEquals(ServerAuthKind.BASIC, saved.authKind(),
+                "the choice must survive so reopening shows Basic, not anonymous");
+        assertEquals("alice", saved.userName());
+        assertTrue(saved.password() == null || saved.password().isEmpty(),
+                "no secret may be stored without a passphrase to encrypt it");
+    }
+
+    @Test
+    @DisplayName("A bearer token is saved with its kind and unlocks as bearer")
+    void bearerTokenRoundTripsWithItsKind() throws Exception {
+        PluginSettingsStore store = store();
+        ServerCredentialSaver saver = new ServerCredentialSaver(store, unlocked());
+        ServerDefinition server = server();
+
+        assertEquals(ServerCredentialSaver.Outcome.SAVED,
+                saver.save(server, ServerAuthKind.BEARER, null, "tok-123"));
+
+        PluginSettings saved = store.readForServer(server);
+        assertEquals(ServerAuthKind.BEARER, saved.authKind());
+        ServerAuthentication resolved = ServerCredentials.from(store, unlocked()).forServer(server);
+        assertEquals("bearer", resolved.type());
+        assertTrue(resolved.requestHeaders().first("Authorization").startsWith("Bearer "),
+                "the saved token must actually be sent");
+    }
+
+    @Test
+    @DisplayName("Switching kinds with a blank secret keeps the secret under the new kind")
+    void switchingKindsKeepsTheStoredSecret() throws IOException {
+        PluginSettingsStore store = store();
+        ServerCredentialSaver saver = new ServerCredentialSaver(store, unlocked());
+        ServerDefinition server = server();
+
+        saver.save(server, ServerAuthKind.BASIC, "alice", "s3cret");
+        assertEquals(ServerCredentialSaver.Outcome.SAVED,
+                saver.save(server, ServerAuthKind.BEARER, null, null),
+                "a blank secret means keep what is stored, not refuse the kind change");
+
+        PluginSettings saved = store.readForServer(server);
+        assertEquals(ServerAuthKind.BEARER, saved.authKind(),
+                "reopening must show the newly chosen kind");
+        assertTrue(saved.password() != null && !saved.password().isEmpty(),
+                "the stored secret must carry over to the new kind");
     }
 
     @Test

@@ -27,6 +27,7 @@ public final class PluginSettings {
     private final String userName;
     private final String password;
     private final String key;
+    private final ServerAuthKind authKind;
 
     /**
      * @param pluginId the {@link FhirServerPlugin#id()} these settings belong to
@@ -52,11 +53,27 @@ public final class PluginSettings {
      */
     public PluginSettings(String pluginId, String baseUrl, String userName, String password,
             String key) {
+        this(pluginId, baseUrl, userName, password, key, null);
+    }
+
+    /**
+      * Settings with an explicit authentication kind.
+      *
+      * <p>The kind is what the server dialog shows when the server is reopened: without
+      * it a password protected server always came back as anonymous, because the dialog
+      * had nothing to read the choice back from. {@code null} means "infer from what is
+      * stored", so entries written before the kind existed keep working.</p>
+      *
+      * @param authKind which kind was chosen; {@code null} to infer from the values
+      */
+    public PluginSettings(String pluginId, String baseUrl, String userName, String password,
+            String key, ServerAuthKind authKind) {
         this.pluginId = Objects.requireNonNull(pluginId, "pluginId");
         this.baseUrl = baseUrl;
         this.userName = userName;
         this.password = password;
         this.key = key == null || key.isBlank() ? pluginId.trim() : key.trim();
+        this.authKind = authKind;
     }
 
     /** Where these settings are filed, used as the prefix of every key in the file. */
@@ -80,6 +97,29 @@ public final class PluginSettings {
     }
 
     /**
+     * Which authentication kind was chosen for these settings.
+     *
+     * <p>An explicit value wins. Otherwise the kind is inferred: a password on its
+     * own means a bearer token, a user name (with or without a password) means
+     * Basic, and neither means anonymous. That inference is what keeps entries
+     * written before the kind was stored working.</p>
+     */
+    public ServerAuthKind authKind() {
+        if (authKind != null) {
+            return authKind;
+        }
+        boolean hasSecret = password != null && !password.isEmpty();
+        boolean hasUser = userName != null && !userName.isBlank();
+        if (hasSecret && !hasUser) {
+            return ServerAuthKind.BEARER;
+        }
+        if (hasUser || hasSecret) {
+            return ServerAuthKind.BASIC;
+        }
+        return ServerAuthKind.ANONYMOUS;
+    }
+
+    /**
      * The decrypted password held for this session only, or {@code null}.
      *
      * <p>Never log this value, and never pass it to a configuration object that might be
@@ -97,12 +137,12 @@ public final class PluginSettings {
 
     /** A copy with a different base URL, keeping the credentials. */
     public PluginSettings withBaseUrl(String newBaseUrl) {
-        return new PluginSettings(pluginId, newBaseUrl, userName, password);
+        return new PluginSettings(pluginId, newBaseUrl, userName, password, key, authKind);
     }
 
     /** A copy with different credentials, keeping the base URL. */
     public PluginSettings withCredentials(String newUserName, String newPassword) {
-        return new PluginSettings(pluginId, baseUrl, newUserName, newPassword);
+        return new PluginSettings(pluginId, baseUrl, newUserName, newPassword, key, authKind);
     }
 
     @Override
