@@ -53,6 +53,6 @@ echo Launching FHIRViewer (Maven runtime)...
 echo   java   = %JAVA_EXE%
 echo   module-path = !JFX_MODULES!
 
-start "FHIRViewer" "%JAVA_EXE%" %JVM_OPTS% --module-path "!JFX_MODULES!" --add-modules javafx.controls,javafx.graphics,javafx.base -cp "!CP!" com.example.fhirviewer.Main
+start "FHIRViewer" "%JAVA_EXE%" %JVM_OPTS% --module-path "!JFX_MODULES!" --add-modules javafx.controls,javafx.graphics,javafx.base -cp "!CP!" com.spiraleyes.fhirviewer.Main
 
 exit /b 0

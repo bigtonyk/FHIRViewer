@@ -66,7 +66,7 @@ connection pooling, no per-plugin thread and no ordering guarantee between plugi
 Registration has two independent routes, both filtered by a deny list:
 
 1. **Service file** — `ServiceLoader` over
-   `META-INF/services/com.example.fhirviewer.server.FhirServerPlugin`, which currently
+   `META-INF/services/com.spiraleyes.fhirviewer.server.FhirServerPlugin`, which currently
    lists `StandardFhirRestPlugin` and `SmileCdrPlugin`.
 2. **Configuration** — `fhirviewer-plugins.properties` (class path default, overridable
    with `-Dfhirviewer.plugins.config=...` or a file in the working directory) enables plugin
@@ -452,7 +452,7 @@ Phase 2 added the reusable REST abstraction. It is a **facade over an existing t
 which is the decision section 10 argued for: no plugin, service or UI code builds an HTTP
 request itself, and no second vendor-specific API was introduced.
 
-New package `com.example.fhirviewer.server.rest`, nine small focused classes:
+New package `com.spiraleyes.fhirviewer.server.rest`, nine small focused classes:
 
 | Class | Role |
 |---|---|
@@ -533,7 +533,7 @@ mechanism produced them. The two `instanceof` branches are gone:
 It is a `default` method, so the interface stays source- and binary-compatible for any
 implementation compiled against the previous three-method version.
 
-New in `com.example.fhirviewer.server`:
+New in `com.spiraleyes.fhirviewer.server`:
 
 | Class | Role |
 |---|---|

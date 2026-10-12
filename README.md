@@ -47,11 +47,11 @@ mvn javafx:run
 mvn javafx:run "-Djavafx.args=C:\path\to\patient.json"
 
 # run from the packaged output instead (after mvn package; uses target/lib)
-java -cp "target/classes;target/lib/*" com.example.fhirviewer.Launcher   # Windows
-java -cp "target/classes:target/lib/*" com.example.fhirviewer.Launcher   # macOS / Linux
+java -cp "target/classes;target/lib/*" com.spiraleyes.fhirviewer.Launcher   # Windows
+java -cp "target/classes:target/lib/*" com.spiraleyes.fhirviewer.Launcher   # macOS / Linux
 ```
 
-Use `com.example.fhirviewer.Launcher`, not `Main`: `Main` extends
+Use `com.spiraleyes.fhirviewer.Launcher`, not `Main`: `Main` extends
 `javafx.application.Application`, and the JVM launcher refuses such a main class when
 JavaFX is on the class path instead of the module path (*"JavaFX runtime components are
 missing"*). `mvn javafx:run` uses the module path and therefore `Main`.
@@ -103,7 +103,7 @@ The JavaFX UI is fully separated from FHIR processing; the UI never talks to HAP
 directly.
 
 ```
-com.example.fhirviewer
+com.spiraleyes.fhirviewer
 |
 +-- Main.java ................. JavaFX entry point
 |
@@ -249,13 +249,13 @@ with jpackage straightforward:
 ```bat
 :: Windows (app-image; add --type msi for an installer)
 jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-0.1.0-SNAPSHOT.jar ^
-  --main-class com.example.fhirviewer.Launcher --type app-image
+  --main-class com.spiraleyes.fhirviewer.Launcher --type app-image
 ```
 
 ```bash
 # macOS / Linux
 jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-0.1.0-SNAPSHOT.jar \
-  --main-class com.example.fhirviewer.Launcher --type app-image
+  --main-class com.spiraleyes.fhirviewer.Launcher --type app-image
 ```
 
 Because JavaFX is resolved by Maven, the platform specific JavaFX jars already sit in
@@ -277,7 +277,7 @@ The working documents live under `docs/`, out of the repository root:
 - **`docs/notes/`** — the original project plan and the loose requirement notes the
   plans were written from.
 - **`docs/architecture/`** — assessments of the code as it actually stands. Start with
-  `Current-Plugin-Architecture.md` before changing anything in `com.example.fhirviewer.server`
+  `Current-Plugin-Architecture.md` before changing anything in `com.spiraleyes.fhirviewer.server`
   or the FHIR server dialogs: it records the plugin API, the UI/service/plugin path, the
   reusable HTTP/authentication/FHIR infrastructure, and the gaps the REST integration
   work has to fill.

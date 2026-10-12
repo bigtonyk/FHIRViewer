@@ -40,4 +40,4 @@ Write-Host "  java      = $javaExe"
 Write-Host "  module-path = $jfxModulePath"
 Write-Host "  classpath  = $cp"
 
-& $javaExe @jvmArgs --module-path $jfxModulePath --add-modules javafx.controls,javafx.graphics,javafx.base -cp $cp com.example.fhirviewer.Main
+& $javaExe @jvmArgs --module-path $jfxModulePath --add-modules javafx.controls,javafx.graphics,javafx.base -cp $cp com.spiraleyes.fhirviewer.Main

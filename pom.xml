@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>com.example.fhirviewer</groupId>
+  <groupId>com.spiraleyes.fhirviewer</groupId>
   <artifactId>fhir-viewer</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <packaging>jar</packaging>
@@ -57,7 +57,7 @@
     <maven-dependency-plugin.version>3.8.1</maven-dependency-plugin.version>
     <javafx-maven-plugin.version>0.0.8</javafx-maven-plugin.version>
 
-    <main.class>com.example.fhirviewer.Main</main.class>
+    <main.class>com.spiraleyes.fhirviewer.Main</main.class>
 
     <!--
       Optional file to open at startup:
@@ -100,7 +100,7 @@
     <!--
       HAPI FHIR client (IGenericClient): used exclusively by the FHIR server plugin
       layer for metadata/search/read over HTTP. Everything stays behind the
-      com.example.fhirviewer.server plugin API, so the JavaFX UI never sees the client.
+      com.spiraleyes.fhirviewer.server plugin API, so the JavaFX UI never sees the client.
       No extra HTTP library is introduced: HAPI uses the Apache HttpClient and
       OkHttp artifacts it already pulls in transitively.
     -->
@@ -183,7 +183,7 @@
                 Launcher (not Main) so that jpackage launchers and plain class path
                 runs do not hit "JavaFX runtime components are missing".
               -->
-              <mainClass>com.example.fhirviewer.Launcher</mainClass>
+              <mainClass>com.spiraleyes.fhirviewer.Launcher</mainClass>
             </manifest>
           </archive>
         </configuration>
@@ -203,7 +203,7 @@
       <!--
         Copies every runtime dependency into target/lib so the application can be
         launched with:
-          java -cp "target/classes;target/lib/*" com.example.fhirviewer.Launcher
+          java -cp "target/classes;target/lib/*" com.spiraleyes.fhirviewer.Launcher
         (Launcher, not Main: Main extends javafx.application.Application and would
         fail with "JavaFX runtime components are missing" when JavaFX comes from the
         class path) and so jpackage/jlink style packaging (Phase 7) has a stable input.
