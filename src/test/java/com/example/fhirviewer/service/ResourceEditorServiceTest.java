@@ -1,4 +1,4 @@
-package com.example.fhirviewer.service;
+package com.spiraleyes.fhirviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -21,23 +21,23 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.TreeAssert;
-import com.example.fhirviewer.fhir.ElementProperty;
-import com.example.fhirviewer.model.BundleEntryInfo;
-import com.example.fhirviewer.model.ElementInfo;
-import com.example.fhirviewer.model.LoadedResource;
-import com.example.fhirviewer.model.ResourceFormat;
-import com.example.fhirviewer.model.ResourceNode;
-import com.example.fhirviewer.pretty.PrettyBlock;
-import com.example.fhirviewer.pretty.PrettyDocument;
-import com.example.fhirviewer.pretty.PrettyRow;
+import com.spiraleyes.fhirviewer.TreeAssert;
+import com.spiraleyes.fhirviewer.fhir.ElementProperty;
+import com.spiraleyes.fhirviewer.model.BundleEntryInfo;
+import com.spiraleyes.fhirviewer.model.ElementInfo;
+import com.spiraleyes.fhirviewer.model.LoadedResource;
+import com.spiraleyes.fhirviewer.model.ResourceFormat;
+import com.spiraleyes.fhirviewer.model.ResourceNode;
+import com.spiraleyes.fhirviewer.pretty.PrettyBlock;
+import com.spiraleyes.fhirviewer.pretty.PrettyDocument;
+import com.spiraleyes.fhirviewer.pretty.PrettyRow;
 
 /**
  * Tests for the editing service: primitive edits, elements that are created on demand,
  * new entries of repeating elements, references and cloning.
  *
  * <p>The paths used here are the ones the resource tree produces (see
- * {@code com.example.fhirviewer.fhir.ResourceTreeBuilder}), so the tests double as a
+ * {@code com.spiraleyes.fhirviewer.fhir.ResourceTreeBuilder}), so the tests double as a
  * check that a node selected in the tree can be edited directly.</p>
  */
 class ResourceEditorServiceTest {

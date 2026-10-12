@@ -1,4 +1,4 @@
-package com.example.fhirviewer.fhir;
+package com.spiraleyes.fhirviewer.fhir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -8,9 +8,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.model.LoadedResource;
-import com.example.fhirviewer.model.ResourceFormat;
-import com.example.fhirviewer.service.FhirService;
+import com.spiraleyes.fhirviewer.model.LoadedResource;
+import com.spiraleyes.fhirviewer.model.ResourceFormat;
+import com.spiraleyes.fhirviewer.service.FhirService;
 
 /** Tests JSON and XML serialization, including round trips. */
 class ResourceSerializerTest {

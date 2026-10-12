@@ -1,10 +1,10 @@
-package com.example.fhirviewer;
+package com.spiraleyes.fhirviewer;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import com.example.fhirviewer.model.ResourceNode;
+import com.spiraleyes.fhirviewer.model.ResourceNode;
 
 /**
  * Test helpers for navigating and describing a generated resource tree.

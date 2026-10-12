@@ -1,4 +1,4 @@
-package com.example.fhirviewer.server;
+package com.spiraleyes.fhirviewer.server;
 
 import java.util.List;
 

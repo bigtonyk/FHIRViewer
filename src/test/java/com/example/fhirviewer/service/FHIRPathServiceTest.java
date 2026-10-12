@@ -1,4 +1,4 @@
-package com.example.fhirviewer.service;
+package com.spiraleyes.fhirviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -9,9 +9,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.model.LoadedResource;
-import com.example.fhirviewer.service.FHIRPathService.Result;
-import com.example.fhirviewer.service.FHIRPathService.Status;
+import com.spiraleyes.fhirviewer.model.LoadedResource;
+import com.spiraleyes.fhirviewer.service.FHIRPathService.Result;
+import com.spiraleyes.fhirviewer.service.FHIRPathService.Status;
 
 /**
  * Tests the FHIRPath service: valid expressions with their rendered result,

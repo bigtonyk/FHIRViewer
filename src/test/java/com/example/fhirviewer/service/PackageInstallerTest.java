@@ -1,5 +1,5 @@
 // Copyright (c) 2026 FHIRViewer contributors. SPDX-License-Identifier: GPL-3.0-only.
-package com.example.fhirviewer.service;
+package com.spiraleyes.fhirviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -17,11 +17,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import com.example.fhirviewer.fhir.FhirContextFactory;
-import com.example.fhirviewer.service.PackageInstaller.InstallPlan;
-import com.example.fhirviewer.service.PackageInstaller.PlannedPackage;
-import com.example.fhirviewer.service.PackageInstaller.Status;
-import com.example.fhirviewer.service.PackageRegistryService.PackageInfo;
+import com.spiraleyes.fhirviewer.fhir.FhirContextFactory;
+import com.spiraleyes.fhirviewer.service.PackageInstaller.InstallPlan;
+import com.spiraleyes.fhirviewer.service.PackageInstaller.PlannedPackage;
+import com.spiraleyes.fhirviewer.service.PackageInstaller.Status;
+import com.spiraleyes.fhirviewer.service.PackageRegistryService.PackageInfo;
 
 import ca.uhn.fhir.context.FhirContext;
 

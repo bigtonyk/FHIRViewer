@@ -1,4 +1,4 @@
-package com.example.fhirviewer.model;
+package com.spiraleyes.fhirviewer.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -12,8 +12,8 @@ import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.service.FhirService;
-import com.example.fhirviewer.service.ResourceTemplateFactory;
+import com.spiraleyes.fhirviewer.service.FhirService;
+import com.spiraleyes.fhirviewer.service.ResourceTemplateFactory;
 
 /**
  * Tests the loading and change-tracking state the window uses for Save, Undo, the

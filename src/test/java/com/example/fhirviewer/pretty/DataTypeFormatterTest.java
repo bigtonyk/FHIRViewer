@@ -1,4 +1,4 @@
-package com.example.fhirviewer.pretty;
+package com.spiraleyes.fhirviewer.pretty;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
 
-import com.example.fhirviewer.fhir.FhirContextFactory;
+import com.spiraleyes.fhirviewer.fhir.FhirContextFactory;
 
 import org.hl7.fhir.instance.model.api.IBase;
 import org.hl7.fhir.r4.model.Address;

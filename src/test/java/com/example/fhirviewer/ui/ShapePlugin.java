@@ -1,4 +1,4 @@
-package com.example.fhirviewer.ui;
+package com.spiraleyes.fhirviewer.ui;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -7,15 +7,15 @@ import java.util.List;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
 
-import com.example.fhirviewer.server.ConnectionResult;
-import com.example.fhirviewer.server.FhirServerConfiguration;
-import com.example.fhirviewer.server.FhirServerPlugin;
-import com.example.fhirviewer.server.SearchRequest;
-import com.example.fhirviewer.server.SearchResultPage;
-import com.example.fhirviewer.server.ServerCapabilities;
-import com.example.fhirviewer.server.ServerOperation;
-import com.example.fhirviewer.server.ServerSession;
-import com.example.fhirviewer.server.rest.RestMethod;
+import com.spiraleyes.fhirviewer.server.ConnectionResult;
+import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
+import com.spiraleyes.fhirviewer.server.FhirServerPlugin;
+import com.spiraleyes.fhirviewer.server.SearchRequest;
+import com.spiraleyes.fhirviewer.server.SearchResultPage;
+import com.spiraleyes.fhirviewer.server.ServerCapabilities;
+import com.spiraleyes.fhirviewer.server.ServerOperation;
+import com.spiraleyes.fhirviewer.server.ServerSession;
+import com.spiraleyes.fhirviewer.server.rest.RestMethod;
 
 /**
  * A test-only plugin that declares one operation per answer shape.

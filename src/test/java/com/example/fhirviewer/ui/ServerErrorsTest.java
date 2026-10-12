@@ -1,4 +1,4 @@
-package com.example.fhirviewer.ui;
+package com.spiraleyes.fhirviewer.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -13,7 +13,7 @@ import javax.net.ssl.SSLHandshakeException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.server.ServerOperationException;
+import com.spiraleyes.fhirviewer.server.ServerOperationException;
 
 /**
  * The claim of Phase 6 about failures, tested: every status the plan lists produces a

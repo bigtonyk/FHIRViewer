@@ -1,15 +1,15 @@
-package com.example.fhirviewer.fhir;
+package com.spiraleyes.fhirviewer.fhir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.example.fhirviewer.TreeAssert;
-import com.example.fhirviewer.model.ElementInfo;
-import com.example.fhirviewer.model.LoadedResource;
-import com.example.fhirviewer.model.ResourceNode;
-import com.example.fhirviewer.service.FhirService;
+import com.spiraleyes.fhirviewer.TreeAssert;
+import com.spiraleyes.fhirviewer.model.ElementInfo;
+import com.spiraleyes.fhirviewer.model.LoadedResource;
+import com.spiraleyes.fhirviewer.model.ResourceNode;
+import com.spiraleyes.fhirviewer.service.FhirService;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;

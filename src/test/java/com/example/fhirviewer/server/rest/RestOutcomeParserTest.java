@@ -1,4 +1,4 @@
-package com.example.fhirviewer.server.rest;
+package com.spiraleyes.fhirviewer.server.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -81,7 +81,7 @@ public class RestOutcomeParserTest {
     @Test
     @DisplayName("An already-parsed resource is accepted, and other resource types are ignored")
     void fromResource() {
-        var context = com.example.fhirviewer.fhir.FhirContextFactory.r4();
+        var context = com.spiraleyes.fhirviewer.fhir.FhirContextFactory.r4();
         var outcome = (org.hl7.fhir.r4.model.OperationOutcome) context.newJsonParser()
                 .parseResource("{ \"resourceType\": \"OperationOutcome\", \"issue\": [ "
                         + "{ \"severity\": \"error\", \"code\": \"forbidden\", "
@@ -95,7 +95,7 @@ public class RestOutcomeParserTest {
     @Test
     @DisplayName("The details coding is surfaced for servers that put the text there")
     void detailsText() {
-        var context = com.example.fhirviewer.fhir.FhirContextFactory.r4();
+        var context = com.spiraleyes.fhirviewer.fhir.FhirContextFactory.r4();
         var outcome = (org.hl7.fhir.r4.model.OperationOutcome) context.newJsonParser()
                 .parseResource("{ \"resourceType\": \"OperationOutcome\", \"issue\": [ "
                         + "{ \"severity\": \"error\", \"code\": \"invalid\", "

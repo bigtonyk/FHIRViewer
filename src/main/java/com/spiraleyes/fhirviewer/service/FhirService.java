@@ -1,0 +1,213 @@
+package com.spiraleyes.fhirviewer.service;
+
+import java.nio.file.Path;
+import java.util.List;
+
+import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.instance.model.api.IIdType;
+
+import com.spiraleyes.fhirviewer.fhir.FhirContextFactory;
+import com.spiraleyes.fhirviewer.fhir.FhirModelAdapter;
+import com.spiraleyes.fhirviewer.fhir.ResourceParser;
+import com.spiraleyes.fhirviewer.fhir.ResourceSerializer;
+import com.spiraleyes.fhirviewer.fhir.ResourceTreeBuilder;
+import com.spiraleyes.fhirviewer.model.BundleEntryInfo;
+import com.spiraleyes.fhirviewer.model.LoadedResource;
+import com.spiraleyes.fhirviewer.model.ResourceFormat;
+import com.spiraleyes.fhirviewer.model.ResourceNode;
+import com.spiraleyes.fhirviewer.model.ValidationReport;
+import com.spiraleyes.fhirviewer.pretty.PrettyDocument;
+import com.spiraleyes.fhirviewer.pretty.PrettyModelBuilder;
+
+import ca.uhn.fhir.context.FhirContext;
+
+/**
+ * The application/service layer: coordinates loading, tree building, serialization
+ * and validation.
+ *
+ * <p>The UI talks to this class and never directly to HAPI FHIR, keeping FHIR
+ * processing out of the JavaFX event handlers.</p>
+ */
+public class FhirService {
+
+    /** The sample resources that ship with the application. */
+    public static final String SAMPLE_PATIENT = "/samples/patient-example.json";
+    public static final String SAMPLE_BUNDLE = "/samples/bundle-example.json";
+
+    private final FhirModelAdapter modelAdapter;
+    private final ResourceSerializer serializer;
+    private final ResourceLoader loader;
+    private final ResourceTreeBuilder treeBuilder;
+    private final PrettyModelBuilder prettyBuilder;
+    private final ValidationService validationService;
+    private final FHIRPathService fhirPathService;
+
+    /** Creates a service for the default (R4) FHIR version. */
+    public FhirService() {
+        this(FhirContextFactory.r4(), FhirContextFactory.r4ModelAdapter());
+    }
+
+    /**
+     * Creates a service for a specific context and model adapter. Kept public so a
+     * future FHIR version can be wired in without changing this class.
+     */
+    public FhirService(FhirContext context, FhirModelAdapter modelAdapter) {
+        this.modelAdapter = modelAdapter;
+        this.serializer = new ResourceSerializer(context);
+        this.loader = new ResourceLoader(new ResourceParser(context));
+        this.treeBuilder = new ResourceTreeBuilder(modelAdapter);
+        this.prettyBuilder = new PrettyModelBuilder(modelAdapter);
+        this.validationService = new ValidationService(context);
+        this.fhirPathService = new FHIRPathService(context);
+    }
+
+    /** Opens a resource file from disk. */
+    public LoadedResource openFile(Path path) {
+        return loader.loadFile(path);
+    }
+
+    /** Opens a sample resource bundled with the application. */
+    public LoadedResource openSample(String classpathResource) {
+        return loader.loadClasspathResource(classpathResource);
+    }
+
+    /** Opens a resource held in memory, for example pasted text. */
+    public LoadedResource openText(String text, String sourceName) {
+        return loader.loadText(text, sourceName);
+    }
+
+    /**
+     * Builds the resource tree for a loaded resource.
+     *
+     * @param includeUnpopulated when {@code true} elements that are defined but empty
+     *                           are included, which is useful when inspecting the
+     *                           structure of a resource
+     */
+    public ResourceNode buildTree(LoadedResource loaded, boolean includeUnpopulated) {
+        IBaseResource resource = loaded.getResource();
+        return treeBuilder.build(resource, resource.fhirType(), loaded.getResourceId(), includeUnpopulated);
+    }
+
+    /** Builds the resource tree for one Bundle entry. */
+    public ResourceNode buildTree(BundleEntryInfo entry, boolean includeUnpopulated) {
+        IBaseResource resource = entry.resource();
+        if (resource == null) {
+            throw new ResourceLoadException("Bundle entry " + entry.index() + " does not contain a resource.", null);
+        }
+        return treeBuilder.build(resource, entry.displayName(), null, includeUnpopulated);
+    }
+
+    /**
+     * Builds the human friendly presentation model of a loaded resource for the
+     * Pretty View.
+     */
+    public PrettyDocument buildPrettyView(LoadedResource loaded) {
+        return prettyBuilder.build(loaded.getResource());
+    }
+
+    /** Builds the human friendly presentation model of one Bundle entry for the Pretty View. */
+    public PrettyDocument buildPrettyView(BundleEntryInfo entry) {
+        IBaseResource resource = entry.resource();
+        if (resource == null) {
+            throw new ResourceLoadException("Bundle entry " + entry.index() + " does not contain a resource.", null);
+        }
+        return prettyBuilder.build(resource);
+    }
+
+    /**
+     * Builds the human friendly presentation model of a single element selected
+     * in the resource tree, rather than the whole resource. The node's path is
+     * resolved against the live HAPI model so the formatting matches the full
+     * resource view exactly.
+     */
+    public PrettyDocument buildPrettyView(IBaseResource resource, ResourceNode node) {
+        return prettyBuilder.build(resource, node);
+    }
+
+    /** Renders a resource as pretty printed JSON. */
+    public String toJson(IBaseResource resource) {
+        return serializer.toJson(resource);
+    }
+
+    /**
+     * Builds the resource tree for a bare resource. Used by the FHIR server layer for
+     * resources that were fetched from a server and are not {@link LoadedResource}s yet.
+     */
+    public ResourceNode buildTree(IBaseResource resource, boolean includeUnpopulated) {
+        IIdType id = resource.getIdElement();
+        String idPart = id == null || !id.hasIdPart() ? null : id.getIdPart();
+        return treeBuilder.build(resource, resource.fhirType(), idPart, includeUnpopulated);
+    }
+
+    /**
+     * A short, generic one line summary of a resource for result lists, for example
+     * <code>active: true, gender: male, birthDate: 1974-12-25</code>. It is built from
+     * the same tree the viewer shows, so no resource type is hard-coded anywhere.
+     */
+    public String summaryText(IBaseResource resource) {
+        if (resource == null) {
+            return "";
+        }
+        List<String> values = new java.util.ArrayList<>();
+        for (ResourceNode child : buildTree(resource, false).getChildren()) {
+            if (child.getValueText() != null && !child.getValueText().isBlank()) {
+                values.add(child.getDisplayText());
+            }
+            if (values.size() == 4) {
+                break;
+            }
+        }
+        return String.join(", ", values);
+    }
+
+    /** Renders a resource as pretty printed XML. */
+    public String toXml(IBaseResource resource) {
+        return serializer.toXml(resource);
+    }
+
+    /** Renders a resource in the requested format. */
+    public String serialize(IBaseResource resource, ResourceFormat format) {
+        return serializer.serialize(resource, format);
+    }
+
+    /** Validates a resource and returns the issues found (never throws). */
+    public ValidationReport validate(IBaseResource resource) {
+        return validationService.validate(resource);
+    }
+
+    /**
+     * Validates a resource against a selected profile (Update 11/12). A blank
+     * profile means "use the resource's own meta.profile".
+     */
+    public ValidationReport validate(IBaseResource resource, String profileCanonical) {
+        return validationService.validate(resource, profileCanonical);
+    }
+
+    /**
+     * Evaluates a FHIRPath expression against a resource and reports the outcome:
+     * a value, no value or a broken expression (never throws).
+     */
+    public FHIRPathService.Result evaluateFHIRPath(IBaseResource resource, String expression) {
+        return fhirPathService.evaluate(resource, expression);
+    }
+
+    /** Returns the entries of a Bundle, or an empty list for other resources. */
+    public List<BundleEntryInfo> bundleEntries(IBaseResource resource) {
+        return modelAdapter.entriesOf(resource);
+    }
+
+    /** True when the resource is a Bundle. */
+    public boolean isBundle(IBaseResource resource) {
+        return resource != null && "Bundle".equals(resource.fhirType());
+    }
+
+    /** The FHIR version this service is configured for, for example <code>R4</code>. */
+    public String fhirVersion() {
+        return modelAdapter.fhirVersionName();
+    }
+
+    /** Returns the validation service for IG package management. */
+    public ValidationService validationService() {
+        return validationService;
+    }
+}

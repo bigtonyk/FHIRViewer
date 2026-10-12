@@ -1,4 +1,4 @@
-package com.example.fhirviewer.server.rest;
+package com.spiraleyes.fhirviewer.server.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -17,7 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.server.ServerOperationException;
+import com.spiraleyes.fhirviewer.server.ServerOperationException;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;

@@ -1,4 +1,4 @@
-package com.example.fhirviewer.server;
+package com.spiraleyes.fhirviewer.server;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -90,7 +90,7 @@ public class PluginLoaderTest {
     @DisplayName("A bad config entry is skipped without losing the good plugins")
     void badEntriesAreSkipped() {
         FhirServerPluginRegistry registry = PluginLoader.load(PluginConfig.of(
-                Set.of("com.example.no.such.Plugin",
+                Set.of("com.spiraleyes.no.such.Plugin",
                         "java.lang.String",
                         FirelyPlugin.class.getName()),
                 Set.of()));
@@ -105,9 +105,9 @@ public class PluginLoaderTest {
         Path file = dir.resolve("plugins.properties");
         Files.writeString(file, """
                 # a comment
-                fhirviewer.plugins.enabled = com.example.fhirviewer.server.FirelyPlugin, \
-                    com.example.fhirviewer.server.SmileCdrPlugin ,
-                fhirviewer.plugins.disabled= com.example.fhirviewer.server.SmileCdrPlugin
+                fhirviewer.plugins.enabled = com.spiraleyes.fhirviewer.server.FirelyPlugin, \
+                    com.spiraleyes.fhirviewer.server.SmileCdrPlugin ,
+                fhirviewer.plugins.disabled= com.spiraleyes.fhirviewer.server.SmileCdrPlugin
                 unknown.key=ignored
                 """, StandardCharsets.UTF_8);
 

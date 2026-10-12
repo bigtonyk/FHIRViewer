@@ -1,4 +1,4 @@
-package com.example.fhirviewer.service;
+package com.spiraleyes.fhirviewer.service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

@@ -1,4 +1,4 @@
-package com.example.fhirviewer.server.rest;
+package com.spiraleyes.fhirviewer.server.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -16,7 +16,7 @@ import javax.net.ssl.SSLHandshakeException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.server.ServerOperationException;
+import com.spiraleyes.fhirviewer.server.ServerOperationException;
 
 /**
  * Tests the one place the REST layer's failures are translated into the exception type the

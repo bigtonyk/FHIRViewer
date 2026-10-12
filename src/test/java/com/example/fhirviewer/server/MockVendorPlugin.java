@@ -1,9 +1,9 @@
-package com.example.fhirviewer.server;
+package com.spiraleyes.fhirviewer.server;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import com.example.fhirviewer.server.rest.RestMethod;
+import com.spiraleyes.fhirviewer.server.rest.RestMethod;
 
 /**
  * A plugin that exists only to prove the custom-operation seam works.
