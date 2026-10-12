@@ -8,7 +8,6 @@ import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Logger;
 
@@ -49,6 +48,12 @@ import com.spiraleyes.fhirviewer.server.ServerOperationException;
 import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.server.ServerWriteResult;
 import com.spiraleyes.fhirviewer.util.FileSupport;
+import com.spiraleyes.fhirviewer.server.AdhocAuthentication;
+import com.spiraleyes.fhirviewer.server.AdhocServer;
+import com.spiraleyes.fhirviewer.server.TokenEndpointClient;
+import com.spiraleyes.fhirviewer.server.TokenFetchResult;
+import com.spiraleyes.fhirviewer.server.rest.CurlCommand;
+import com.spiraleyes.fhirviewer.server.rest.RestAnswers;
 
 import javafx.application.HostServices;
 import javafx.application.Platform;
@@ -72,7 +77,6 @@ import javafx.scene.control.MenuBar;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.ScrollPane;
-import javafx.scene.control.Separator;
 import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
@@ -594,6 +598,11 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         MenuItem runOperation = new MenuItem("Run Server Operation...");
         runOperation.setOnAction(event -> runServerOperation());
 
+        // The REST console is a peer of the plugin path, not a subordinate of it: it calls
+        // endpoints no plugin declares, which is the whole reason it exists.
+        MenuItem restConsole = new MenuItem("REST Console...");
+        restConsole.setOnAction(event -> openRestConsole());
+
         // Resource actions, enabled only when the displayed resource came from a server.
         MenuItem refreshFromServer = new MenuItem("Refresh from FHIR Server");
         refreshFromServer.setDisable(true);
@@ -618,7 +627,8 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         return new Menu("Tools", null, validate, new SeparatorMenuItem(), searchServer,
                 refreshFromServer, patchOnServer,
                 deleteFromServer, new SeparatorMenuItem(), manageServers, managePlugins,
-                new SeparatorMenuItem(), serverStatus, runOperation);
+                new SeparatorMenuItem(), serverStatus, runOperation,
+                new SeparatorMenuItem(), restConsole);
     }
 
     private Menu buildHelpMenu() {
@@ -1939,7 +1949,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                 ? serverManager.active().orElse(null)
                 : serverFor(displayedOrigin);
         ServerOperationDialog dialog = new ServerOperationDialog(serverService, serverManager,
-                preselect, themeManager);
+                preselect, themeManager, displayedResource);
         dialog.initOwner(stage);
         dialog.showAndWait().ifPresent(outcome -> {
             if (!confirmUnsavedChanges("displaying a result from a server")) {
@@ -1953,7 +1963,40 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         });
     }
 
-    // ------------------------------------------------------------------
+    /**
+     * Opens the REST console: any REST call, with the answer shown raw.
+ *
+     * <p>Modelled on {@link #runServerOperation()} in every respect that matters. The dialog
+     * returns a resource rather than opening anything itself, so there is still one
+     * rendering path, and the unsaved-changes guard is asked before the displayed resource is
+     * replaced rather than after.
+ *
+     * <p>The console does not need a configured server — that is the point of it — so an
+ * empty server list is not a reason to refuse; the user gets the custom-URL form instead.
+ */
+    private void openRestConsole() {
+        FhirServerConfiguration preselect = serverManager.active().orElse(null);
+        RestConsoleDialog dialog =
+                new RestConsoleDialog(serverManager.servers(), preselect, fhirService);
+        dialog.initOwner(stage);
+        dialog.showAndWait().ifPresent(outcome -> {
+            if (!outcome.hasResource()) {
+                // Closed without opening anything: the user only wanted the raw answer,
+                // which the console has already shown them.
+                return;
+            }
+            if (!confirmUnsavedChanges("displaying a result from a REST call")) {
+                return;
+            }
+            // No ServerOrigin: a console answer is something to look at, and attaching it to
+            // a server would let a later "Save to FHIR Server" write back to a server the
+            // user did not choose.
+            display(new LoadedResource(outcome.resource(), ResourceFormat.JSON, outcome.label(), null));
+            setStatus("Showing the result of a REST request.");
+        });
+    }
+
+// ------------------------------------------------------------------
     // Validation, export and window helpers
     // ------------------------------------------------------------------
     private void validateDisplayedResource() {

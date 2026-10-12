@@ -196,5 +196,86 @@ class ServerOperationFormTest {
                 .set("format", "csv");
         Map<String, List<String>> query = form.toInvocation(null).queryParameters();
         assertEquals(List.of("format", "since"), List.copyOf(query.keySet()));
+}
+
+    @Test
+    @DisplayName("An operation says which content types it will take a body as")
+    void acceptedBodyTypesAreDeclared() {
+        ServerOperation jsonOnly = ServerOperation.builder("$validate", RestMethod.POST,
+                        "{resourceType}/$validate")
+                .pathParameter("resourceType", "The type.")
+                .requiresBody("application/fhir+json")
+                .build();
+        assertEquals(List.of("application/fhir+json"), jsonOnly.acceptedBodyTypes());
+
+        ServerOperation both = ServerOperation.builder("$convert", RestMethod.POST,
+                        "{resourceType}/$convert")
+                .pathParameter("resourceType", "The type.")
+                .requiresBody("application/fhir+json")
+                .alsoAcceptsBody("application/fhir+xml")
+                .build();
+        assertEquals(List.of("application/fhir+json", "application/fhir+xml"),
+                both.acceptedBodyTypes(),
+                "both types should be offered, the declared one first");
+    }
+
+    @Test
+    @DisplayName("The chosen content type travels with the request")
+    void chosenContentTypeIsSent() {
+        ServerOperation operation = ServerOperation.builder("$validate", RestMethod.POST,
+                        "{resourceType}/$validate")
+                .pathParameter("resourceType", "The type.")
+                .requiresBody("application/fhir+json")
+                .alsoAcceptsBody("application/fhir+xml")
+                .build();
+        ServerOperationForm form = new ServerOperationForm(operation);
+        form.set("resourceType", "Patient");
+
+        ServerOperationInvocation invocation = form.toInvocation("<Patient/>",
+                "application/fhir+xml");
+
+        assertEquals("application/fhir+xml", invocation.contentType(),
+                "the content type chosen on the form did not travel with the request");
+        assertEquals("Patient", invocation.pathParameter("resourceType").orElse(null),
+                "choosing a content type dropped the path parameters");
+        assertEquals("<Patient/>", invocation.body(),
+                "choosing a content type dropped the body");
+    }
+
+    @Test
+    @DisplayName("A content type the operation does not offer is refused, not sent")
+    void undeclaredContentTypeIsRefused() {
+        // Otherwise the only way to find out is a 415 from the server, which says less about
+        // what went wrong than naming the types the operation accepts would.
+        ServerOperation operation = ServerOperation.builder("$validate", RestMethod.POST,
+                        "{resourceType}/$validate")
+                .pathParameter("resourceType", "The type.")
+                .requiresBody("application/fhir+json")
+                .build();
+        ServerOperationForm form = new ServerOperationForm(operation);
+        form.set("resourceType", "Patient");
+
+        IllegalStateException refused = assertThrows(IllegalStateException.class,
+                () -> form.toInvocation("{}", "application/fhir+xml"));
+        assertTrue(refused.getMessage().contains("application/fhir+json"),
+                "the refusal should name the type that would have worked: "
+                        + refused.getMessage());
+    }
+
+    @Test
+    @DisplayName("No choice means the operation's own type is used")
+    void noChoiceKeepsTheDeclaredType() {
+        ServerOperation operation = ServerOperation.builder("$validate", RestMethod.POST,
+                        "{resourceType}/$validate")
+                .pathParameter("resourceType", "The type.")
+                .requiresBody("application/fhir+json")
+                .build();
+        ServerOperationForm form = new ServerOperationForm(operation);
+        form.set("resourceType", "Patient");
+
+        assertEquals(null, form.toInvocation("{}").contentType(),
+                "a caller with no preference must leave the type unset, so the operation's "
+                        + "own declaration decides");
+        assertEquals("application/fhir+json", operation.bodyContentType());
     }
 }

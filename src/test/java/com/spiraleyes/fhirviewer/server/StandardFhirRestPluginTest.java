@@ -54,6 +54,93 @@ public class StandardFhirRestPluginTest {
     private ServerSession session;
     private final java.util.concurrent.atomic.AtomicReference<String> lastAuthorization =
             new java.util.concurrent.atomic.AtomicReference<>();
+@Test
+    @DisplayName("A plain FHIR server offers the specification's operations, not just bulk")
+    void specificationOperationsAreDeclared() {
+        // The observation that started Phase 10: a standard server showed exactly two
+        // operations, both bulk, and the specification's own were absent from the codebase
+        // entirely. The specification defines the type-level and instance-level forms as
+        // separate interactions, so both are declared.
+        List<String> ids = plugin.availableOperations().stream()
+                .map(ServerOperation::id)
+                .toList();
+
+        for (String expected : List.of("$validate", "$expand", "$lookup", "$everything",
+                "$everything-instance", "$patient", "$patient-instance", "$compartment",
+                "$convert", "$vread", "$graph", "$history", "$export-poll-status",
+                "$import-poll-status", "$graphql", "$snapshots", "$export", "$import")) {
+            assertTrue(ids.contains(expected),
+                    "the specification operation " + expected + " is not offered; a standard"
+                            + " server offers " + ids);
+        }
+    }
+
+    @Test
+    @DisplayName("The operations that take a resource say so, and require one")
+    void bodyRequirementsMatchTheSpecification() {
+        // $validate, $expand, $lookup and $convert all POST a resource. Declaring a body as
+        // optional would let the screen send a request the server will only refuse, and the
+        // user would learn it from a 400 rather than from the form.
+        for (ServerOperation operation : plugin.availableOperations()) {
+            if (List.of("$validate", "$expand", "$lookup", "$convert", "$import")
+                    .contains(operation.id())) {
+                assertEquals(ServerOperation.BodyRequirement.REQUIRED,
+                        operation.bodyRequirement(),
+                        operation.id() + " takes a resource and must require one");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("$search is not offered here, because the search screens already do it")
+    void searchIsNotOfferedAsAnOperation() {
+        // Deliberate. $search needs parameters this screen's form cannot express well, and
+        // the two search screens do it properly. Offering a worse version of a feature that
+        // already exists elsewhere is not a gain.
+        assertNull(plugin.availableOperations().stream()
+                        .filter(operation -> operation.id().contains("$search"))
+                        .findFirst()
+                        .orElse(null),
+                "$search is offered from the operation screen as well as from the two search "
+                        + "screens, which do it better");
+    }
+
+    @Test
+    @DisplayName("The vendor plugins inherit them, and do not narrow the list")
+    void vendorPluginsInheritThem() {
+        // Declared on the base class precisely so the three plugins cannot drift apart. This
+        // is the test that stops a vendor plugin quietly narrowing what the user is offered.
+        for (FhirServerPlugin vendor : List.of(new SmileCdrPlugin(), new FirelyPlugin())) {
+            List<String> ids = vendor.availableOperations().stream()
+                    .map(ServerOperation::id)
+                    .toList();
+            assertTrue(ids.contains("$validate"),
+                    vendor.id() + " does not inherit the specification operations: " + ids);
+            assertTrue(ids.contains("$export"),
+                    vendor.id() + " lost the bulk operations: " + ids);
+        }
+    }
+
+    @Test
+    @DisplayName("Every declared path parameter is named by its own template")
+    void declaredParametersMatchThePathTemplate() {
+        // The failure this catches happened while writing them: the descriptor refuses to
+        // build when a path names a placeholder that was not declared, or declares a path
+        // parameter its template does not name. Neither is visible until the class is
+        // initialised, so a mistake takes every test touching the plugin down with it - which
+        // is exactly how 80 errors appeared at once.
+        for (ServerOperation operation : plugin.availableOperations()) {
+            assertNotNull(operation.pathTemplate(), operation.id() + " has no path template");
+            for (ServerOperationParameter parameter : operation.parameters()) {
+                if (parameter.location() == ServerOperationParameter.Location.PATH) {
+                    assertTrue(operation.pathTemplate().contains("{" + parameter.name() + "}"),
+                            operation.id() + " declares the path parameter '" + parameter.name()
+                                    + "' but its template does not name it: "
+                                    + operation.pathTemplate());
+                }
+            }
+        }
+    }
 
     @BeforeEach
     void startServer() throws IOException {

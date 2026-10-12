@@ -15,8 +15,6 @@ import com.spiraleyes.fhirviewer.server.SearchRequest;
 import com.spiraleyes.fhirviewer.server.ServerCapabilities;
 
 import javafx.beans.property.ReadOnlyStringWrapper;
-import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
 import javafx.event.ActionEvent;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -40,7 +38,6 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.util.Callback;
 
 /**
  * "Open from Server": picks a resource on a chosen FHIR server and hands it to the editor.

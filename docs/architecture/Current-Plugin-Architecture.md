@@ -287,6 +287,30 @@ resolution is recorded in `docs/plans/REST-Integration-Progress.md`.
 | 20 — no cancellation or progress | Phase 6 | Cooperative cancellation and a busy state |
 | 21 — `openVendorTool` leaks a class name | this branch | Gone with the method |
 
+### The REST console is a deliberate peer of the plugin path
+
+`Tools → REST Console...` (`ui.RestConsoleDialog`) calls `server.rest.RestClient`
+**directly**, without going through `FhirServerService` and a plugin. This is intentional
+and is the one place in the application where the rule above does not hold.
+
+The reason is the feature's purpose: the console exists to call endpoints that **no plugin
+declares**, so routing it through the plugin layer would make it unable to do the only thing
+it is for. It is a *peer* of the plugin path rather than an exception to it — `UI →
+RestClient` sits alongside `UI → FhirServerService → plugin`, and the plugin layer keeps its
+rule for everything it does serve.
+
+Everything below the transport is shared, not duplicated: `JdkHttpRestClient`,
+`RestRequest`/`RestResponse`, the three `ServerAuthentication` implementations,
+`TransportSecurity`, `BackgroundTasks` and `ServerErrors`. The console adds only what was
+missing — `AdhocServer` (a configuration for a URL that was never saved),
+`RestParameterList`, `RestAnswers` (a classifier for a raw `RestResponse`, the counterpart
+of `ServerOperationResults`) and the panes that draw them. `AdhocServer.credentialKey()` is
+prefixed `adhoc:` specifically so a URL typed into the console can never collide with a
+saved server's stored credentials.
+
+`AdhocAuthentication` exists so the `instanceof` chain over auth mechanisms stays out of
+JavaFX — the same criticism this document makes of `newClient()` in the gap table above.
+
 **Still open:** 5 (TLS truststore), 12 (detection heuristics), 14 (`extraHeaders` not
 persisted), 17 (`loadsOnStart` not acted on), and OAuth/SMART from gap 7. See the user
 guide's *Known gaps* for the user-facing list.

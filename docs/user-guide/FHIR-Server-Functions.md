@@ -25,7 +25,8 @@ describing an ideal.
 12. [Reading error messages](#12-reading-error-messages)
 13. [Where your settings live](#13-where-your-settings-live)
 14. [Troubleshooting](#14-troubleshooting)
-15. [Known gaps](#15-known-gaps)
+15. [The REST console](#15-the-rest-console)
+16. [Known gaps](#16-known-gaps)
 
 ---
 
@@ -89,6 +90,7 @@ The form asks for:
 | **FHIR version** | `R4` is the only choice currently. |
 | **Server type** | Which plugin serves this server — see [What each plugin supports](#11-what-each-plugin-supports). Choose the vendor plugin when one is listed for your product. |
 | **Authentication** | Anonymous, user name and password, or a bearer token. See [Credentials](#3-credentials). |
+| **Admin URL** | **Usually leave blank.** Only for a server whose administration API lives on a *different address* than its FHIR root — Smile CDR serves FHIR on port 8000 and its JSON Admin API on 9000. Give the origin, e.g. `https://host:9000`. Leave it blank and every operation goes to the **Base URL** above, which is right for almost every server including Firely. |
 
 Servers are **saved as soon as you change them**, so they are still there next
 time you start the application. You do not need to press Save on the main
@@ -409,6 +411,11 @@ delete cannot silently remove a resource somebody else has changed.
 The connection screen, and the place to check what is configured:
 
 - **The server list**, with the active one marked.
+- **Served by** — the plugin handling this server, named in full ("Standard FHIR
+  REST", "Firely Server"). **Check this first** if an operation looks missing:
+  a Firely server added without changing **Server type** is served by the plain
+  FHIR plugin, which offers the specification's operations but none of the
+  vendor ones. `standard-rest` on a vendor's endpoint is the usual cause.
 - **Connect / Disconnect** — selects which server the other tools act on.
 - **Test** — a quick reachability check.
 - **Status / Capabilities** — reads the server's `CapabilityStatement`: the
@@ -433,10 +440,21 @@ vendor endpoints appear here without the application knowing they exist.
    that server, because each server's plugin offers different operations.
 2. Pick an operation from the list. The description explains what it does.
 3. Fill in the parameters the form asks for. Required ones are marked.
-4. Press **Run**.
-5. The result appears in the panel below, classified for you — FHIR resource,
+4. If the operation takes a body, two more choices appear above it:
+   - **Body is** — what that body *is*, so the box is labelled rather than
+     anonymous. `$validate` wants a resource; `$graphql` wants a query.
+   - **Sent as** — the content type. Pick one the operation actually accepts;
+     anything else is refused here rather than by the server. If the resource
+     you have open in the editor fits the operation, the body is **filled in
+     for you** — edit it, or clear it.
+
+   That last point is what makes `$validate` practical: open the resource you
+   suspect, run `$validate`, and the body is already the thing you were looking
+   at.
+5. Press **Run**.
+6. The result appears in the panel below, classified for you — FHIR resource,
    Bundle, `OperationOutcome`, JSON, XML, plain text, or empty.
-6. **Open in viewer** displays a result in the normal views.
+7. **Open in viewer** displays a result in the normal views.
 
 Operations declared as needing authentication cannot be run anonymously; the
 viewer says so rather than sending a request that would be refused.
@@ -452,9 +470,39 @@ Which plugins declare operations today:
 
 | Plugin | Operations offered |
 |---|---|
-| **Standard FHIR REST** | Bulk `$export` and `$import` — see below |
-| **Smile CDR** | Its reindex family, plus the inherited bulk operations |
-| **Firely Server** | Its administration API, its measure operations, plus the inherited bulk operations |
+| **Standard FHIR REST** | The specification's own — `$validate`, `$expand`, `$lookup`, `$everything`, `$patient`, `$compartment`, `$convert`, `$vread`, `$graph`, `$history`, the export/import poll-status pair, `$graphql`, `$snapshots` — plus bulk `$export` and `$import`. See below |
+| **Smile CDR** | Its reindex family and its JSON Admin API, plus everything inherited from the standard layer |
+| **Firely Server** | Its administration API, its measure operations, plus everything inherited from the standard layer |
+
+### The specification's operations, on every server
+
+These come from the FHIR specification rather than any vendor, so all three plugins
+offer them and a vendor plugin adds to them rather than replacing them. They are
+the ones worth knowing:
+
+| Operation | What it does |
+|---|---|
+| **Validate a resource** (`$validate`) | Checks a resource against the profiles it claims, and returns the errors and warnings. The body is filled in from whatever you have open. |
+| **Everything about a patient** (`$everything`) | Every resource related to a patient, across types. Narrow it with `start` and `end` — it is large otherwise. |
+| **Convert to another FHIR version** (`$convert`) | Converts older data into the version this viewer reads. |
+| **Version read** (`$vread`) | One specific version of a resource, so you can see what changed. |
+| **Expand a ValueSet** (`$expand`) | The list of codes a ValueSet contains. |
+| **Look up a code** (`$lookup`) | The resources a code identifies — the reverse of a terminology search. |
+| **Bulk export progress** (`$export-poll-status`) | How far a `$export` you started has got. |
+
+The type-level and instance-level forms are listed separately, because the
+specification defines them as separate interactions.
+
+**Not offered here: `$search`.** It needs a search expressed as several
+parameters, which this screen cannot do well — and
+[the two search screens](#4-finding-a-resource-three-ways) do it properly,
+with an editor for several parameters and a raw string. Use those.
+
+**How far this has been checked.** `$everything`, `$patient`, `$graphql` and
+`$export-poll-status` were each run against `hapi.fhir.org/baseR4`. The rest are
+taken from the specification and have not been sent to a real server, so a
+server may answer "unknown operation" for some of them — that is the server
+declaring it does not implement that one, not a fault in the viewer.
 
 A second, similar-looking case: a plugin *does* declare operations, but all of
 them need credentials and none are unlocked this session. That message says so
@@ -492,6 +540,19 @@ address you already configured — no second URL is needed.
   nothing, and it tells you what a full re-index would do before you start one.
 - It requires the FHIR Storage (RDBMS) module. A server without it answers
   that the operation is unknown — a server setting, not a fault.
+
+#### Smile's JSON Admin API
+
+Smile also serves an administration API on its own port — version, configuration,
+runtime status, metrics, OpenID Connect clients and sessions, the user list, and
+session invalidation. **These need the Admin URL field on the server** (see
+[The form asks for](#2-adding-and-editing-servers)); with it blank they would be
+sent to the FHIR endpoint and fail there.
+
+**They are unverified.** No public Smile CDR was reachable while this was
+written, so every path comes from Smile's documentation and none has been run
+against a real instance. Expect to correct some of them. If **Version** works,
+the rest are likely right in shape.
 - Re-indexing a large server is slow. Prefer the dry run, or scope `$reindex`
   with a `url` such as `Patient?`.
 - `$reindex` also accepts `partitionId` on a multi-tenant server; `_ALL`
@@ -706,26 +767,135 @@ action, because that is a defect worth reporting.
 
 ---
 
-## 15. Known gaps
+## 15. The REST console
+
+**Tools → REST Console...**
+
+The screens elsewhere are curated: they offer the operations a plugin declared. The console
+is the opposite — it lets you type *any* REST call and see exactly what came back. Use it
+for a vendor endpoint nobody declared, an operation with an argument the forms do not offer,
+or just to find out what a server actually does when you ask it something.
+
+It deliberately does not go through the plugin layer, because calling an endpoint no plugin
+declares is the whole point. Everything else is shared: the same HTTP transport, the same
+authentication, the same error messages, the same TLS behaviour.
+
+### Filling in the request
+
+| Field | What it is |
+|---|---|
+| **Server** | A server you have already configured, or **Custom URL…** to type any address. A server you have not configured can still be called. |
+| **Method** | `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. `GET` is the default. |
+| **Base URL** | The server root, e.g. `https://example.com/fhir`. Shown and used when **Custom URL…** is selected. |
+| **Path** | The rest, e.g. `Patient/123` or `/Patient?name=Smith`. The full address is previewed underneath as you type. |
+| **Query parameters** | A grid of name and value. A name may repeat — `_include` often does — and the order you type is the order that is sent. |
+| **Headers** | Any header you need: `If-Match`, `Prefer`, `_format`, a vendor's own. |
+| **Request body** | Enabled only for a method that can carry one. |
+
+The **Send** button refuses to send an incomplete request and tells you which field is
+missing, rather than opening a connection first.
+
+### Authentication
+
+Choose from **None**, **User name and password**, or **Bearer token**. Only the fields that
+kind needs are shown.
+
+- **Fetch token...** runs an OAuth 2.0 **client-credentials** grant against a token endpoint
+  you type, and puts the returned token in the token field. It reports when the token
+  expires, because one that expires mid-debugging looks like a server fault.
+- You may also paste a token you already have.
+
+There is deliberately **no `Authorization` header you can type yourself** — the console
+points you at the authentication selector instead, so a credential cannot end up sitting in
+a text field that gets screenshotted.
+
+Credentials typed here are **not saved**, anywhere. They are forgotten when the window
+closes, and they are deliberately not part of what the console remembers.
+
+### It remembers how you left it
+
+The console **closes itself** whenever you open something in the viewer, so this matters:
+the next time you open **REST Console...** the screen comes back the way you left it.
+
+Remembered: the server, the method, the base URL, the path, every query parameter and header
+(in order), the content type, the authentication kind, the user name, and the window's size
+and divider position.
+
+**Not** remembered: the password, the bearer token, and the request body. The first two are
+credentials. The third is left out because a request body is far more likely to be a patient
+resource than anything else, and writing one to disk without being asked is not a decision
+this tool should make for you.
+
+### Reading the answer
+
+Four tabs:
+
+- **Body** — the raw response, exactly as the server sent it, whatever it turned out to be.
+  Use **Copy body** or **Save body to file...** when you need it elsewhere.
+- **Bundle entries** — when the answer is a Bundle, its entries are listed here. Double-click
+  one to open that resource in the main viewer; you rarely want the wrapper when you wanted
+  a search result.
+- **Headers** — the response headers, with any credential-bearing value replaced.
+- **Diagnostics** — what the server said when it refused.
+
+The line above the tabs gives the kind, the HTTP status, the size in bytes and how long it
+took, and repeats the server's own explanation on a failure.
+
+### Opening a resource in the viewer
+
+**Open in FHIR Viewer** is enabled when the body turned out to be a FHIR resource, and works
+for any verb — not just a search. The resource is opened with no server attached, so a later
+**Save to FHIR Server** will not write it back somewhere you did not choose.
+
+### Pasting and copying cURL
+
+- **Paste cURL...** fills the form from a `curl` command. This is the quickest way to run
+  something from a bug report, a wiki page or a vendor's documentation. A leading `$` shell
+  prompt is ignored, but the text has to actually be a cURL command — if it is not, the button
+  says so and leaves the form alone rather than filling it with whatever came first.
+- **Copy as cURL** puts the current request on the clipboard as a command you can paste into
+  a ticket. **Credentials are left out** of what it copies, and the status line says so.
+
+Both buttons report what they did in the status line. An empty clipboard, a piece of text that
+is not a command, a clipboard that does not exist in this session, and nothing to copy yet all
+get their own message, because a button that silently does nothing reads as broken.
+
+An `Authorization` header found in a pasted command is **not** put in the header grid — that
+grid would refuse it. `Bearer ...` becomes the bearer token field, and `Basic ...` is decoded
+into the user name and password fields, with the status line naming what it took. Anything else
+is reported as left out, so an unexplained 401 cannot come from a credential quietly dropped.
+
+`--insecure` is refused with an explanation rather than quietly ignored, because ignoring it
+would produce a request that behaves differently from the one you are looking at. Fix the
+certificate instead.
+
+
+---
+
+## 16. Known gaps
 
 Stated plainly, so nothing here reads as working when it does not.
 
 | Not built yet | What you get instead |
 |---|---|
 | **Vendor screens** (*Tools → Server Tools...*) | Removed. The only screen it could offer was never implemented, so the menu item was removed rather than left doing nothing. Those endpoints are reachable as individual operations under **Run Server Operation...**. |
-| **Smile CDR's Admin JSON API** | User, session and partition management sit on a separate port that the viewer cannot address yet. The reindex operations, which are on the FHIR endpoint, do work. See [Phase 9](../plans/09_SECOND_BASE_URL_FOR_ADMIN_APIS.md). |
-| **Bulk jobs are started, not finished** | `$export` and `$import` return `202` with a polling URL. The screen shows that acknowledgement; it does not follow the job to completion. |
+| **Smile CDR's Admin JSON API** | **Reachable now**, through the **Admin URL** field, but the paths are documentation-derived and unverified — no public Smile instance was available to test them. The reindex operations, on the FHIR endpoint, are the ones to rely on. See [Smile's JSON Admin API](#smiles-json-admin-api). |
+| **Bulk jobs are started, not finished** | `$export` and `$import` return `202` with a polling URL. The screen shows that acknowledgement; it does not follow the job to completion. Use `$export-poll-status` by hand to check on one. |
 | **Writing conformance resources** | Firely's administration API allows it; the viewer deliberately offers those searches read-only. |
 | **FHIRPath patch** | The three body-shaped patch formats only. A FHIRPath patch is a `Parameters` resource, and sending it as a merge patch would be wrong. |
-| **A raw REST console** | Deliberately excluded. Arbitrary GET/POST/PUT/DELETE would need its own authentication, error mapping and paging. Use the operation screen. |
+| ~~**A raw REST console**~~ | **Built** — **Tools → REST Console...** See [The REST console](#15-the-rest-console). It reuses the existing transport, authentication and error mapping rather than having its own. |
 | **Extra request headers per server** | Not persisted. A header *value* is a secret, and `ServerDefinition` has no way to hold one. |
 | **Transaction bundles** | No multi-resource write. Write one resource at a time. |
-| **Conditional create / `$everything`** | Out of scope. |
 | **Subscriptions and push notifications** | Out of scope. |
 | **Smile CDR's connection half has no automated test** | Its test file is disabled. The operation declarations added here are covered separately. |
+| **Most specification operations are unverified** | Four were run against a public server. The rest come from the specification and may not be implemented by your server. See [How far this has been checked](#the-specifications-operations-on-every-server). |
+| **Console requests are not saved** | The console holds one request at a time and keeps nothing between sessions — no saved collections, no request history, no `{{variable}}` environment. You can copy a request out as cURL and paste it back. |
+| **SMART on FHIR is not supported** | The console can *use* a bearer token and can *fetch* one with an OAuth client-credentials grant. It does not run an authorization-code flow, open a browser, or refresh an expired token. Re-fetch when one expires. |
+| **Console credentials are never stored** | A password or token typed into the console is forgotten when the window closes, and is not part of what it remembers. Use the server manager to store one that should persist. |
+| **The console's request body is not remembered** | Everything else about the last request is, including the URL, parameters and headers. The body is left out because it is usually a patient resource. |
+| **Very large responses are held in memory** | The whole body is loaded as text. A multi-hundred-megabyte bulk export is not something this handles well. |
 
 ---
-
 ## See also
 
 - [`Current-Plugin-Architecture.md`](../architecture/Current-Plugin-Architecture.md) —

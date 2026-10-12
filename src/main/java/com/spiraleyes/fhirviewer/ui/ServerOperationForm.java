@@ -132,6 +132,29 @@ public final class ServerOperationForm {
      *         naming the field so the dialog can point at it
      */
     public ServerOperationInvocation toInvocation(String body) {
+        return toInvocation(body, null);
+    }
+
+    /**
+     * Builds the invocation, sending the body as {@code contentType} when the caller chose one.
+     *
+     * <p>A type the operation does not declare is refused here rather than sent: sending a
+     * body as something the server never asked for produces a 415 that says less than "that
+     * is not one of the types this operation accepts" would.</p>
+     *
+     * <p>Built in one pass on purpose. An earlier version built the invocation and then rebuilt
+     * it with the content type, which needed accessors that did not exist for query
+     * parameters - and the obvious fix, a fresh builder, would have dropped every parameter
+     * and the body silently.</p>
+     */
+    public ServerOperationInvocation toInvocation(String body, String contentType) {
+        if (contentType != null && !contentType.isBlank()
+                && !operation.acceptedBodyTypes().isEmpty()
+                && !operation.acceptedBodyTypes().contains(contentType.trim())) {
+            throw new IllegalStateException("This operation does not accept a body sent as "
+                    + contentType.trim() + ". Choose one of "
+                    + String.join(", ", operation.acceptedBodyTypes()) + ".");
+        }
         Optional<String> missing = missing(body);
         if (missing.isPresent()) {
             throw new IllegalStateException("Enter a value for " + missing.get() + ".");
@@ -151,6 +174,9 @@ public final class ServerOperationForm {
         }
         if (body != null && !body.isBlank()) {
             invocation.body(body);
+        }
+        if (contentType != null && !contentType.isBlank()) {
+            invocation.contentType(contentType.trim());
         }
         return invocation.build();
     }

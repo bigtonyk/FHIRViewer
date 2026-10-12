@@ -19,6 +19,7 @@ public final class ServerDefinition implements FhirServerConfiguration {
     private final String fhirVersion;
     private final String pluginId;
     private final int timeoutMillis;
+    private final String administrationBaseUrl;
 
     private ServerDefinition(Builder builder) {
         this.id = builder.id;
@@ -27,6 +28,7 @@ public final class ServerDefinition implements FhirServerConfiguration {
         this.fhirVersion = builder.fhirVersion;
         this.pluginId = builder.pluginId;
         this.timeoutMillis = builder.timeoutMillis;
+        this.administrationBaseUrl = builder.administrationBaseUrl;
     }
 
     /**
@@ -64,6 +66,18 @@ public final class ServerDefinition implements FhirServerConfiguration {
     @Override
     public String baseUrl() {
         return baseUrl;
+    }
+
+    /**
+     * Where this vendor's administration API is, when it is not under {@link #baseUrl()}.
+     *
+     * <p>{@code null} — the overwhelmingly common case — means the same as the base URL, so a
+     * server with no vendor admin API needs no configuration at all. See
+     * {@link FhirServerConfiguration#administrationBaseUrl()}.</p>
+     */
+    @Override
+    public String administrationBaseUrl() {
+        return administrationBaseUrl;
     }
 
     @Override
@@ -125,6 +139,7 @@ public final class ServerDefinition implements FhirServerConfiguration {
         private String fhirVersion = "R4";
         private String pluginId = StandardFhirRestPlugin.PLUGIN_ID;
         private int timeoutMillis;
+        private String administrationBaseUrl;
 
         private Builder(String name, String baseUrl) {
             // Generated here rather than in the constructor of ServerDefinition so that a
@@ -175,6 +190,33 @@ public final class ServerDefinition implements FhirServerConfiguration {
                 throw new IllegalArgumentException("A FHIR base URL must start with http:// or https://.");
             }
             this.baseUrl = trimmed;
+            return this;
+        }
+
+        /**
+         * Where this vendor's administration API is, when it is not under the base URL.
+         *
+         * <p>Optional, and blank means "not set": the field is left {@code null} and the
+         * administration operations use the base URL like everything else. That default is
+         * what keeps Firely working with no configuration, and what lets every existing
+         * server definition stay valid without being edited.</p>
+         *
+         * <p>Validated exactly as {@link #baseUrl(String)} is, and for the same reason: a
+         * malformed value here would otherwise surface as a failed request against the wrong
+         * address, which is a far worse way to learn about a typo.</p>
+         */
+        public Builder administrationBaseUrl(String administrationBaseUrl) {
+            if (administrationBaseUrl == null || administrationBaseUrl.isBlank()) {
+                this.administrationBaseUrl = null;
+                return this;
+            }
+            String trimmed = administrationBaseUrl.trim().replaceAll("/+$", "");
+            if (!trimmed.regionMatches(true, 0, "http://", 0, "http://".length())
+                    && !trimmed.regionMatches(true, 0, "https://", 0, "https://".length())) {
+                throw new IllegalArgumentException(
+                        "An administration base URL must start with http:// or https://.");
+            }
+            this.administrationBaseUrl = trimmed;
             return this;
         }
 

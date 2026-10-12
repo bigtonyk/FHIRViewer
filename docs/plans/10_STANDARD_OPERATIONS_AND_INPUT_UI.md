@@ -2,8 +2,10 @@
 
 ## Goal
 
-> **Partly done.** The search screens now take several parameters and offer a raw search
-> string; see *Done so far* below. Declaring the specification's operations is **not** started.
+> **Mostly done.** The search screens take several parameters and offer a raw search
+> string. The specification's operations are now declared and the operation screen has a
+> real input UI; the plugin serving each server is now named. Two of the plan's three
+> "make it visible and honest" items are still open — see *Not done* below.
 
 Declare the operations the FHIR specification defines, so a plain FHIR server offers
 more than bulk export and import — and make the screen that runs them usable for the
@@ -21,6 +23,55 @@ Triggered by two observations while using the operation screen:
   operation call practical.
 
 ## Done so far
+
+**Step 1 — the specification's operations.** Sixteen declared on
+`StandardFhirRestPlugin`, so a plain FHIR server offers 18 rather than 2. Declared on the
+base class, so Smile and Firely inherit them, with a test that fails if a vendor narrows the
+list.
+
+Four were verified live against `hapi.fhir.org/baseR4` and say so in their description:
+`Patient/$everything` (200, a Bundle), `$export-poll-status`, `$graphql` and `Patient/$patient`
+(reached and answered). The rest are specification-derived and say so too.
+
+`$search` is **deliberately absent** — the two search screens do it properly, and offering a
+worse version of it here is not a gain.
+
+**Step 2 — the input UI.** The body is no longer an undifferentiated text box:
+
+- **Body is** — a dropdown of the names the specification gives that body, derived from the
+  operation id so vendor plugins get it for free. Editable.
+- **Sent as** — a content-type selector over what the operation actually declares, via the
+  new `ServerOperation.acceptedBodyTypes()`. Previously the body always went as the declared
+  type, so an operation that takes XML could not be sent XML at all.
+- **Filled in from the editor** — the resource already open is offered as the body when the
+  operation wants a resource. That is the difference between "a form that can run an
+  operation" and "a screen you can actually run `$validate` on".
+- A content type the operation does not declare is refused in the form, naming the ones it
+  does.
+
+**Step 3, item 2 — naming the serving plugin.** The status screen said `Plugin:
+standard-rest`, which is not something a user can act on. It now says `Served by: Standard
+FHIR REST (standard-rest)`.
+
+This is the direct answer to the report that started this plan. "Firely only offers 2
+operations" was a Firely server saved with the default plugin, because the **Server type** list
+defaults to its first entry and nothing on screen said the plugin had not been chosen.
+
+## Not done
+
+**Step 3, item 1 — offering the detected plugin when a server is added.** Not attempted.
+It changes the add-server flow rather than a display string, and it wants a decision about
+whether detection runs on every save.
+
+**Step 3, item 3 — marking operations the server does not advertise.** Not attempted.
+`ServerOperation.requiredCapability` exists and is unused, and `ServerCapabilities` carries the
+server's advertised interactions, so the seam is there. What is missing is the operation
+screen reading capabilities during discovery and marking an operation unavailable — a real
+change to how the list is built, not a display tweak.
+
+**The immediate workaround for the Firely case, unchanged:** open **Tools → FHIR Servers...**,
+pick the server, set **Server type** to **Firely Server**. Or read **Tools → Server Status and
+Capabilities**, which now names the plugin serving it.
 
 ### Search: several parameters, and a raw search string
 
