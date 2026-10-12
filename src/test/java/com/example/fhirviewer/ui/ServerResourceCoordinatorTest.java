@@ -1,4 +1,4 @@
-package com.example.fhirviewer.ui;
+package com.spiraleyes.fhirviewer.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -15,20 +15,20 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.model.ValidationIssue;
-import com.example.fhirviewer.model.ValidationReport;
-import com.example.fhirviewer.server.FhirServerConfiguration;
-import com.example.fhirviewer.server.FhirServerPlugin;
-import com.example.fhirviewer.server.FhirServerPluginRegistry;
-import com.example.fhirviewer.server.FhirServerService;
-import com.example.fhirviewer.server.SearchRequest;
-import com.example.fhirviewer.server.SearchResultPage;
-import com.example.fhirviewer.server.ServerCapabilities;
-import com.example.fhirviewer.server.ServerDefinition;
-import com.example.fhirviewer.server.ServerOperationException;
-import com.example.fhirviewer.server.ServerOrigin;
-import com.example.fhirviewer.server.ServerSession;
-import com.example.fhirviewer.server.ServerWriteResult;
+import com.spiraleyes.fhirviewer.model.ValidationIssue;
+import com.spiraleyes.fhirviewer.model.ValidationReport;
+import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
+import com.spiraleyes.fhirviewer.server.FhirServerPlugin;
+import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
+import com.spiraleyes.fhirviewer.server.FhirServerService;
+import com.spiraleyes.fhirviewer.server.SearchRequest;
+import com.spiraleyes.fhirviewer.server.SearchResultPage;
+import com.spiraleyes.fhirviewer.server.ServerCapabilities;
+import com.spiraleyes.fhirviewer.server.ServerDefinition;
+import com.spiraleyes.fhirviewer.server.ServerOperationException;
+import com.spiraleyes.fhirviewer.server.ServerOrigin;
+import com.spiraleyes.fhirviewer.server.ServerSession;
+import com.spiraleyes.fhirviewer.server.ServerWriteResult;
 
 /**
  * Tests the rules that decide what a write to a FHIR server does, with no network and
@@ -310,8 +310,8 @@ class ServerResourceCoordinatorTest {
         }
 
         @Override
-        public com.example.fhirviewer.server.ConnectionResult testConnection(ServerSession session) {
-            return com.example.fhirviewer.server.ConnectionResult.unreachable("not used by this test");
+        public com.spiraleyes.fhirviewer.server.ConnectionResult testConnection(ServerSession session) {
+            return com.spiraleyes.fhirviewer.server.ConnectionResult.unreachable("not used by this test");
         }
 
         @Override

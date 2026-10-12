@@ -1,4 +1,4 @@
-package com.example.fhirviewer.fhir;
+package com.spiraleyes.fhirviewer.fhir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -12,8 +12,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.model.ResourceFormat;
-import com.example.fhirviewer.util.FileSupport;
+import com.spiraleyes.fhirviewer.model.ResourceFormat;
+import com.spiraleyes.fhirviewer.util.FileSupport;
 
 /** Tests JSON/XML parsing, resource type detection and error reporting. */
 class ResourceParserTest {

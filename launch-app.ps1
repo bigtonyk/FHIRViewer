@@ -35,7 +35,7 @@ if (-not $javaExe) {
 }
 
 $cp = Get-LaunchClasspath
-$appClass = 'com.example.fhirviewer.Main'
+$appClass = 'com.spiraleyes.fhirviewer.Main'
 Write-Host "Launching FHIRViewer (Main=$appClass)"
 Write-Host "  java/javaw = $javaExe"
 Write-Host "  target/lib  = $((Get-ChildItem (Join-Path $PSScriptRoot target\lib) -Filter *.jar -File).Count) jars"

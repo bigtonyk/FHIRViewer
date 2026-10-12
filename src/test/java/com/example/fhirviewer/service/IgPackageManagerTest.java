@@ -1,4 +1,4 @@
-package com.example.fhirviewer.service;
+package com.spiraleyes.fhirviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -7,7 +7,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.model.IgPackageInfo;
+import com.spiraleyes.fhirviewer.model.IgPackageInfo;
 
 /**
  * Tests IG package management functionality.

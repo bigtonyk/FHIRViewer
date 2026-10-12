@@ -1,4 +1,4 @@
-package com.example.fhirviewer.service;
+package com.spiraleyes.fhirviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -11,8 +11,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.model.ValidationIssue;
-import com.example.fhirviewer.model.ValidationReport;
+import com.spiraleyes.fhirviewer.model.ValidationIssue;
+import com.spiraleyes.fhirviewer.model.ValidationReport;
 
 /** Tests FHIR validation, including the reporting of required elements. */
 class ValidationServiceTest {

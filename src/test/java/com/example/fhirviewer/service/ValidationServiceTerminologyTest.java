@@ -1,4 +1,4 @@
-package com.example.fhirviewer.service;
+package com.spiraleyes.fhirviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,10 +13,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import com.example.fhirviewer.fhir.FhirContextFactory;
-import com.example.fhirviewer.model.IgPackageInfo;
-import com.example.fhirviewer.model.ValidationIssue;
-import com.example.fhirviewer.model.ValidationReport;
+import com.spiraleyes.fhirviewer.fhir.FhirContextFactory;
+import com.spiraleyes.fhirviewer.model.IgPackageInfo;
+import com.spiraleyes.fhirviewer.model.ValidationIssue;
+import com.spiraleyes.fhirviewer.model.ValidationReport;
 
 import ca.uhn.fhir.context.FhirContext;
 

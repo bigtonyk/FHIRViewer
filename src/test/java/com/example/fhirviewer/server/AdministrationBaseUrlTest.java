@@ -1,4 +1,4 @@
-package com.example.fhirviewer.server;
+package com.spiraleyes.fhirviewer.server;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -15,9 +15,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.server.rest.JdkHttpRestClient;
-import com.example.fhirviewer.server.rest.RestMethod;
-import com.example.fhirviewer.server.rest.RestRequest;
+import com.spiraleyes.fhirviewer.server.rest.JdkHttpRestClient;
+import com.spiraleyes.fhirviewer.server.rest.RestMethod;
+import com.spiraleyes.fhirviewer.server.rest.RestRequest;
 
 /**
  * Phase 9 — a vendor's administration API on a different origin than its FHIR endpoint.

@@ -1,4 +1,4 @@
-package com.example.fhirviewer.service;
+package com.spiraleyes.fhirviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -15,17 +15,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.TreeAssert;
-import com.example.fhirviewer.model.LoadedResource;
-import com.example.fhirviewer.model.ResourceFormat;
-import com.example.fhirviewer.model.ResourceNode;
-import com.example.fhirviewer.pretty.PrettyBlock;
-import com.example.fhirviewer.pretty.PrettyDocument;
-import com.example.fhirviewer.pretty.PrettyRow;
-import com.example.fhirviewer.service.FHIRPathService.Status;
-import com.example.fhirviewer.service.SourceEditorService.ApplyException;
-import com.example.fhirviewer.service.SourceEditorService.FailureKind;
-import com.example.fhirviewer.util.FileSupport;
+import com.spiraleyes.fhirviewer.TreeAssert;
+import com.spiraleyes.fhirviewer.model.LoadedResource;
+import com.spiraleyes.fhirviewer.model.ResourceFormat;
+import com.spiraleyes.fhirviewer.model.ResourceNode;
+import com.spiraleyes.fhirviewer.pretty.PrettyBlock;
+import com.spiraleyes.fhirviewer.pretty.PrettyDocument;
+import com.spiraleyes.fhirviewer.pretty.PrettyRow;
+import com.spiraleyes.fhirviewer.service.FHIRPathService.Status;
+import com.spiraleyes.fhirviewer.service.SourceEditorService.ApplyException;
+import com.spiraleyes.fhirviewer.service.SourceEditorService.FailureKind;
+import com.spiraleyes.fhirviewer.util.FileSupport;
 
 /**
  * Tests for editing the JSON and XML representation of a resource in place: a valid

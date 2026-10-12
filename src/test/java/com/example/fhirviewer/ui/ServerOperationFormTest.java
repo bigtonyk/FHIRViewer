@@ -1,4 +1,4 @@
-package com.example.fhirviewer.ui;
+package com.spiraleyes.fhirviewer.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -11,10 +11,10 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.server.ServerOperation;
-import com.example.fhirviewer.server.ServerOperationInvocation;
-import com.example.fhirviewer.server.ServerOperationParameter;
-import com.example.fhirviewer.server.rest.RestMethod;
+import com.spiraleyes.fhirviewer.server.ServerOperation;
+import com.spiraleyes.fhirviewer.server.ServerOperationInvocation;
+import com.spiraleyes.fhirviewer.server.ServerOperationParameter;
+import com.spiraleyes.fhirviewer.server.rest.RestMethod;
 
 /**
  * The claim Phase 6 ends on, tested: a plugin can add an operation and the generic form

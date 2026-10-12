@@ -1,4 +1,4 @@
-package com.example.fhirviewer.service;
+package com.spiraleyes.fhirviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -8,7 +8,7 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.service.PackageRegistryService.PackageInfo;
+import com.spiraleyes.fhirviewer.service.PackageRegistryService.PackageInfo;
 
 /**
  * Tests npm-style packument parsing used to look up packages on

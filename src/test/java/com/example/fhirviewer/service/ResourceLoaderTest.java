@@ -1,4 +1,4 @@
-package com.example.fhirviewer.service;
+package com.spiraleyes.fhirviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -14,9 +14,9 @@ import java.nio.file.Paths;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.model.LoadedResource;
-import com.example.fhirviewer.model.ResourceFormat;
-import com.example.fhirviewer.util.FileSupport;
+import com.spiraleyes.fhirviewer.model.LoadedResource;
+import com.spiraleyes.fhirviewer.model.ResourceFormat;
+import com.spiraleyes.fhirviewer.util.FileSupport;
 
 /** Tests loading resources from the classpath, from files and from text. */
 class ResourceLoaderTest {

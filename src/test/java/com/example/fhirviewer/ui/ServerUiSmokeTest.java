@@ -1,4 +1,4 @@
-package com.example.fhirviewer.ui;
+package com.spiraleyes.fhirviewer.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -24,19 +24,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.server.FhirServerConfiguration;
-import com.example.fhirviewer.server.FhirServerManager;
-import com.example.fhirviewer.server.FhirServerPlugin;
-import com.example.fhirviewer.server.FhirServerPluginRegistry;
-import com.example.fhirviewer.server.PluginConfig;
-import com.example.fhirviewer.server.PluginLoader;
-import com.example.fhirviewer.server.PluginSettingsStore;
-import com.example.fhirviewer.server.FhirServerService;
-import com.example.fhirviewer.server.ServerAuthKind;
-import com.example.fhirviewer.server.SearchCriterion;
-import com.example.fhirviewer.server.SearchRequest;
-import com.example.fhirviewer.server.ServerDefinition;
-import com.example.fhirviewer.server.ServerOrigin;
+import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
+import com.spiraleyes.fhirviewer.server.FhirServerManager;
+import com.spiraleyes.fhirviewer.server.FhirServerPlugin;
+import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
+import com.spiraleyes.fhirviewer.server.PluginConfig;
+import com.spiraleyes.fhirviewer.server.PluginLoader;
+import com.spiraleyes.fhirviewer.server.PluginSettingsStore;
+import com.spiraleyes.fhirviewer.server.FhirServerService;
+import com.spiraleyes.fhirviewer.server.ServerAuthKind;
+import com.spiraleyes.fhirviewer.server.SearchCriterion;
+import com.spiraleyes.fhirviewer.server.SearchRequest;
+import com.spiraleyes.fhirviewer.server.ServerDefinition;
+import com.spiraleyes.fhirviewer.server.ServerOrigin;
 
 import javafx.application.Platform;
 import javafx.geometry.Bounds;
@@ -516,8 +516,8 @@ class ServerUiSmokeTest {
         // someone who has not found this.
         AtomicReference<List<String>> loaded = new AtomicReference<>();
         runOnFxThread(() -> loaded.set(
-                com.example.fhirviewer.server.PluginLoader.load().plugins().stream()
-                        .map(com.example.fhirviewer.server.FhirServerPlugin::id).toList()));
+                com.spiraleyes.fhirviewer.server.PluginLoader.load().plugins().stream()
+                        .map(com.spiraleyes.fhirviewer.server.FhirServerPlugin::id).toList()));
 
         assertTrue(loaded.get().contains("firely"),
                 "Firely must reach the application through PluginLoader; found "
@@ -531,8 +531,8 @@ class ServerUiSmokeTest {
     void firelyIsNotInTheServiceFile() throws Exception {
         // Kept deliberately: it is loaded from configuration so the user can disable it
         // without touching the class path.
-        assertFalse(com.example.fhirviewer.server.PluginLoader.discoverableIds()
-                        .contains(com.example.fhirviewer.server.FirelyPlugin.class.getName()),
+        assertFalse(com.spiraleyes.fhirviewer.server.PluginLoader.discoverableIds()
+                        .contains(com.spiraleyes.fhirviewer.server.FirelyPlugin.class.getName()),
                 "Firely belongs in the config file, not service discovery");
     }
 
@@ -711,7 +711,7 @@ class ServerUiSmokeTest {
     /** A registry with the real standard REST plugin, for tests that need actual HTTP calls. */
     private static FhirServerPluginRegistry standardRegistry() {
         FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
-        registry.register(new com.example.fhirviewer.server.StandardFhirRestPlugin());
+        registry.register(new com.spiraleyes.fhirviewer.server.StandardFhirRestPlugin());
         return registry;
     }
 
@@ -1295,7 +1295,7 @@ class ServerUiSmokeTest {
         // This drives the real FirelyPlugin through the real screen, which is the only
         // combination that would have caught it.
         FhirServerPluginRegistry firelyRegistry = new FhirServerPluginRegistry();
-        firelyRegistry.register(new com.example.fhirviewer.server.FirelyPlugin());
+        firelyRegistry.register(new com.spiraleyes.fhirviewer.server.FirelyPlugin());
         FhirServerService firelyService = new FhirServerService(firelyRegistry);
         FhirServerManager firelyManager = new FhirServerManager();
         firelyManager.add(ServerDefinition.forFirely("Public", "https://server.fire.ly").build());
@@ -1310,7 +1310,7 @@ class ServerUiSmokeTest {
         // does not turn into a failing test that has to be re-tuned. The assertions below
         // check that specific operations are present, which is what actually matters; a
         // magic number here would only ever detect that the number changed.
-        int expected = new com.example.fhirviewer.server.FirelyPlugin().availableOperations().size();
+        int expected = new com.spiraleyes.fhirviewer.server.FirelyPlugin().availableOperations().size();
         awaitCount(expected, screen);
         assertEquals(expected, screen.operationCount(),
                 "the screen must show every operation the Firely plugin declares");
@@ -1334,7 +1334,7 @@ class ServerUiSmokeTest {
         // failure. Driving the real plugin through the real screen is the only combination
         // that would have caught it.
         FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
-        registry.register(new com.example.fhirviewer.server.SmileCdrPlugin());
+        registry.register(new com.spiraleyes.fhirviewer.server.SmileCdrPlugin());
         FhirServerService service = new FhirServerService(registry);
         FhirServerManager manager = new FhirServerManager();
         manager.add(ServerDefinition.forSmileCdr("Smile", "https://example.org/fhir").build());
@@ -1345,7 +1345,7 @@ class ServerUiSmokeTest {
         ServerOperationDialog screen = built.get();
         assertNotNull(screen, "The operation screen was not built for the Smile plugin");
 
-        int expected = new com.example.fhirviewer.server.SmileCdrPlugin()
+        int expected = new com.spiraleyes.fhirviewer.server.SmileCdrPlugin()
                 .availableOperations().size();
         awaitCount(expected, screen);
         assertEquals(expected, screen.operationCount(),

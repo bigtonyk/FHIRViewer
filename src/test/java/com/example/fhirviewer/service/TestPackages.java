@@ -1,5 +1,5 @@
 // Copyright (c) 2026 FHIRViewer contributors. SPDX-License-Identifier: GPL-3.0-only.
-package com.example.fhirviewer.service;
+package com.spiraleyes.fhirviewer.service;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -8,7 +8,7 @@ import java.util.Map;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
 
-import com.example.fhirviewer.fhir.FhirContextFactory;
+import com.spiraleyes.fhirviewer.fhir.FhirContextFactory;
 
 import ca.uhn.fhir.context.FhirContext;
 

@@ -1,4 +1,4 @@
-package com.example.fhirviewer.server.rest;
+package com.spiraleyes.fhirviewer.server.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -16,13 +16,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.server.AnonymousServerAuthentication;
-import com.example.fhirviewer.server.BasicServerAuthentication;
-import com.example.fhirviewer.server.BearerServerAuthentication;
-import com.example.fhirviewer.server.RequestHeaders;
-import com.example.fhirviewer.server.ServerAuthentication;
-import com.example.fhirviewer.server.ServerDefinition;
-import com.example.fhirviewer.server.ServerSession;
+import com.spiraleyes.fhirviewer.server.AnonymousServerAuthentication;
+import com.spiraleyes.fhirviewer.server.BasicServerAuthentication;
+import com.spiraleyes.fhirviewer.server.BearerServerAuthentication;
+import com.spiraleyes.fhirviewer.server.RequestHeaders;
+import com.spiraleyes.fhirviewer.server.ServerAuthentication;
+import com.spiraleyes.fhirviewer.server.ServerDefinition;
+import com.spiraleyes.fhirviewer.server.ServerSession;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;

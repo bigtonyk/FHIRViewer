@@ -1,4 +1,4 @@
-package com.example.fhirviewer.ui;
+package com.spiraleyes.fhirviewer.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -13,12 +13,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.server.FhirServerConfiguration;
-import com.example.fhirviewer.server.FhirServerPluginRegistry;
-import com.example.fhirviewer.server.FhirServerService;
-import com.example.fhirviewer.server.ServerDefinition;
-import com.example.fhirviewer.server.ServerOperationInvocation;
-import com.example.fhirviewer.server.ServerOperationResult;
+import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
+import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
+import com.spiraleyes.fhirviewer.server.FhirServerService;
+import com.spiraleyes.fhirviewer.server.ServerDefinition;
+import com.spiraleyes.fhirviewer.server.ServerOperationInvocation;
+import com.spiraleyes.fhirviewer.server.ServerOperationResult;
 
 /**
  * The claim of plan section 7, tested: whatever an operation answers with, the UI knows
@@ -73,7 +73,7 @@ class ServerOperationResultsTest {
                     ServerOperationInvocation.of(operationId));
             assertNotNull(result, "The operation '" + operationId + "' produced no result");
             return result;
-        } catch (com.example.fhirviewer.server.ServerOperationException e) {
+        } catch (com.spiraleyes.fhirviewer.server.ServerOperationException e) {
             throw new AssertionError("The operation '" + operationId + "' failed: "
                     + e.getMessage(), e);
         }

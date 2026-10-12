@@ -1,4 +1,4 @@
-package com.example.fhirviewer.server;
+package com.spiraleyes.fhirviewer.server;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -13,7 +13,7 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.example.fhirviewer.server.rest.RestFailures;
+import com.spiraleyes.fhirviewer.server.rest.RestFailures;
 
 /**
  * The request types Phase 4 added, and the failure rules they depend on.

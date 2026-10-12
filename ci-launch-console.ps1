@@ -32,7 +32,8 @@ $javaExe = if (Test-Path $jdkHome) { $jdkHome } else { 'java' }
 # Each JVM arg must be a separate element so Java sees them correctly.
 $jvmArgs = @(
     '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
-    '--add-opens', 'javafx.graphics/com.sun.javafx.application=ALL-UNNAMED'
+    '--add-opens', 'javafx.graphics/com.sun.javafx.application=ALL-UNNAMED',
+    '--enable-native-access=ALL-UNNAMED'
 )
 
 Write-Host 'Launching FHIRViewer directly with java.exe (no Maven)...'
@@ -40,4 +41,4 @@ Write-Host "  java      = $javaExe"
 Write-Host "  module-path = $jfxModulePath"
 Write-Host "  classpath  = $cp"
 
-& $javaExe @jvmArgs --module-path $jfxModulePath --add-modules javafx.controls,javafx.graphics,javafx.base -cp $cp com.example.fhirviewer.Main
+& $javaExe @jvmArgs --module-path $jfxModulePath --add-modules javafx.controls,javafx.graphics,javafx.base -cp $cp com.spiraleyes.fhirviewer.Main

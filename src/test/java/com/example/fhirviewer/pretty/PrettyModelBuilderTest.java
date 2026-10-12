@@ -1,4 +1,4 @@
-package com.example.fhirviewer.pretty;
+package com.spiraleyes.fhirviewer.pretty;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -7,10 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import java.util.Optional;
 
-import com.example.fhirviewer.TreeAssert;
-import com.example.fhirviewer.model.LoadedResource;
-import com.example.fhirviewer.model.ResourceNode;
-import com.example.fhirviewer.service.FhirService;
+import com.spiraleyes.fhirviewer.TreeAssert;
+import com.spiraleyes.fhirviewer.model.LoadedResource;
+import com.spiraleyes.fhirviewer.model.ResourceNode;
+import com.spiraleyes.fhirviewer.service.FhirService;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;

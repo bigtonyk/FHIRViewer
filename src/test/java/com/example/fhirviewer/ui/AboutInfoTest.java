@@ -1,4 +1,4 @@
-package com.example.fhirviewer.ui;
+package com.spiraleyes.fhirviewer.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
