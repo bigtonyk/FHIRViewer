@@ -1270,6 +1270,15 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     /**
+     * The same resource as JSON, for the REST console's body copy; {@code null} when
+     * nothing is open.
+     */
+    private String currentResourceJson() {
+        IBaseResource resource = currentTarget();
+        return resource == null ? null : fhirService.toJson(resource);
+    }
+
+    /**
      * The reference target inside an entered value. The tree renders a reference as
      * <code>Type/id (display)</code>, so a trailing display is dropped before the value is
      * written; a plain <code>Type/id</code> or an absolute URL is used as entered.
@@ -1980,8 +1989,8 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
  */
     private void openRestConsole() {
         FhirServerConfiguration preselect = serverManager.active().orElse(null);
-        RestConsoleDialog dialog =
-                new RestConsoleDialog(serverManager.servers(), preselect, fhirService);
+        RestConsoleDialog dialog = new RestConsoleDialog(serverManager.servers(), preselect,
+                fhirService, this::currentResourceJson);
         dialog.initOwner(stage);
         dialog.showAndWait().ifPresent(outcome -> {
             if (!outcome.hasResource()) {

@@ -790,10 +790,22 @@ authentication, the same error messages, the same TLS behaviour.
 | **Path** | The rest, e.g. `Patient/123` or `/Patient?name=Smith`. The full address is previewed underneath as you type. |
 | **Query parameters** | A grid of name and value. A name may repeat — `_include` often does — and the order you type is the order that is sent. |
 | **Headers** | Any header you need: `If-Match`, `Prefer`, `_format`, a vendor's own. |
-| **Request body** | Enabled only for a method that can carry one. |
+| **Request body** | The JSON to send, for a method that can carry one (`POST`, `PUT`, `PATCH`). **Content type** defaults to `application/fhir+json`. |
 
 The **Send** button refuses to send an incomplete request and tells you which field is
 missing, rather than opening a connection first.
+
+### Copying the resource you are viewing into the body
+
+**Use viewer resource** — beside the **Request body** title — fills the body with the JSON
+of whatever is open in the main viewer. With a search result on screen that is the fastest
+way to start a `PUT Patient/123`: open the resource, open the console, press the button,
+check the id, and send.
+
+The button switches the method to `POST` when the current one cannot carry a body (`GET` is
+the default when the console opens) and says so on the status line; a `PUT` or `PATCH`
+already showing is left alone. When nothing is open in the viewer, the button says so and
+changes nothing.
 
 ### Authentication
 
@@ -831,7 +843,9 @@ this tool should make for you.
 Four tabs:
 
 - **Body** — the raw response, exactly as the server sent it, whatever it turned out to be.
-  Use **Copy body** or **Save body to file...** when you need it elsewhere.
+  The box is **editable**, so the fastest fix for a rejected write is to correct the JSON
+  right where the server's complaint is visible. Use **Copy body** or **Save body to
+  file...** when you need it elsewhere.
 - **Bundle entries** — when the answer is a Bundle, its entries are listed here. Double-click
   one to open that resource in the main viewer; you rarely want the wrapper when you wanted
   a search result.

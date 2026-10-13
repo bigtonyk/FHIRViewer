@@ -1684,6 +1684,119 @@ class ServerUiSmokeTest {
         assertFalse(applied.get(), "text that is not a cURL command must not report success");
     }
 
+    @Test
+    @DisplayName("The Path field sits in a row that stretches with the panel")
+    void pathFieldGrowsWithThePanel() throws Exception {
+        // Reported with a screenshot: a URL typed into a box a few centimetres wide inside an
+        // otherwise empty pane. The caption-and-field rows were FlowPanes, which hand their
+        // children preferred widths and never the spare space — so HGrow on the field did
+        // nothing and the Path box stayed about twenty characters wide however far the
+        // dialog was dragged.
+        AtomicReference<javafx.scene.Node> parent = new AtomicReference<>();
+        runOnFxThread(() -> {
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+            parent.set(dialog.requestPane().pathField().getParent());
+            dialog.close();
+        });
+
+        assertTrue(parent.get() instanceof javafx.scene.layout.HBox,
+                "the Path row should be a growing HBox so the field fills the panel, was: "
+                        + parent.get());
+    }
+
+    @Test
+    @DisplayName("The viewer's resource lands in the request body, with a verb that fits")
+    void viewerResourceCopiesIntoTheBody() throws Exception {
+        // The round trip the console could not make on its own: what is open in the viewer is
+        // the thing to write, and retyping it is slow and invites sending a stale copy. The
+        // console starts on GET, which cannot carry a body, so the copy switches the verb to
+        // POST — and the status line says so, because a method that changes silently cannot
+        // be trusted.
+        String patient = "{\"resourceType\":\"Patient\",\"id\":\"example-1\"}";
+        runOnFxThread(() -> {
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null, () -> patient);
+            assertEquals(RestMethod.GET, dialog.requestPane().form().method(),
+                    "the console should start on GET");
+            dialog.requestPane().useViewerButton().fire();
+
+            assertEquals(patient, dialog.requestPane().bodyText(),
+                    "the body should be exactly the viewer's resource, character for character");
+            assertEquals(RestMethod.POST, dialog.requestPane().form().method(),
+                    "GET cannot carry a body, so the copy should switch the method to POST");
+            assertTrue(dialog.status().contains("POST"),
+                    "the status line should say the verb changed, got: " + dialog.status());
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("A verb that already carries a body is left alone when the resource is copied")
+    void copyingKeepsAPut() throws Exception {
+        String patient = "{\"resourceType\":\"Patient\",\"id\":\"example-1\"}";
+        runOnFxThread(() -> {
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null, () -> patient);
+            dialog.requestPane().setMethod(RestMethod.PUT);
+            dialog.requestPane().useViewerButton().fire();
+
+            assertEquals(patient, dialog.requestPane().bodyText(),
+                    "the body should be exactly the viewer's resource");
+            assertEquals(RestMethod.PUT, dialog.requestPane().form().method(),
+                    "a PUT already carries a body and must not be changed under the user");
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("With nothing open in the viewer the copy says so and changes nothing")
+    void copyingWithNothingOpenSaysSo() throws Exception {
+        runOnFxThread(() -> {
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null, () -> null);
+            dialog.requestPane().useViewerButton().fire();
+
+            assertEquals("", dialog.requestPane().bodyText(),
+                    "an absent resource must not fill or blank the body");
+            assertTrue(dialog.status().contains("Nothing is open"),
+                    "the user should be told why nothing happened, got: " + dialog.status());
+            dialog.close();
+        });
+    }
+
+    @Test
+    @DisplayName("The copy button is only live when something supplies a resource")
+    void copyButtonNeedsASource() throws Exception {
+        // A button that fills the body with nothing is worse than no button: it looks like a
+        // feature and reads as a bug. Without a supplier it stays disabled, and with one it
+        // works even on GET — pressing it there is what switches the verb.
+        runOnFxThread(() -> {
+            RestConsoleDialog without = new RestConsoleDialog(List.of(), null, null);
+            assertTrue(without.requestPane().useViewerButton().isDisable(),
+                    "no supplier was given, so the button should be out of play");
+            without.close();
+
+            RestConsoleDialog with = new RestConsoleDialog(List.of(), null, null, () -> "{}");
+            assertFalse(with.requestPane().useViewerButton().isDisable(),
+                    "a supplier was given, so the button should be live");
+            with.close();
+        });
+    }
+
+    @Test
+    @DisplayName("The response body is editable, so a fix can be typed where the rejection is")
+    void responseBodyIsEditable() throws Exception {
+        AtomicReference<RestResponsePane> pane = new AtomicReference<>();
+        runOnFxThread(() -> {
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+            pane.set(dialog.responsePane());
+            dialog.close();
+        });
+
+        assertTrue(pane.get().bodyArea().isEditable(),
+                "the returned body should accept edits — the fastest place to fix a 400");
+        pane.get().bodyArea().setText("{\"corrected\":true}");
+        assertEquals("{\"corrected\":true}", pane.get().bodyArea().getText(),
+                "an edit should stick until the next response replaces it");
+    }
+
     /**
      * Forgets the remembered console settings.
      *
