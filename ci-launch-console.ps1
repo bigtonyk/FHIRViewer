@@ -13,9 +13,9 @@ if (-not (Test-Path $targetDir)) {
 
 # JavaFX platform-specific win JARs (contain native DLLs).
 $jfxModules = @(
-    (Join-Path $libDir 'javafx-base-25.0.4-win.jar'),
-    (Join-Path $libDir 'javafx-controls-25.0.4-win.jar'),
-    (Join-Path $libDir 'javafx-graphics-25.0.4-win.jar')
+    (Join-Path $libDir 'javafx-base-21.0.8-win.jar'),
+    (Join-Path $libDir 'javafx-controls-21.0.8-win.jar'),
+    (Join-Path $libDir 'javafx-graphics-21.0.8-win.jar')
 )
 $jfxModulePath = $jfxModules -join ';'
 
@@ -26,14 +26,14 @@ if (Test-Path $libDir) {
 }
 $cp = $cpParts -join ';'
 
-$jdkHome = 'C:\Program Files\Microsoft\jdk-25.0.3.9-hotspot\bin\java.exe'
+$jdkHome = 'C:\Program Files\Microsoft\jdk-21.0.12.101-hotspot\bin\java.exe'
 $javaExe = if (Test-Path $jdkHome) { $jdkHome } else { 'java' }
 
 # Each JVM arg must be a separate element so Java sees them correctly.
+# (No --enable-native-access: that flag only exists on JDK 23+.)
 $jvmArgs = @(
     '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
-    '--add-opens', 'javafx.graphics/com.sun.javafx.application=ALL-UNNAMED',
-    '--enable-native-access=ALL-UNNAMED'
+    '--add-opens', 'javafx.graphics/com.sun.javafx.application=ALL-UNNAMED'
 )
 
 Write-Host 'Launching FHIRViewer directly with java.exe (no Maven)...'

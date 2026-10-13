@@ -6,7 +6,7 @@
 
   <groupId>com.spiraleyes.fhirviewer</groupId>
   <artifactId>fhir-viewer</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>1.0.0</version>
   <packaging>jar</packaging>
 
   <name>FHIR Resource Viewer</name>
@@ -36,16 +36,17 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
     <!--
-      Source/target level. Java 21 bytecode runs on the JDK 21+ runtime used to
-      launch the application (JDK 25 is used on this machine).
+      Source/target level. Java 21 bytecode runs on the JDK 21 runtime used to
+      build and launch the application.
     -->
     <maven.compiler.release>21</maven.compiler.release>
 
     <!--
-      Bump javafx.version so it matches the JDK major version used to run the
-      app (JavaFX n.x runs on JDK n and newer).
+      JavaFX 21.0.8: the newest 21.x line, which runs on the JDK 21 build.
+      JavaFX n.x needs JDK n or newer to read its classes, so JavaFX 25
+      cannot be compiled against with a JDK 21 javac.
     -->
-    <javafx.version>25.0.4</javafx.version>
+    <javafx.version>21.0.8</javafx.version>
 
     <!-- HAPI FHIR: R4 model + parsers + validation support. -->
     <hapi-fhir.version>8.12.0</hapi-fhir.version>
@@ -70,13 +71,13 @@
     <!--
       Version string handed to jpackage.
 
-      ${project.version} cannot be used directly: "0.1.0-SNAPSHOT" is rejected
+      ${project.version} cannot be used directly: "1.0.0-SNAPSHOT" is rejected
       outright by the Windows packager ("contains invalid component"), and a macOS
       or Linux build has its own restrictions. This strips the pre-release
       suffix, which is what a shipped build should say anyway - a build offered
       to someone is not a snapshot.
     -->
-    <dist.version>0.1.0</dist.version>
+    <dist.version>1.0.0</dist.version>
   </properties>
 
   <dependencies>
@@ -153,6 +154,23 @@
       <version>${slf4j.version}</version>
     </dependency>
 
+    <!--
+      Markdown rendering for the in-app user guide (Help > User Guide).
+      Already on the class path transitively via the validation stack, but
+      declared here so the guide does not break when that chain changes.
+      Tables extension covers the Button/What-it-does grids in the guide.
+    -->
+    <dependency>
+      <groupId>org.commonmark</groupId>
+      <artifactId>commonmark</artifactId>
+      <version>0.21.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.commonmark</groupId>
+      <artifactId>commonmark-ext-gfm-tables</artifactId>
+      <version>0.21.0</version>
+    </dependency>
+
     <!-- ==================== Tests ==================== -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -209,7 +227,12 @@
         <version>${javafx-maven-plugin.version}</version>
         <configuration>
           <mainClass>${main.class}</mainClass>
-          <commandlineArgs>--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED --enable-native-access=ALL-UNNAMED</commandlineArgs>
+          <!--
+            No enable-native-access here: that flag only exists on JDK 23+,
+            and the build runs on JDK 21. The two add-opens lines are what
+            the application needs.
+          -->
+          <commandlineArgs>--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED</commandlineArgs>
         </configuration>
       </plugin>
 
@@ -631,7 +654,7 @@
                           print-module-deps
                           module-path "target/dist-modules"
                           class-path "target/dist-input/*"
-                          target/dist-input/fhir-viewer-0.1.0-SNAPSHOT.jar
+                          target/dist-input/fhir-viewer-1.0.0-SNAPSHOT.jar
 
                       Options are written without their leading dashes, as the
                       note above about XML comments explains.
@@ -648,10 +671,19 @@
                       passed. Carried across rather than left out: without
                       them the packaged application starts and then fails
                       later, which is much harder to diagnose than a build
-                      error.
+                      error. No enable-native-access: JDK 23+ only.
                     -->
                     <argument>--java-options</argument>
-                    <argument>--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED --enable-native-access=ALL-UNNAMED</argument>
+                    <argument>--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED</argument>
+                    <!--
+                      The .exe file icon. Must be a Windows .ico file on disk
+                      (jpackage does not read it from the jar), so it is taken
+                      from the source tree. The in-window title-bar icon is the
+                      PNG exported from this same file (see Main.applyWindowIcon),
+                      because JavaFX cannot decode .ico.
+                    -->
+                    <argument>--icon</argument>
+                    <argument>src/main/resources/FHIRViewer.ico</argument>
                   </arguments>
                 </configuration>
               </execution>

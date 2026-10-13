@@ -626,9 +626,11 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     private Menu buildHelpMenu() {
+        MenuItem userGuide = new MenuItem("User Guide");
+        userGuide.setOnAction(event -> showUserGuide());
         MenuItem about = new MenuItem("About");
         about.setOnAction(event -> showAbout());
-        return new Menu("Help", null, about);
+        return new Menu("Help", null, userGuide, new SeparatorMenuItem(), about);
     }
 
     private ToolBar buildToolBar() {
@@ -1267,6 +1269,15 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     /** The resource the tree and the document tabs currently show, or {@code null}. */
     private IBaseResource currentTarget() {
         return loadedResource == null ? null : displayedResource;
+    }
+
+    /**
+     * The same resource as JSON, for the REST console's body copy; {@code null} when
+     * nothing is open.
+     */
+    private String currentResourceJson() {
+        IBaseResource resource = currentTarget();
+        return resource == null ? null : fhirService.toJson(resource);
     }
 
     /**
@@ -1980,8 +1991,8 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
  */
     private void openRestConsole() {
         FhirServerConfiguration preselect = serverManager.active().orElse(null);
-        RestConsoleDialog dialog =
-                new RestConsoleDialog(serverManager.servers(), preselect, fhirService);
+        RestConsoleDialog dialog = new RestConsoleDialog(serverManager.servers(), preselect,
+                fhirService, this::currentResourceJson);
         dialog.initOwner(stage);
         dialog.showAndWait().ifPresent(outcome -> {
             if (!outcome.hasResource()) {
@@ -2214,6 +2225,12 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         bundleView.clear();
         setStatus(READY_STATUS);
         updateWindowTitle();
+    }
+
+    private void showUserGuide() {
+        UserGuideDialog dialog = new UserGuideDialog(themeManager);
+        dialog.initOwner(stage);
+        dialog.showAndWait();
     }
 
     private void showAbout() {

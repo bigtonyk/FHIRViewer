@@ -29,7 +29,8 @@ import com.spiraleyes.fhirviewer.service.FhirService;
  * are two different jobs and the screen is better at each with its own pane: a user
  * debugging a REST call needs the bytes the server sent, and a user looking at a Patient
  * needs the tree. Showing the parsed resource <em>instead of</em> the body would make the
- * console worse at the thing it is for.
+ * console worse at the thing it is for. The body box is <em>editable</em>, so a correction
+ * can be made where the rejection is visible; nothing leaves the box until the user sends.
  *
  * <p><b>Header values are redacted.</b> They come from
  * {@link com.spiraleyes.fhirviewer.server.rest.RestHeaders#toString()}, which replaces every
@@ -86,6 +87,12 @@ public final class RestResponsePane extends VBox {
             area.setWrapText(false);
             VBox.setVgrow(area, Priority.ALWAYS);
         }
+        // The body alone is editable, and deliberately so: the fastest fix for a 400 is to
+        // correct the JSON where you can see what was rejected, and the fastest way to test
+        // the correction is to send it from here. What is edited is a local copy — nothing
+        // is written back anywhere — and the next response overwrites it, which is exactly
+        // what happened to the text you were fixing.
+        bodyArea.setEditable(true);
         VBox.setVgrow(entryList, Priority.ALWAYS);
 
         summaryLabel.getStyleClass().add("status-muted");
@@ -303,6 +310,16 @@ public final class RestResponsePane extends VBox {
     /** The copy button, for the same reason as {@link #openButton()}. */
     public Button copyButton() {
         return copyButton;
+    }
+
+    /**
+     * The body box, exposed so a test can see it is editable and that an edit survives.
+     *
+     * <p>Editable on purpose — see the constructor. Headers and diagnostics stay read-only:
+     * they describe what came back, and editing a description would only make it lie.
+     */
+    public TextArea bodyArea() {
+        return bodyArea;
     }
 
     /** The tab pane, so a test can measure whether its headers overflow. */

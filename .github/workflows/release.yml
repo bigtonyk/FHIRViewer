@@ -34,13 +34,12 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      # The build JDK must be 25, as in ci.yml: JavaFX 25 ships class files at
-      # major version 67 and an older javac refuses to read them. jpackage also
-      # has to be present, which every standard JDK from 21 onwards includes.
-      - name: Set up JDK 25
+      # The build JDK is 21, as in ci.yml: JavaFX 21 ships classes a JDK 21
+      # javac can read. jpackage is present in every standard JDK from 21 onwards.
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: temurin
           cache: maven
 

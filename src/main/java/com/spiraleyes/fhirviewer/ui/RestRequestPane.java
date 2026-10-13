@@ -94,6 +94,7 @@ public final class RestRequestPane extends VBox {
     private final TextField contentTypeField = new TextField();
     private final Button pasteCurlButton = new Button("Paste cURL…");
     private final Button copyCurlButton = new Button("Copy as cURL");
+    private final Button useViewerButton = new Button("Use viewer resource");
 
     private final ObservableList<RestParameterList.Parameter> parameters =
             FXCollections.observableArrayList();
@@ -101,6 +102,8 @@ public final class RestRequestPane extends VBox {
             FXCollections.observableArrayList();
 
     private boolean usingCustomUrl;
+    /** Whether the dialog was given a source for the resource open in the viewer. */
+    private boolean viewerResourceAvailable;
 
     public RestRequestPane(List<FhirServerConfiguration> servers, FhirServerConfiguration preselect,
             Consumer<String> onFetchToken) {
@@ -216,8 +219,20 @@ private void configureControls() {
     }
 
     private VBox bodySection() {
+        // The copy button sits on the section's title row: it acts on the body rather than
+        // being a field of its own, and keeping it beside the title leaves the box below it
+        // the full width of the pane.
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox titleRow = new HBox(8, sectionLabel("Request body"), spacer, useViewerButton);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
+        bodyArea.setPromptText("JSON, for example {\"resourceType\":\"Patient\"}");
+        bodyArea.setPrefHeight(150);
+        // Grows into whatever height the pane has spare, because a two-row text box is not
+        // somewhere anyone wants to compose a Patient.
+        VBox.setVgrow(bodyArea, Priority.ALWAYS);
         return new VBox(6,
-                sectionLabel("Request body"),
+                titleRow,
                 bodyArea,
                 labelled("Content type", contentTypeField));
     }
@@ -228,10 +243,22 @@ private void configureControls() {
         return label;
     }
 
+    /**
+     * A caption and its field, with the field taking every spare pixel of the row.
+     *
+     * <p>An HBox that actually grows the field. This was a FlowPane, for consistency with
+     * {@link #row(javafx.scene.Node...)}, but a FlowPane hands its children only their
+     * preferred widths and never the leftover space, so the Hgrow below did nothing and the
+     * Path and Base URL boxes stayed about twenty characters wide however far the dialog was
+     * dragged. Wrapping buys nothing on a caption-plus-field row; a text box as wide as the
+     * panel is what a URL wants.
+     */
     private static javafx.scene.layout.Region labelled(String label, javafx.scene.Node field) {
-        FlowPane box = new FlowPane(8, 8, new Label(label), field);
+        Label caption = new Label(label);
+        HBox box = new HBox(8, caption, field);
         box.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(field, Priority.ALWAYS);
+        ((Region) field).setMaxWidth(Double.MAX_VALUE);
         return box;
     }
 
@@ -428,6 +455,10 @@ private void configureControls() {
         boolean acceptsBody = methodBox.getValue() != null && methodBox.getValue().allowsRequestBody();
         bodyArea.setDisable(!acceptsBody);
         contentTypeField.setDisable(!acceptsBody);
+        // The copy button rests only when no viewer resource exists — not when the verb
+        // cannot carry a body, because pressing it with a GET showing is precisely when it
+        // switches the verb and says so.
+        useViewerButton.setDisable(!viewerResourceAvailable);
 
         urlPreview.setText(form().resolvedUrl());
 
@@ -692,6 +723,51 @@ private void configureControls() {
     public void setCurlActions(Runnable onPaste, Runnable onCopy) {
         pasteCurlButton.setOnAction(event -> onPaste.run());
         copyCurlButton.setOnAction(event -> onCopy.run());
+    }
+
+/** The body button, so a test can drive it. */
+    public Button useViewerButton() {
+        return useViewerButton;
+    }
+
+    /** The Path field, so a test can check how it is laid out. */
+    public TextField pathField() {
+        return pathField;
+    }
+
+    /** The text currently in the request body, for a test to assert on. */
+    public String bodyText() {
+        return bodyArea.getText();
+    }
+
+    /**
+     * Puts text into the request body, as though it had been typed there.
+     *
+     * <p>Used to carry the resource open in the viewer into a write; the Content type is
+     * already {@code application/fhir+json} from the moment the form was built.
+     */
+    public void setBody(String json) {
+        bodyArea.setText(json == null ? "" : json);
+    }
+
+    /** Chooses the method, for the case where the caller's copy needs a verb that fits. */
+    public void setMethod(RestMethod method) {
+        methodBox.getSelectionModel().select(method);
+    }
+
+    /**
+     * Wires the body button, which needs a resource this pane has no way to see.
+     *
+     * <p>The same split as {@link #setCurlActions(Runnable, Runnable)}: the pane builds and
+     * lays the button out, the dialog decides what pressing it does — including where the
+     * JSON comes from and what the status line says afterwards. Calling this also marks the
+     * button as live; without a supplier it stays disabled, because a button that fills the
+     * body with nothing is worse than no button.
+     */
+    public void setViewerResourceAction(Runnable onCopy) {
+        this.viewerResourceAvailable = true;
+        useViewerButton.setOnAction(event -> onCopy.run());
+        refresh();
     }
 
     /**

@@ -2,6 +2,7 @@ package com.spiraleyes.fhirviewer.ui;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import javafx.geometry.Insets;
 import javafx.scene.control.Button;
@@ -23,6 +24,7 @@ import com.spiraleyes.fhirviewer.server.rest.JdkHttpRestClient;
 import com.spiraleyes.fhirviewer.server.rest.RestAnswer;
 import com.spiraleyes.fhirviewer.server.rest.RestAnswers;
 import com.spiraleyes.fhirviewer.server.rest.RestClient;
+import com.spiraleyes.fhirviewer.server.rest.RestMethod;
 import com.spiraleyes.fhirviewer.server.rest.RestRequest;
 import com.spiraleyes.fhirviewer.service.FhirService;
 
@@ -64,6 +66,8 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
     private final RestResponsePane responsePane;
     private final FhirService fhirService;
     private final SplitPane split;
+    /** The resource open in the viewer, as JSON; {@code null} when the caller has none. */
+    private final Supplier<String> viewerResourceJson;
 
     /**
      * The default window size.
@@ -105,7 +109,20 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
      */
     public RestConsoleDialog(List<FhirServerConfiguration> servers,
             FhirServerConfiguration preselect, FhirService fhirService) {
+        this(servers, preselect, fhirService, null);
+    }
+
+    /**
+     * @param viewerResourceJson the JSON of the resource open in the viewer, fetched at the
+     *                           moment the user asks for it; {@code null} leaves the copy
+     *                           button out of play, which is what a caller without a viewer
+     *                           wants
+     */
+    public RestConsoleDialog(List<FhirServerConfiguration> servers,
+            FhirServerConfiguration preselect, FhirService fhirService,
+            Supplier<String> viewerResourceJson) {
         this.fhirService = fhirService;
+        this.viewerResourceJson = viewerResourceJson;
         setTitle("REST Console");
         setResizable(true);
 
@@ -118,6 +135,9 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
         // onAction at all, so clicking them does nothing — which is exactly what happened.
         // setCurlActions was written and then never called from anywhere.
         requestPane.setCurlActions(this::pasteCurlFromClipboard, this::copyAsCurl);
+        if (viewerResourceJson != null) {
+            requestPane.setViewerResourceAction(this::copyViewerResourceIntoBody);
+        }
 
         sendButton.setDefaultButton(true);
         sendButton.setOnAction(event -> send());
@@ -313,6 +333,11 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
     /** What is still missing, for a test and for the Send button's own state. */
     public Optional<String> problem() {
         return requestPane.problem();
+    }
+
+    /** The status line's text, so a test can assert what the user was told. */
+    public String status() {
+        return statusLabel.getText();
     }
 
 /**
@@ -523,6 +548,34 @@ public class RestConsoleDialog extends Dialog<RestConsoleDialog.Outcome> {
             setStatus("Copied as cURL. Credentials are not included.", false);
         } else {
             setStatus("There is no clipboard in this session, so it could not be copied.", true);
+        }
+    }
+
+    /**
+     * Copies the resource open in the viewer into the request body.
+     *
+     * <p>The round trip the console cannot make on its own: what is on screen in
+     * {@code MainWindow} is the thing to PUT or POST, and retyping it is both slow and an
+     * invitation to send something that is no longer what was looked at. A verb that cannot
+     * carry a body is switched to POST rather than refused — the copy was requested with a
+     * write in mind, and the user can still choose PUT or PATCH — and the status line says
+     * so, because a method that changes under you without a word is a method that cannot be
+     * trusted.
+     */
+    private void copyViewerResourceIntoBody() {
+        String json = viewerResourceJson == null ? null : viewerResourceJson.get();
+        if (json == null || json.isBlank()) {
+            setStatus("Nothing is open in the viewer, so there is no resource to copy.", true);
+            return;
+        }
+        RestMethod before = requestPane.form().method();
+        requestPane.setBody(json);
+        if (!before.allowsRequestBody()) {
+            requestPane.setMethod(RestMethod.POST);
+            setStatus("Copied the resource you are viewing into the body and switched the"
+                    + " method to POST — " + before + " cannot carry a body.", false);
+        } else {
+            setStatus("Copied the resource you are viewing into the request body.", false);
         }
     }
 

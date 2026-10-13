@@ -12,12 +12,12 @@ function Get-LaunchClasspath {
 }
 
 # Pick a java/javaw executable. Prefer javaw (no console) from PATH, then the
-# Microsoft JDK path that this environment uses, then java from PATH.
+# Microsoft JDK 21 path that this environment uses, then java from PATH.
 $candidates = @(
     'javaw',
-    'C:\Program Files\Microsoft\jdk-25.0.3.9-hotspot\bin\javaw.exe',
+    'C:\Program Files\Microsoft\jdk-21.0.12.101-hotspot\bin\javaw.exe',
     'java',
-    'C:\Program Files\Microsoft\jdk-25.0.3.9-hotspot\bin\java.exe'
+    'C:\Program Files\Microsoft\jdk-21.0.12.101-hotspot\bin\java.exe'
 )
 $javaExe = $null
 foreach ($c in $candidates) {
