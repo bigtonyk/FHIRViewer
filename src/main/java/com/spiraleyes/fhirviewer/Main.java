@@ -7,6 +7,7 @@ import com.spiraleyes.fhirviewer.ui.ThemeManager;
 
 import javafx.application.Application;
 import javafx.scene.Scene;
+import javafx.scene.image.Image;
 import javafx.stage.Stage;
 
 /**
@@ -32,12 +33,24 @@ public class Main extends Application {
         Scene scene = new Scene(mainWindow.getRoot(), INITIAL_WIDTH, INITIAL_HEIGHT);
         new ThemeManager().apply(scene, ThemeManager.Theme.PRIMER_LIGHT);
         stage.setTitle("FHIR Resource Viewer");
+        applyWindowIcon(stage);
         stage.setScene(scene);
         stage.setMinWidth(MINIMUM_WIDTH);
         stage.setMinHeight(MINIMUM_HEIGHT);
         stage.show();
 
         openRequestedResource(mainWindow);
+    }
+
+    /** The upper-left window icon, exported from FHIRViewer.ico (JavaFX cannot read .ico). */
+    private void applyWindowIcon(Stage stage) {
+        try (java.io.InputStream in = Main.class.getResourceAsStream("/FHIRViewer-icon-64.png")) {
+            if (in != null) {
+                stage.getIcons().add(new Image(in));
+            }
+        } catch (java.io.IOException | RuntimeException ignored) {
+            // Branding is a nicety; a missing icon must never stop startup.
+        }
     }
 
     /** Opens the file named on the command line, if one was supplied. */

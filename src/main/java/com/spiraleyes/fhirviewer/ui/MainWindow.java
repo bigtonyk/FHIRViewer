@@ -626,9 +626,11 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     private Menu buildHelpMenu() {
+        MenuItem userGuide = new MenuItem("User Guide");
+        userGuide.setOnAction(event -> showUserGuide());
         MenuItem about = new MenuItem("About");
         about.setOnAction(event -> showAbout());
-        return new Menu("Help", null, about);
+        return new Menu("Help", null, userGuide, new SeparatorMenuItem(), about);
     }
 
     private ToolBar buildToolBar() {
@@ -2223,6 +2225,12 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         bundleView.clear();
         setStatus(READY_STATUS);
         updateWindowTitle();
+    }
+
+    private void showUserGuide() {
+        UserGuideDialog dialog = new UserGuideDialog(themeManager);
+        dialog.initOwner(stage);
+        dialog.showAndWait();
     }
 
     private void showAbout() {

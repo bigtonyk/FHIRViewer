@@ -652,6 +652,15 @@
                     -->
                     <argument>--java-options</argument>
                     <argument>--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED --enable-native-access=ALL-UNNAMED</argument>
+                    <!--
+                      The .exe file icon. Must be a Windows .ico file on disk
+                      (jpackage does not read it from the jar), so it is taken
+                      from the source tree. The in-window title-bar icon is the
+                      PNG exported from this same file (see Main.applyWindowIcon),
+                      because JavaFX cannot decode .ico.
+                    -->
+                    <argument>--icon</argument>
+                    <argument>src/main/resources/FHIRViewer.ico</argument>
                   </arguments>
                 </configuration>
               </execution>
