@@ -103,7 +103,14 @@ public final class ServerCredentials {
             log.info("saved credentials for {} could not be read: {}", server.name(), e.toString());
             return AnonymousServerAuthentication.INSTANCE;
         }
-        if (saved == null || !saved.hasCredentials()) {
+        if (saved == null) {
+            return AnonymousServerAuthentication.INSTANCE;
+        }
+        ServerAuthKind savedKind = saved.authKind();
+        if (savedKind == null || savedKind.isAnonymous()) {
+            return AnonymousServerAuthentication.INSTANCE;
+        }
+        if (!saved.hasCredentials()) {
             return AnonymousServerAuthentication.INSTANCE;
         }
         String secret = passphrase.get();

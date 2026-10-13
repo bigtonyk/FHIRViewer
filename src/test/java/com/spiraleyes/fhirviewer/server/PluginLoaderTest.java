@@ -90,7 +90,7 @@ public class PluginLoaderTest {
     @DisplayName("A bad config entry is skipped without losing the good plugins")
     void badEntriesAreSkipped() {
         FhirServerPluginRegistry registry = PluginLoader.load(PluginConfig.of(
-                Set.of("com.example.no.such.Plugin",
+                Set.of("com.spiraleyes.no.such.Plugin",
                         "java.lang.String",
                         FirelyPlugin.class.getName()),
                 Set.of()));

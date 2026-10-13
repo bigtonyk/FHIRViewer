@@ -23,11 +23,14 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
+import javafx.util.StringConverter;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
@@ -53,6 +56,11 @@ import javafx.stage.Window;
  * them; the passphrase is asked for in this dialog and is never itself stored. A plugin
  * the user has not unlocked shows its saved URL but not its password, and connecting with
  * it requires re-entering the passphrase.</p>
+ *
+ * <p>Per-server credentials now live in the FHIR server dialog, which has its own
+ * passphrase field: setting a password no longer requires a detour through this screen.
+ * This form keeps working for the legacy per-plugin entries it used to write, and its
+ * passphrase box remains the session-wide unlock for them.</p>
  *
  * <p>The passphrase is also handed to the {@code passphraseSink} on a successful save.
  * The fields are cleared the moment settings are written — which is right for the dialog
@@ -80,7 +88,6 @@ public class PluginManagerDialog extends Dialog<Void> {
 
     private TextField folderField;
     private ListView<PluginJarScanner.ScannedJar> foundJarsList;
-    private ListView<FhirServerPlugin> loadedPluginsList;
     private Label statusLabel;
 
     private TextField baseUrlField;
@@ -88,6 +95,7 @@ public class PluginManagerDialog extends Dialog<Void> {
     private PasswordField passwordField;
     private PasswordField passphraseField;
     private CheckBox loadOnStartCheck;
+    private ComboBox<FhirServerPlugin> pluginChoice;
     private Button saveButton;
     private Button removeButton;
     private Label configuredForLabel;
@@ -119,7 +127,10 @@ public class PluginManagerDialog extends Dialog<Void> {
         folderField.setText(rememberedPluginFolder());
 
         refreshLoadedPlugins();
-        refreshConfiguredLabel(null);
+        // The current selection rather than null. Selecting above fires the listener, and
+        // clearing the form here would leave a chosen plugin showing "No plugin selected."
+        // with Save disabled - a plugin picked, and a form that denies it.
+        refreshConfiguredLabel(pluginChoice.getSelectionModel().getSelectedItem());
         initOwner(parentWindow);
         initModality(Modality.WINDOW_MODAL);
     }
@@ -181,7 +192,7 @@ public class PluginManagerDialog extends Dialog<Void> {
         VBox left = new VBox(6, heading("Jars found in the folder"), foundJarsList, createConfigBar());
         VBox.setVgrow(left, javafx.scene.layout.Priority.ALWAYS);
 
-        VBox right = new VBox(6, heading("Loaded plugins"), createPluginsPane(), createSettingsPane());
+        VBox right = new VBox(6, heading("Plugin settings"), createPluginsPane(), createSettingsPane());
         VBox.setVgrow(right, javafx.scene.layout.Priority.ALWAYS);
 
         HBox.setHgrow(left, javafx.scene.layout.Priority.ALWAYS);
@@ -227,15 +238,51 @@ public class PluginManagerDialog extends Dialog<Void> {
         return configBar;
     }
 
-    /** The middle-right: the plugins actually loaded in this run. */
+    /** Which plugin the settings form below is editing. */
     private VBox createPluginsPane() {
-        loadedPluginsList = new ListView<>();
-        VBox.setVgrow(loadedPluginsList, javafx.scene.layout.Priority.ALWAYS);
-        loadedPluginsList.setOnMouseClicked(e -> {
-            FhirServerPlugin selected = loadedPluginsList.getSelectionModel().getSelectedItem();
-            refreshConfiguredLabel(selected);
+        pluginChoice = new ComboBox<>();
+        pluginChoice.setMaxWidth(Double.MAX_VALUE);
+        pluginChoice.setPromptText("no plugins loaded");
+
+        // The display name, not toString(). A closed drop-down shows a single line, and the
+        // default rendering would put the class name and hash on it - too long to fit, and
+        // no more readable than the plain name it is replacing.
+        pluginChoice.setConverter(new StringConverter<FhirServerPlugin>() {
+            @Override
+            public String toString(FhirServerPlugin plugin) {
+                return plugin == null ? "" : plugin.displayName();
+            }
+
+            @Override
+            public FhirServerPlugin fromString(String text) {
+                return null;
+            }
         });
-        return new VBox(loadedPluginsList);
+        pluginChoice.setCellFactory(view -> new ListCell<FhirServerPlugin>() {
+            @Override
+            protected void updateItem(FhirServerPlugin item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.displayName());
+            }
+        });
+
+        // Driven by the selection model rather than by a mouse click.
+        //
+        // Mouse-only was the whole of the wiring, so the settings form reacted to exactly
+        // one way of choosing a row. Select one any other way - keyboard, programmatic, a
+        // drop-down pick that arrives as a value change rather than as a click on a list -
+        // and the form stayed on "No plugin selected." with Save disabled: the plugin looks
+        // chosen and nothing happens. That is how "I can't select the Smile Plugin" reads.
+        // Listening to the selection covers every way a choice can be made, in either control.
+        pluginChoice.getSelectionModel().selectedItemProperty()
+                .addListener((observable, previous, selected) -> refreshConfiguredLabel(selected));
+
+        Label label = new Label("Plugin:");
+        label.setMinWidth(Region.USE_PREF_SIZE);
+        HBox.setHgrow(pluginChoice, javafx.scene.layout.Priority.ALWAYS);
+        HBox row = new HBox(8, label, pluginChoice);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return new VBox(row);
     }
 
     /** A one-line status area at the bottom of the dialog. */
@@ -287,6 +334,9 @@ public class PluginManagerDialog extends Dialog<Void> {
         VBox box = new VBox(6, configuredForLabel, urlRow, credentialsRow, phraseRow,
                 loadOnStartCheck, buttons);
         box.setPadding(new Insets(10, 0, 0, 0));
+        // The drop-down above is one line tall, so the form takes the height the column has
+        // left. The column used to spend nearly all of it on a list of three rows.
+        VBox.setVgrow(box, javafx.scene.layout.Priority.ALWAYS);
         return box;
     }
 
@@ -389,9 +439,17 @@ public class PluginManagerDialog extends Dialog<Void> {
         }
     }
 
-    /** Fills the loaded-plugins list from the registry. */
+    /** Fills the plugin drop-down from the registry, opening on the first plugin. */
     private void refreshLoadedPlugins() {
-        loadedPluginsList.getItems().setAll(registry.plugins());
+        pluginChoice.getItems().setAll(registry.plugins());
+        // Open on a plugin rather than on "No plugin selected." The form exists to edit
+        // whichever plugin is chosen, and starting with nothing chosen meant the first thing
+        // anyone saw was a greyed-out Save button and a form whose instructions were above
+        // it rather than in it. An empty registry selects nothing, which is the honest state
+        // there and leaves the form cleared and disabled as before.
+        if (pluginChoice.getSelectionModel().getSelectedItem() == null) {
+            pluginChoice.getSelectionModel().selectFirst();
+        }
     }
 
     /**
@@ -414,6 +472,22 @@ public class PluginManagerDialog extends Dialog<Void> {
         saveButton.setDisable(false);
         try {
             PluginSettings saved = settingsStore.read(plugin.id());
+            if (saved == null) {
+                // Most credentials are filed per server under a generated id, not under
+                // the plugin id this dialog used to write. Showing only the plugin-keyed
+                // entry made the form look empty even when servers for this plugin were
+                // configured. The first per-server entry stands in for the plugin's own.
+                try {
+                    for (PluginSettings entry : settingsStore.readAll().values()) {
+                        if (entry != null && plugin.id().equals(entry.pluginId())) {
+                            saved = entry;
+                            break;
+                        }
+                    }
+                } catch (IOException readAllFailed) {
+                    saved = null;
+                }
+            }
             baseUrlField.setText(saved == null || saved.baseUrl() == null ? "" : saved.baseUrl());
             userNameField.setText(saved == null || saved.userName() == null ? "" : saved.userName());
             // The stored password stays encrypted on disk; it is never echoed into the form.
@@ -425,13 +499,84 @@ public class PluginManagerDialog extends Dialog<Void> {
         }
     }
 
+    /** The plugin drop-down, so a test can see what this page offers for selection. */
+    ComboBox<FhirServerPlugin> pluginChoice() {
+        return pluginChoice;
+    }
+
+    /** The Save Settings button, so a test can assert a selection actually enables it. */
+    Button saveSettingsButton() {
+        return saveButton;
+    }
+
+    /** The passphrase field, so a test can fill it the way a user would. */
+    PasswordField passphraseInput() {
+        return passphraseField;
+    }
+
+    /**
+     * Takes a passphrase into the session without writing anything to the store.
+     *
+     * <p>Proves it first against whatever password this plugin has saved. Adopting a value
+     * that does not unlock what is already on disk would look like it had worked, then fail
+     * later as an anonymous request and a 401 with nothing to explain it.
+     *
+     * <p>A plugin with nothing stored cannot be checked - there is nothing to unlock - and
+     * there the value is simply taken. That is the normal case: the password lives against
+     * the server rather than under the plugin id, so there is usually nothing here to test
+     * against, and this is the branch that removes the second entry of the password.
+     */
+    private void adoptPassphrase(FhirServerPlugin plugin, String passphrase) {
+        boolean hasStoredPassword = false;
+        try {
+            PluginSettings saved = settingsStore.read(plugin.id());
+            // A plugin-keyed entry is authoritative when present. Otherwise any
+            // per-server entry for this plugin counts: the dialog's own saves all
+            // land there now, and checking only the legacy key would report "no
+            // stored password" while one exists.
+            if (saved == null || saved.password() == null || saved.password().isBlank()) {
+                try {
+                    for (PluginSettings entry : settingsStore.readAll().values()) {
+                        if (entry != null && plugin.id().equals(entry.pluginId())
+                                && entry.password() != null && !entry.password().isBlank()) {
+                            hasStoredPassword = true;
+                            break;
+                        }
+                    }
+                } catch (IOException readAllFailed) {
+                    status("Could not read settings: " + readAllFailed.getMessage());
+                    return;
+                }
+            } else {
+                hasStoredPassword = true;
+            }
+            if (hasStoredPassword) {
+                settingsStore.unlock(plugin.id(), passphrase);
+            }
+        } catch (SecretBoxException wrong) {
+            status("That passphrase does not unlock the password saved for "
+                    + plugin.displayName() + ".");
+            return;
+        } catch (IOException e) {
+            status("Could not read settings: " + e.getMessage());
+            return;
+        }
+        passphraseSink.accept(passphrase);
+        passphraseField.clear();
+        status(hasStoredPassword
+                ? "Passphrase accepted; it unlocks the password saved for "
+                        + plugin.displayName() + "."
+                : "Passphrase set for this session. It will be used the next time a password"
+                        + " is saved.");
+    }
+
     /**
      * Saves the settings form for the selected plugin, encrypting the password when one
      * is supplied. A blank password with a non-blank user name is rejected, because
      * storing that would silently produce a half-configured credential.
      */
     private void saveSettings() {
-        FhirServerPlugin plugin = loadedPluginsList.getSelectionModel().getSelectedItem();
+        FhirServerPlugin plugin = pluginChoice.getSelectionModel().getSelectedItem();
         if (plugin == null) {
             status("Select a plugin to save settings for.");
             return;
@@ -440,6 +585,31 @@ public class PluginManagerDialog extends Dialog<Void> {
         String user = text(userNameField);
         String password = passwordField.getText() == null ? "" : passwordField.getText();
         String passphrase = passphraseField.getText() == null ? "" : passphraseField.getText();
+
+        // A passphrase on its own, with no password to encrypt.
+        //
+        // This is the way in for someone who only needs the session to hold a passphrase,
+        // which is exactly what the server dialog asks for when it reports NEEDS_PASSPHRASE.
+        // Before this branch existed the passphrase could only be established by typing a
+        // password here first and then typing the same password again on the server - two
+        // entries of one secret, with no way to do it in one.
+        //
+        // Nothing is written. There is no password to encrypt, and a write would either
+        // clear the one that is stored or re-encrypt ciphertext as though it were plaintext.
+        // The session adopts the value and the field is cleared, as it is after a save.
+        if (password.isEmpty() && !passphrase.isEmpty()) {
+            // The tick box is still honoured: unlocking the session is orthogonal to
+            // whether this plugin loads on start, and dropping the flag here would
+            // silently undo it.
+            try {
+                settingsStore.setLoadsOnStart(plugin.id(), loadOnStartCheck.isSelected());
+            } catch (IOException e) {
+                status("Could not save settings: " + e.getMessage());
+                return;
+            }
+            adoptPassphrase(plugin, passphrase);
+            return;
+        }
 
         if (url.isEmpty()) {
             status("A server URL is required.");
@@ -450,9 +620,11 @@ public class PluginManagerDialog extends Dialog<Void> {
                 status("A user name needs a password, or leave both blank for anonymous access.");
                 return;
             }
+            // The flag is written first: if the credential write fails, the user's
+            // explicit Load-on-start choice must not be lost with it.
             try {
-                settingsStore.save(new PluginSettings(plugin.id(), url, user, null), "");
                 settingsStore.setLoadsOnStart(plugin.id(), loadOnStartCheck.isSelected());
+                settingsStore.save(new PluginSettings(plugin.id(), url, user, null), "");
                 // The password is gone, so the session must forget the passphrase too, or
                 // it would sit in memory for a credential that no longer exists.
                 passphraseSink.accept(null);
@@ -470,8 +642,10 @@ public class PluginManagerDialog extends Dialog<Void> {
             return;
         }
         try {
-            settingsStore.save(new PluginSettings(plugin.id(), url, user, password), passphrase);
+            // The flag is written first here as well, for the same reason: a failed
+            // credential write must not take the tick-box choice down with it.
             settingsStore.setLoadsOnStart(plugin.id(), loadOnStartCheck.isSelected());
+            settingsStore.save(new PluginSettings(plugin.id(), url, user, password), passphrase);
             // Hand the passphrase to the session before clearing the field: these fields
             // are wiped on purpose, and without this the password could never be used.
             passphraseSink.accept(passphrase);
@@ -487,7 +661,7 @@ public class PluginManagerDialog extends Dialog<Void> {
 
     /** Deletes a plugin's saved settings, leaving the plugin itself loaded. */
     private void removeFromConfig() {
-        FhirServerPlugin plugin = loadedPluginsList.getSelectionModel().getSelectedItem();
+        FhirServerPlugin plugin = pluginChoice.getSelectionModel().getSelectedItem();
         if (plugin == null) {
             status("Select a plugin first.");
             return;

@@ -47,7 +47,7 @@ set "JFX_MODULES=%PROJECT%target\lib\javafx-base-25.0.4-win.jar"
 set "JFX_MODULES=!JFX_MODULES!;%PROJECT%target\lib\javafx-controls-25.0.4-win.jar"
 set "JFX_MODULES=!JFX_MODULES!;%PROJECT%target\lib\javafx-graphics-25.0.4-win.jar"
 
-set "JVM_OPTS=--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED"
+set "JVM_OPTS=--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED --enable-native-access=ALL-UNNAMED"
 
 echo Launching FHIRViewer (Maven runtime)...
 echo   java   = %JAVA_EXE%
