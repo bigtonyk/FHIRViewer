@@ -50,14 +50,14 @@ Evaluate Nimbus OAuth 2.0 SDK as an optional dependency. Do not add it if existi
 
 Create or update:
 
-- `docs/implementation/smart-on-fhir/PHASE-00-REPOSITORY-ASSESSMENT.md`
-- `docs/implementation/smart-on-fhir/PHASE-01-WORKBENCH-UI.md`
-- `docs/implementation/smart-on-fhir/PHASE-02-SMART-DISCOVERY.md`
-- `docs/implementation/smart-on-fhir/PHASE-03-OAUTH-PKCE.md`
-- `docs/implementation/smart-on-fhir/PHASE-04-AUTHORIZED-FHIR-ACCESS.md`
-- `docs/implementation/smart-on-fhir/PHASE-05-EHR-LAUNCH.md`
-- `docs/implementation/smart-on-fhir/PHASE-06-DIAGNOSTICS-AND-TESTING.md`
-- `docs/implementation/smart-on-fhir/IMPLEMENTATION-STATUS.md`
+- `docs/smartonfhir/PHASE-00-REPOSITORY-ASSESSMENT.md`
+- `docs/smartonfhir/PHASE-01-WORKBENCH-UI.md`
+- `docs/smartonfhir/PHASE-02-SMART-DISCOVERY.md`
+- `docs/smartonfhir/PHASE-03-OAUTH-PKCE.md`
+- `docs/smartonfhir/PHASE-04-AUTHORIZED-FHIR-ACCESS.md`
+- `docs/smartonfhir/PHASE-05-EHR-LAUNCH.md`
+- `docs/smartonfhir/PHASE-06-DIAGNOSTICS-AND-TESTING.md`
+- `docs/smartonfhir/IMPLEMENTATION-STATUS.md`
 
 The repository documents should be consistent with this phase set. Adapt paths to the existing repository conventions if necessary.
 
