@@ -734,3 +734,146 @@
 .fhirpath-status-empty {
     -fx-text-fill: -text-muted;
 }
+
+/* ------------------------------------------------------------------ */
+/* User guide (Help > User Guide)                                      */
+/* ------------------------------------------------------------------ */
+
+.guide-view {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+}
+
+.guide-content {
+    -fx-background-color: -surface;
+}
+
+.guide-flow {
+    -fx-text-alignment: left;
+}
+
+.guide-text {
+    -fx-fill: -text-strong;
+    -fx-font-size: 13px;
+}
+
+.guide-bold {
+    -fx-font-weight: bold;
+}
+
+.guide-italic {
+    -fx-font-style: italic;
+}
+
+/* Inline code: a muted chip, monospaced, so `Status` reads as a token. */
+.guide-code {
+    -fx-font-family: "Consolas", "Menlo", monospace;
+    -fx-font-size: 12px;
+    -fx-fill: -text-strong;
+}
+
+.guide-paragraph {
+    -fx-padding: 2 0 6 0;
+}
+
+.guide-heading-1 {
+    -fx-font-size: 24px;
+    -fx-font-weight: bold;
+    -fx-padding: 8 0 4 0;
+}
+
+.guide-heading-2 {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+    -fx-padding: 14 0 4 0;
+}
+
+.guide-heading-3 {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-padding: 10 0 2 0;
+}
+
+.guide-heading-4 {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-padding: 8 0 2 0;
+}
+
+.guide-list {
+    -fx-padding: 2 0 6 8;
+}
+
+.guide-item {
+    -fx-padding: 1 0 1 0;
+}
+
+.guide-bullet {
+    -fx-text-fill: -accent-strong;
+    -fx-font-weight: bold;
+}
+
+.guide-item-text .guide-text {
+    -fx-fill: -text-strong;
+}
+
+.guide-nested-list {
+    -fx-padding: 2 0 2 18;
+}
+
+/* Tables: bordered cells with a tinted header, like a markdown preview. */
+.guide-table {
+    -fx-hgap: 0;
+    -fx-vgap: 0;
+    -fx-padding: 4 0 8 0;
+}
+
+.guide-table-header,
+.guide-table-cell {
+    -fx-background-color: -surface-alt;
+    -fx-border-color: -border;
+    -fx-border-width: 0 1 1 0;
+    -fx-padding: 6 8 6 8;
+}
+
+.guide-table-header {
+    -fx-background-color: -accent-soft;
+}
+
+.guide-table-header .guide-text {
+    -fx-font-weight: bold;
+    -fx-fill: -text-strong;
+}
+
+.guide-table-cell .guide-text {
+    -fx-fill: -text-strong;
+    -fx-font-size: 13px;
+}
+
+/* Blockquotes: an accent bar on the left of muted text. */
+.guide-quote {
+    -fx-background-color: -accent-soft;
+    -fx-background-radius: 0 6 6 0;
+    -fx-padding: 6 8 6 10;
+}
+
+.guide-quote-text .guide-text {
+    -fx-fill: -text-muted;
+    -fx-font-style: italic;
+}
+
+/* Horizontal rule: the separator drawn by the parser. */
+.guide-rule {
+    -fx-padding: 8 0 4 0;
+}
+
+/* Links: the accent colour plus the underline a preview would draw. */
+.guide-link {
+    -fx-text-fill: -accent-strong;
+    -fx-underline: true;
+    -fx-cursor: hand;
+    -fx-padding: 0;
+    -fx-font-size: 13px;
+}

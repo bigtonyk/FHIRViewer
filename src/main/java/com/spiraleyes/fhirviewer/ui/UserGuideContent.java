@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 public final class UserGuideContent {
 
     /** The guide on the class path, copied from {@code docs/user-guide}. */
-    public static final String RESOURCE = "/help/FHIR-Server-Functions.md";
+    public static final String RESOURCE = "/help/User-Guide.md";
 
     private UserGuideContent() {
         // static entry point
