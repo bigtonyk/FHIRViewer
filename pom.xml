@@ -6,7 +6,7 @@
 
   <groupId>com.spiraleyes.fhirviewer</groupId>
   <artifactId>fhir-viewer</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>1.0.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <name>FHIR Resource Viewer</name>
@@ -71,13 +71,13 @@
     <!--
       Version string handed to jpackage.
 
-      ${project.version} cannot be used directly: "0.1.0-SNAPSHOT" is rejected
+      ${project.version} cannot be used directly: "1.0.0-SNAPSHOT" is rejected
       outright by the Windows packager ("contains invalid component"), and a macOS
       or Linux build has its own restrictions. This strips the pre-release
       suffix, which is what a shipped build should say anyway - a build offered
       to someone is not a snapshot.
     -->
-    <dist.version>0.1.0</dist.version>
+    <dist.version>1.0.0</dist.version>
   </properties>
 
   <dependencies>
@@ -654,7 +654,7 @@
                           print-module-deps
                           module-path "target/dist-modules"
                           class-path "target/dist-input/*"
-                          target/dist-input/fhir-viewer-0.1.0-SNAPSHOT.jar
+                          target/dist-input/fhir-viewer-1.0.0-SNAPSHOT.jar
 
                       Options are written without their leading dashes, as the
                       note above about XML comments explains.
