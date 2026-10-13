@@ -33,8 +33,8 @@ if not exist "%PROJECT%target\classes" (
     echo ERROR: target\classes not found - run 'mvnw package -DskipTests' first. >&2
     exit /b 1
 )
-if not exist "%PROJECT%target\lib\javafx-base-25.0.4-win.jar" (
-    echo ERROR: Maven JavaFX runtime not found at target\lib\javafx-base-25.0.4-win.jar. >&2
+if not exist "%PROJECT%target\lib\javafx-base-21.0.8-win.jar" (
+    echo ERROR: Maven JavaFX runtime not found at target\lib\javafx-base-21.0.8-win.jar. >&2
     echo        Run 'mvnw package -DskipTests' first. >&2
     exit /b 1
 )
@@ -43,11 +43,11 @@ rem --- Build classpath and JavaFX module path ---------------------------
 set "CP=%PROJECT%target\classes"
 for %%F in ("%PROJECT%target\lib\*.jar") do set "CP=!CP!;%%F"
 
-set "JFX_MODULES=%PROJECT%target\lib\javafx-base-25.0.4-win.jar"
-set "JFX_MODULES=!JFX_MODULES!;%PROJECT%target\lib\javafx-controls-25.0.4-win.jar"
-set "JFX_MODULES=!JFX_MODULES!;%PROJECT%target\lib\javafx-graphics-25.0.4-win.jar"
+set "JFX_MODULES=%PROJECT%target\lib\javafx-base-21.0.8-win.jar"
+set "JFX_MODULES=!JFX_MODULES!;%PROJECT%target\lib\javafx-controls-21.0.8-win.jar"
+set "JFX_MODULES=!JFX_MODULES!;%PROJECT%target\lib\javafx-graphics-21.0.8-win.jar"
 
-set "JVM_OPTS=--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED --enable-native-access=ALL-UNNAMED"
+set "JVM_OPTS=--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED"
 
 echo Launching FHIRViewer (Maven runtime)...
 echo   java   = %JAVA_EXE%

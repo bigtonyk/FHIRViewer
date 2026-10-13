@@ -27,9 +27,9 @@ what does the specification say about it?*
 
 | Tool | Version used | Notes |
 |------|--------------|-------|
-| JDK | 21 or newer (verified on JDK 25) | `maven.compiler.release=21` |
+| JDK | 21 (Microsoft Build of OpenJDK 21) | `maven.compiler.release=21` |
 | Maven | 3.9+ | or use the bundled `mvnw` / `mvnw.cmd` wrapper |
-| JavaFX | 25.0.4 | resolved by Maven, no manual SDK install needed |
+| JavaFX | 21.0.8 | resolved by Maven, no manual SDK install needed |
 | HAPI FHIR | 8.12.0 | R4 model, parsers, validation |
 
 The first build downloads HAPI FHIR and the R4 validation resources, which takes a
