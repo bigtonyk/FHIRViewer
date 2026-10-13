@@ -252,6 +252,22 @@ Maven, the platform specific JavaFX jars already sit in `target/lib` for the pla
 that performed the build. Build the package on the target operating system to produce
 a native bundle - jpackage cannot cross-compile.
 
+```bat
+:: Windows (app-image; add --type msi for an installer)
+jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-0.1.0-SNAPSHOT.jar ^
+  --main-class com.spiraleyes.fhirviewer.Launcher --type app-image
+```
+
+```bash
+# macOS / Linux
+jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-0.1.0-SNAPSHOT.jar \
+  --main-class com.spiraleyes.fhirviewer.Launcher --type app-image
+```
+
+Because JavaFX is resolved by Maven, the platform specific JavaFX jars already sit in
+`target/lib` for the platform that performed the build. Build the package on the target
+operating system to produce a native bundle.
+
 A bare `jpackage` command over `target/lib` is not enough on its own: the runtime it
 packs would miss modules the application reaches from the class path, and the app
 would then fail at startup. The module list lives with the `jpackage` invocation in

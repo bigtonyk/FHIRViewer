@@ -57,8 +57,8 @@ capabilities; the generic operation screen; the server manager with per-server
 authentication; and persistence of both servers and credentials across restarts.
 
 **Deliberately not built**, each stated in the user guide's *Known gaps* rather than left to
-discover: a raw REST console, transaction bundles, conditional create, `$everything`,
-subscriptions, multi-parameter search, and a FHIRPath patch.
+discover: transaction bundles, conditional create, `$everything`, subscriptions,
+multi-parameter search, and a FHIRPath patch.
 
 **Genuinely outstanding:**
 
@@ -69,6 +69,7 @@ subscriptions, multi-parameter search, and a FHIRPath patch.
 | **Phase 9 — second base URL** | **Done** — an optional `administrationBaseUrl()` on the configuration, a flag on the request rather than a path convention, and one field in the add-server form. Nine Smile JSON Admin API operations declared; **documentation-derived and unverified**, which is recorded in the code beside them. |
 | **Phase 10 — standard operations and input UI** | **Mostly done** — see `10_STANDARD_OPERATIONS_AND_INPUT_UI.md`. Sixteen specification operations declared, so a plain server offers 18 rather than 2; the operation screen has a named body, a content-type selector, and pre-fills from the resource already open; the status screen names the plugin serving each server. Two of its "make it honest" items remain: offering the detected plugin when a server is added, and marking operations the server does not advertise. |
 | `SmileCdrPluginTest.java.hold` | Disabled, so Smile's connection and detection half is untested. Its operation declarations are covered separately. |
+| **Phase 11 — REST console** | **V1 done** — see `11_REST_CONSOLE_UI.md`. *Tools → REST Console...* sends any request to any URL, with bearer / basic / anonymous auth, a client-credentials token fetch, an ordered repeatable parameter grid, arbitrary non-secret headers, the raw body always shown, and a resource or Bundle entry openable in the viewer. The **V2** items — request tabs, saved collections, `{{variables}}`, CapabilityStatement-driven suggestions — are listed in that plan and not built. |
 | **Phase 26 — diagnostics doc** | Partial. Logging is thorough; there is no written diagnostic guide. |
 | **Phase 27 — plugin developer guide** | Partial. The loader, registry and a worked example exist in tests; nothing is published for a third-party author. |
 

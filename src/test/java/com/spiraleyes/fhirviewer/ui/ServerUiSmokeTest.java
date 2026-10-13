@@ -37,6 +37,7 @@ import com.spiraleyes.fhirviewer.server.SearchCriterion;
 import com.spiraleyes.fhirviewer.server.SearchRequest;
 import com.spiraleyes.fhirviewer.server.ServerDefinition;
 import com.spiraleyes.fhirviewer.server.ServerOrigin;
+import com.spiraleyes.fhirviewer.server.rest.RestMethod;
 
 import javafx.application.Platform;
 import javafx.geometry.Bounds;
@@ -1492,22 +1493,206 @@ class ServerUiSmokeTest {
         }
     }
 
-    /**
-     * Waits briefly for the stub to record a request.
-     *
-     * <p>Discovery and capability reads are background work by design, so the screen has
-     * finished constructing before the request has necessarily been made. Polling here
-     * asserts the call really happens without making the test depend on how quickly.</p>
-     */
-    private boolean awaitRequest() throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
-        while (System.nanoTime() < deadline) {
-            if (server.requestCount() > 0) {
-                return true;
-            }
-            Thread.sleep(50);
+    @Test
+    @DisplayName("The REST console builds on a real toolkit and says what is missing")
+    void theRestConsoleBuildsAndSaysWhatIsMissing() throws Exception {
+        // The console is the only screen here that does not go through a plugin, so nothing
+        // else in this file exercises it. Constructing it is the assertion that matters: a
+        // scene graph that throws while being built, or a handler wired to a node that was
+        // never added to a layout, is invisible to every logic-only test in the suite.
+        //
+        // Built and closed without show(), which is the pattern the rest of this file uses
+        // for dialogs: the content pane is constructed in the constructor either way, and a
+        // window left open here would keep the JavaFX thread alive after the class ended.
+        //
+        // Started from cleared settings, so this asserts what an empty console does rather
+        // than inheriting whatever another test remembered.
+        clearRememberedConsole();
+        AtomicReference<RestConsoleDialog> built = new AtomicReference<>();
+        runOnFxThread(() -> {
+            // A null FhirService is the "no Bundle expansion" mode, which keeps this
+            // assertion about the console's own construction. Entry listing is covered
+            // against a real service by RestConsoleIntegrationTest.
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+            built.set(dialog);
+            dialog.close();
+        });
+        RestConsoleDialog dialog = built.get();
+        assertNotNull(dialog);
+
+        // A console with nothing configured is still usable: an empty server list is not a
+        // reason to refuse, because calling an unconfigured URL is the point of the screen.
+        // What it must do is name what is missing rather than open ready to send.
+        AtomicReference<String> problem = new AtomicReference<>("none");
+        runOnFxThread(() -> problem.set(dialog.problem().orElse("none")));
+        assertEquals("a base URL", problem.get(),
+                "an empty console should say what it needs, not open ready to send");
+    }
+
+    @Test
+    @DisplayName("The console comes back the way it was left")
+    void theConsoleRemembersItsSettings() throws Exception {
+        // The scenario that motivates remembering anything: search, open a result, come back
+        // and adjust the search. Without this, every reopening starts from an empty form.
+        clearRememberedConsole();
+        try {
+            RestConsoleState remembered = new RestConsoleState(
+                    "", RestMethod.POST, "https://example.com/fhir", "Patient",
+                    List.of(new RestParameterList.Parameter("name", "Smith"),
+                            new RestParameterList.Parameter("_include", "Patient:organization")),
+                    List.of(new RestParameterList.Parameter("Prefer", "return=representation")),
+                    "application/fhir+json", ServerAuthKind.BASIC, "alice", 1400, 820, 0.5);
+            remembered.save();
+
+            AtomicReference<RestRequestPane> pane = new AtomicReference<>();
+            runOnFxThread(() -> {
+                RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+                pane.set(dialog.requestPane());
+                dialog.close();
+            });
+
+            RestConsoleForm restored = pane.get().form();
+            assertEquals(RestMethod.POST, restored.method());
+            assertEquals("https://example.com/fhir", restored.baseUrl());
+            assertEquals("Patient", restored.path());
+            assertEquals("Smith", restored.parameters().value("name"));
+            assertEquals("Patient:organization", restored.parameters().value("_include"));
+            assertEquals("return=representation", restored.headers().value("Prefer"));
+            assertEquals(ServerAuthKind.BASIC, restored.authKind());
+            assertEquals("alice", restored.userName(),
+                    "the user name is not a secret and retyping it is pure friction");
+
+            // The point of the whole exercise: a reopened console is ready to send, not an
+            // empty form the user has to rebuild.
+            assertTrue(restored.problem().isEmpty(),
+                    "a restored console should be ready to send, but reports: " + restored.problem());
+        } finally {
+            clearRememberedConsole();
         }
-        return false;
+    }
+
+    @Test
+    @DisplayName("The console is never opened wider than the screen it opens on")
+    void theConsoleNeverExceedsTheScreen() {
+        // The report was "the last button on the right is still cut off", and widening the
+        // dialog did not fix it - which was the clue. Asking for 1400 on a display whose
+        // logical width is less than that (150% scaling on a 1920 screen gives 1280) leaves
+        // the window manager to clamp the window, and it clips the right-hand edge. Widening
+        // the request makes that worse, not better.
+        //
+        // So the invariant is that the applied size is bounded by the space available.
+        assertEquals(1400, RestConsoleDialog.fitWithin(1400, 900, 1920),
+                "a width the screen has room for is used as asked");
+        assertEquals(1280, RestConsoleDialog.fitWithin(1400, 900, 1280),
+                "a width the screen does not have is reduced to what it has");
+        assertEquals(900, RestConsoleDialog.fitWithin(400, 900, 1920),
+                "a window the user shrank below the floor comes back to the floor");
+        assertEquals(800, RestConsoleDialog.fitWithin(500, 900, 800),
+                "the screen wins when the floor is wider than the screen has room for");
+    }
+
+    @Test
+    @DisplayName("The result tab headers are short enough to fit side by side")
+    void tabHeadersAreShort() {
+        // The screenshot showed "Diagnostics" rendered as "Diagnosti..." behind a chevron. A
+        // TabPane does not shrink its headers - it inserts scroll arrows over the overflow -
+        // so a long title is a title the user cannot read or reach.
+        //
+        // This is a proxy rather than a measurement, and deliberately so: it does not ask the
+        // skin whether it overflowed, because a headless toolkit does not produce the arrows
+        // to look for. A measurement was tried and removed - it passed with the long titles
+        // too, so it proved nothing. Holding the titles to a length that fits at the
+        // narrowest pane the dialog can be given is what actually stops the regression.
+        assertEquals(4, RestResponsePane.TAB_TITLES.length, "there should still be four result tabs");
+        for (String title : RestResponsePane.TAB_TITLES) {
+            assertTrue(title.length() <= 8,
+                    "\"" + title + "\" is longer than eight characters and will not fit beside "
+                            + "the other three in a narrow pane");
+        }
+    }
+
+    @Test
+    @DisplayName("Both cURL buttons actually do something when clicked")
+    void curlButtonsAreWired() throws Exception {
+        // Reported as "the paste and copy cURL buttons don't do anything", and the cause was
+        // that RestRequestPane.setCurlActions was written and never called from anywhere.
+        // The buttons existed, were laid out, and had a null onAction - so a click was
+        // dispatched to nothing. Everything they needed (parse, render, clipboard) was already
+        // implemented and individually tested; only the last inch was missing.
+        //
+        // This is the assertion that would have caught it: a handler has to be present.
+        AtomicReference<RestRequestPane> pane = new AtomicReference<>();
+        runOnFxThread(() -> {
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+            pane.set(dialog.requestPane());
+            dialog.close();
+        });
+
+        assertNotNull(pane.get().pasteCurlButton().getOnAction(),
+                "Paste cURL has no handler, so clicking it does nothing");
+        assertNotNull(pane.get().copyCurlButton().getOnAction(),
+                "Copy as cURL has no handler, so clicking it does nothing");
+    }
+
+    @Test
+    @DisplayName("A pasted cURL fills the form, and the form renders back to cURL")
+    void pasteAndCopyRoundTrip() throws Exception {
+        // The two halves have to agree: paste in, copy out, and the command survives. If they
+        // drift the user pastes a command, edits nothing, and quietly gets a different request.
+        AtomicReference<RestRequestPane> pane = new AtomicReference<>();
+        AtomicReference<Boolean> applied = new AtomicReference<>();
+        runOnFxThread(() -> {
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+            pane.set(dialog.requestPane());
+            // No Authorization header here, so nothing offers a credential and this stays a
+            // test of the form rather than of the auth selector.
+            applied.set(pane.get().pasteCurl(
+                    "curl -X POST 'https://example.com/fhir/Patient?name=Smith' "
+                            + "-H 'Accept: application/fhir+json'",
+                    (value, header) -> { }));
+            dialog.close();
+        });
+
+        assertTrue(applied.get(), "a well-formed cURL command should be recognised");
+        RestConsoleForm form = pane.get().form();
+        assertEquals(RestMethod.POST, form.method(), "the -X POST should be picked up");
+        assertTrue(form.resolvedUrl().contains("example.com/fhir/Patient"),
+                "the URL should have been taken from the command, got " + form.resolvedUrl());
+        assertTrue(form.resolvedUrl().contains("name=Smith"),
+                "the query string should have become a parameter, got " + form.resolvedUrl());
+
+        String copied = pane.get().asCurl();
+        assertTrue(copied.startsWith("curl"), "copying should produce a command, got: " + copied);
+        assertTrue(copied.contains("example.com/fhir/Patient"),
+                "the copy should contain the URL it was pasted from, got: " + copied);
+    }
+
+    @Test
+    @DisplayName("Something that is not a cURL command is declined rather than half-applied")
+    void pasteRejectsANonCommand() throws Exception {
+        // The declined case and the empty-clipboard case were both previously silent, which
+        // is a second way for the button to look broken: it "did nothing" because it decided
+        // not to, and never said which of the two it was.
+        AtomicReference<Boolean> applied = new AtomicReference<>(true);
+        runOnFxThread(() -> {
+            RestConsoleDialog dialog = new RestConsoleDialog(List.of(), null, null);
+            applied.set(dialog.requestPane()
+                    .pasteCurl("not a command at all", (value, header) -> { }));
+            dialog.close();
+        });
+
+        assertFalse(applied.get(), "text that is not a cURL command must not report success");
+    }
+
+    /**
+     * Forgets the remembered console settings.
+     *
+     * <p>The console writes to the real preferences store, which is what makes these tests
+     * worth writing — so the tests are obliged to clean up after themselves, or one test's
+     * saved URL becomes the next test's starting state.
+     */
+    private static void clearRememberedConsole() throws Exception {
+        RestConsoleState.nodeForTest().clear();
     }
 
     /** A throwaway path for a settings or config file, since the FX action cannot throw. */

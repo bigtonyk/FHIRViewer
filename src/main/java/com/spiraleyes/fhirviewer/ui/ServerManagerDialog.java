@@ -1,7 +1,6 @@
 package com.spiraleyes.fhirviewer.ui;
 
 import java.util.List;
-import java.util.Optional;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
