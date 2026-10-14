@@ -1,4 +1,4 @@
-package com.spiraleyes.fhirviewer.server;
+package com.spiraleyes.fhirviewer.server.smart;
 
 /**
  * Which SMART on FHIR launch a configuration is for.
@@ -18,7 +18,8 @@ package com.spiraleyes.fhirviewer.server;
  * </ul>
  *
  * <p>It lives in {@code server} rather than {@code ui} for the same reason
- * {@link ServerAuthKind} does: the mode decides which parameters belong in an
+ * {@link com.spiraleyes.fhirviewer.server.ServerAuthKind} does: the mode decides which
+ * parameters belong in an
  * authorization request, which is a protocol question the form must not answer on its own.</p>
  */
 public enum SmartLaunchMode {

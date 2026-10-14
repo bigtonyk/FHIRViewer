@@ -1,4 +1,4 @@
-package com.spiraleyes.fhirviewer.server;
+package com.spiraleyes.fhirviewer.server.smart;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -21,7 +21,8 @@ import com.spiraleyes.fhirviewer.util.FileSupport;
  * Reads and writes the SMART launch configurations, so a launch does not have to be typed
  * again after a restart.
  *
- * <p>Deliberately the same shape as {@link ServerDefinitionStore}: a properties file with one
+ * <p>Deliberately the same shape as
+ * {@link com.spiraleyes.fhirviewer.server.ServerDefinitionStore}: a properties file with one
  * numbered block per launch plus the name of the selected one, written through a temporary file
  * and an atomic {@code Files.move}, read tolerantly so one unreadable block does not cost the
  * user the rest. A second persistence mechanism for the same kind of data would be a second

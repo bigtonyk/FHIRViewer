@@ -47,6 +47,7 @@ import com.spiraleyes.fhirviewer.server.ServerDefinition;
 import com.spiraleyes.fhirviewer.server.ServerOperationException;
 import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.server.ServerWriteResult;
+import com.spiraleyes.fhirviewer.server.smart.SmartLaunchStore;
 import com.spiraleyes.fhirviewer.util.FileSupport;
 
 import javafx.application.HostServices;
@@ -182,6 +183,19 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         return java.nio.file.Path.of(
                 System.getProperty("user.home", "."),
                 ".fhirviewer", "plugin-settings.properties");
+    }
+
+    /**
+     * Where the SMART launch configurations are kept.
+     *
+     * <p>Named in one place for the same reason as {@link #pluginSettingsFile()}: the
+     * workbench writes this file and nothing else should have an opinion about where it
+     * lives. The store itself guarantees no secret reaches it.</p>
+     */
+    private static java.nio.file.Path smartLaunchFile() {
+        return java.nio.file.Path.of(
+                System.getProperty("user.home", "."),
+                ".fhirviewer", "smart-launches.properties");
     }
 
     /**
@@ -597,6 +611,12 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         MenuItem restConsole = new MenuItem("REST Console...");
         restConsole.setOnAction(event -> openRestConsole());
 
+        // SMART on FHIR launches. The workbench itself opens like every other screen: a
+        // dialog from the Tools menu. Discovery and authorization inside it stay disabled
+        // until Phases 02 and 03 wire them up.
+        MenuItem smartWorkbench = new MenuItem("SMART Launch Workbench...");
+        smartWorkbench.setOnAction(event -> openSmartLaunchWorkbench());
+
         // Resource actions, enabled only when the displayed resource came from a server.
         MenuItem refreshFromServer = new MenuItem("Refresh from FHIR Server");
         refreshFromServer.setDisable(true);
@@ -622,7 +642,8 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                 refreshFromServer, patchOnServer,
                 deleteFromServer, new SeparatorMenuItem(), manageServers, managePlugins,
                 new SeparatorMenuItem(), serverStatus, runOperation,
-                new SeparatorMenuItem(), restConsole);
+                new SeparatorMenuItem(), restConsole,
+                new SeparatorMenuItem(), smartWorkbench);
     }
 
     private Menu buildHelpMenu() {
@@ -1478,6 +1499,29 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         // The File and Tools menu items enable on the configured-server count, so the state
         // is refreshed even when the user closed without changing anything.
         updateEditActions();
+    }
+
+    /**
+     * Opens the SMART Launch Workbench: CRUD on launch configurations, plus the reserved
+     * panels Phases 02 to 04 will fill.
+     *
+     * <p>The store is constructed fresh for the visit, the way the server credential store
+     * is, so the dialog reads whatever is on disk now rather than a list this window has
+     * been holding.</p>
+     */
+    private void openSmartLaunchWorkbench() {
+        SmartLaunchDialog dialog = new SmartLaunchDialog(new SmartLaunchStore(smartLaunchFile()));
+        dialog.initOwner(stage);
+        applyDialogTheme(dialog.getDialogPane());
+        dialog.showAndWait();
+
+        SmartLaunchDialog.Result result = dialog.result();
+        if (result.changed()) {
+            // The store is written by the dialog on every change, so there is nothing to
+            // persist here - the message reports what the dialog already saved, or the
+            // session-only warning it could not.
+            setStatus(result.message());
+        }
     }
 
     /**

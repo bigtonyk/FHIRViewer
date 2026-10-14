@@ -15,7 +15,7 @@ Use this file as the source of truth for progress. Update it at the end of each 
 | Phase | Status | Build/tests | Notes |
 |---|---|---|---|
 | 00 — Repository assessment | Implemented — automated tests pass | compile exit 0; 760 tests, 0 failures | Findings in `PHASE-00-REPOSITORY-ASSESSMENT.md`. No production code changed. Awaiting review before Phase 01. |
-| 01 — Workbench UI | Not started | Not run | |
+| 01 — Workbench UI | Implemented — automated tests pass | compile exit 0; 776 tests, 0 failures | Tools > SMART Launch Workbench. CRUD persists to `~/.fhirviewer/smart-launches.properties`; Validate is local-only and says so; Discover/Authorize stay disabled until Phases 02/03. |
 | 02 — SMART discovery | Not started | Not run | |
 | 03 — OAuth / PKCE | Not started | Not run | |
 | 04 — Authorized FHIR access | Not started | Not run | |
@@ -48,6 +48,10 @@ Record decisions here, including rationale:
   `toString` that never prints a token, following `TokenFetchResult`.
 - Packaging/module changes: **none.** There is no `module-info.java`; the app runs on the class
   path through `Launcher`, so no new dependency or JPMS concern is introduced.
+- Workbench UI: **`ui/SmartLaunchDialog` + `ui/SmartLaunchFormPanel`, flat in `ui/`** — a
+  `Dialog<T>` opened from the Tools menu, mirroring `ServerManagerDialog`/`ServerFormPanel`
+  (selector over a form, `Result(changed, message)`, package-private test access). The model and
+  store live under `server/smart/` as decided above; `ui/` stays flat and JavaFX-only.
 
 ## Dependencies added or changed
 
@@ -77,5 +81,44 @@ Record decisions here, including rationale:
   only transitively; plugin configuration resolves against the working directory (Phase 30
   finding F2).
 - **Reviewer decision:** **pending.** Stopping here for review before starting Phase 01.
+
+### Phase 01 — SMART Launch Workbench UI
+
+- **Date:** 13 October 2026
+- **Phase:** 01
+- **Files changed:**
+  - `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartLaunchMode.java` (new; committed
+    in `316cbe8`, moved from flat `server/` to `server/smart/` to match the recorded decision)
+  - `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartLaunchConfig.java` (new, as above)
+  - `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartLaunchStore.java` (new, as above)
+  - `src/main/java/com/spiraleyes/fhirviewer/ui/SmartLaunchFormPanel.java` (new)
+  - `src/main/java/com/spiraleyes/fhirviewer/ui/SmartLaunchDialog.java` (new)
+  - `src/main/java/com/spiraleyes/fhirviewer/ui/MainWindow.java` (Tools-menu entry
+    `SMART Launch Workbench...`, `openSmartLaunchWorkbench()`, `smartLaunchFile()`,
+    `SmartLaunchStore` import)
+  - `src/test/java/com/spiraleyes/fhirviewer/server/smart/SmartLaunchConfigTest.java` (new,
+    9 tests: model completeness/problems/builder rules/no-secret reflection, store round trip,
+    key allowlist, tolerant parse, missing file)
+  - `src/test/java/com/spiraleyes/fhirviewer/ui/SmartLaunchWorkbenchUiTest.java` (new, 7
+    toolkit-gated tests: builds with future actions disabled, save persists, delete removes,
+    validate honest, mode row visibility, form round trip, no password field)
+  - `docs/smartonfhir/IMPLEMENTATION-STATUS.md` (this file)
+- **Commands executed:**
+  - `mvnw.cmd -q compile -DskipTests` → exit 0
+  - `mvnw.cmd -o test` → BUILD SUCCESS; surefire tally **776 tests, 0 failures, 0 errors,
+    0 skipped** (baseline 760 + 16 new; `ServerUiSmokeTest` 61 still pass)
+- **Acceptance criteria (Phase 01 brief):** workbench opens and closes — asserted on a live
+  toolkit; navigation/styling — a Tools-menu dialog themed with `applyDialogTheme`, same
+  structure as the server manager; CRUD + validation — asserted end-to-end through the real
+  buttons; no fake network success — Discover/Authorize constructed disabled with phase-naming
+  tooltips and asserted so; existing features — full suite green; build passes.
+- **Remaining limitations:** no discovery (Phase 02), no authorization (Phase 03), the four
+  right-hand panels are honest placeholders that name the phase filling them, the EHR launch
+  parameter is typed by hand (real inbound launch is Phase 05), and mode-hidden rows keep
+  their values rather than discarding them (`problems()` reports a stray one).
+- **Manual verification required:** run the app, open Tools > SMART Launch Workbench, create
+  and edit a launch, Validate it, restart the application and confirm the launch and its
+  selection came back, try the smallest window size, and hover Discover/Authorize to see the
+  phase tooltips.
 
 Do not mark a phase complete unless the documented acceptance criteria are met. Distinguish automated test success from manual end-to-end verification.

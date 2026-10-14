@@ -1,4 +1,4 @@
-package com.spiraleyes.fhirviewer.server;
+package com.spiraleyes.fhirviewer.server.smart;
 
 import java.util.Objects;
 
@@ -16,10 +16,12 @@ import java.util.Objects;
  * jar is readable. So this record deliberately has no such field, and the workbench must not
  * grow one. The only secret in the whole flow is the access token, which lives in memory for
  * the session and is never written to disk — see {@code ServerPassphrase} and
- * {@link PluginSettingsStore} for the two places a secret is allowed to exist.</p>
+ * {@link com.spiraleyes.fhirviewer.server.PluginSettingsStore} for the two places a secret is
+ * allowed to exist.</p>
  *
  * <p>Built through {@link Builder} rather than a canonical constructor of eight arguments,
- * following {@link ServerDefinition}: a launch is described by naming the server, and
+ * following {@link com.spiraleyes.fhirviewer.server.ServerDefinition}: a launch is described by
+ * naming the server, and
  * everything else is a refinement.</p>
  *
  * @param id              stable identifier used as the persistence key; never blank
@@ -201,7 +203,8 @@ public final class SmartLaunchConfig {
     /**
      * Describes a launch, then builds it.
      *
-     * <p>Same shape as {@link ServerDefinition.Builder}: {@link #named(String)} for the field
+     * <p>Same shape as {@link com.spiraleyes.fhirviewer.server.ServerDefinition.Builder}:
+     * {@link #named(String)} for the field
      * that is always required, optional setters for the rest, and {@link #build()} for the
      * moment of validation. The build refuses an entry with no id or no name, because both are
      * persistence keys and an unusable one would silently overwrite another row.</p>
