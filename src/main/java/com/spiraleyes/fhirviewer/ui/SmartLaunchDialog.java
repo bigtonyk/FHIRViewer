@@ -3,6 +3,7 @@ package com.spiraleyes.fhirviewer.ui;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -19,8 +20,12 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
+import com.spiraleyes.fhirviewer.server.smart.SmartConfiguration;
+import com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryException;
+import com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryService;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchConfig;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchStore;
+import com.spiraleyes.fhirviewer.server.smart.SmartUrls;
 
 /**
  * The SMART Launch Workbench: create, edit, delete and validate the launches this application
@@ -30,14 +35,14 @@ import com.spiraleyes.fhirviewer.server.smart.SmartLaunchStore;
  * against a store, a status line that never lies - because a second dialog for the same kind
  * of job would be a second set of the same mistakes.</p>
  *
- * <p><b>Nothing here fakes progress.</b> Discovery and authorization are real buttons that
- * stay disabled with a tooltip naming the phase that will enable them: a workbench that
- * showed a green "connected" from a stub would be worse than no workbench, since the whole
- * point of Phase 01 is that Phases 02 to 04 have to plug into something honest. The
- * reserved panels on the right likewise say what will appear there and that nothing has run
- * yet. The only live validation is {@link SmartLaunchConfig#problems()}, which checks the
- * form against the model without contacting any server - and the status line after a
- * successful Validate says exactly that.</p>
+ * <p><b>Nothing here fakes progress.</b> As of Phase 02 Discover is live and runs real
+ * discovery against the URL in the form; Authorize stays disabled with a tooltip naming the
+ * phase that will enable it, because a workbench that showed a success the flow has not
+ * earned would be worse than no workbench. The remaining reserved panels likewise say what
+ * will appear there and that nothing has run yet. The only live validation is
+ * {@link SmartLaunchConfig#problems()}, which checks the form against the model without
+ * contacting any server — and the status line after a successful Validate says exactly
+ * that.</p>
  *
  * <p>The store is given to this dialog rather than read by it on every action: the list in
  * memory is what the user is editing, and it is written back on each change so a crash loses
@@ -58,8 +63,13 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
 
     private final SmartLaunchStore store;
     private final SmartLaunchFormPanel form = new SmartLaunchFormPanel();
+    private final SmartCapabilitiesPane capabilitiesPane = new SmartCapabilitiesPane();
+    private final SmartDiscoveryService discoveryService;
     private final List<SmartLaunchConfig> configs = new ArrayList<>();
     private final Label statusLabel = new Label();
+
+    /** The discovery currently in flight, so a second press or a close can stop it. */
+    private BackgroundTasks.Running discoveryTask;
 
     private final Button newButton = new Button("New");
     private final Button saveButton = new Button("Save");
@@ -77,12 +87,23 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
      * @param store where the configurations are read from and written to
      */
     public SmartLaunchDialog(SmartLaunchStore store) {
+        this(store, new SmartDiscoveryService());
+    }
+
+    /**
+     * A dialog with a chosen discovery service, so a test can give it short deadlines.
+     *
+     * @param store            where the configurations are read from and written to
+     * @param discoveryService the discovery implementation; never {@code null}
+     */
+    SmartLaunchDialog(SmartLaunchStore store, SmartDiscoveryService discoveryService) {
         this.store = store;
+        this.discoveryService = Objects.requireNonNull(discoveryService, "discoveryService");
 
         setTitle("SMART Launch Workbench");
-        setHeaderText("Configure a SMART launch, then discover and authorize against the "
-                + "server. Discovery and authorization arrive with Phases 02 and 03 and stay "
-                + "disabled until then.");
+        setHeaderText("Configure a SMART launch, discover what the server advertises, then "
+                + "authorize. Authorization arrives with Phase 03 and stays disabled until "
+                + "then.");
         setResizable(true);
         // Wide enough for the form beside the reserved panels; the ScrollPane inside the
         // form handles anything the fields need beyond this.
@@ -107,6 +128,11 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         });
 
         setResultConverter(button -> null);
+        // Dialog.close() is final, so this is where a discovery in flight is stopped: the
+        // hidden event fires for a Close press and for a programmatic close alike, and a
+        // result delivered to nodes that are no longer shown would be both useless and a
+        // hold on the daemon thread for the length of its deadline.
+        setOnHidden(event -> cancelDiscovery());
         buildContent();
         setStatus("Choose a saved launch, or fill in the form to create one. Nothing has "
                 + "been discovered or authorized yet.");
@@ -167,11 +193,19 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     private TabPane buildReservedPanels() {
         TabPane tabs = new TabPane();
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+
+        // The Capabilities panel is live as of Phase 02: it shows what discovery returned.
+        // It sits in a ScrollPane that fits to width, so a long endpoint URL grows the
+        // panel downward instead of stretching the dialog sideways.
+        ScrollPane capabilitiesScroll = new ScrollPane(capabilitiesPane);
+        capabilitiesScroll.setFitToWidth(true);
+        capabilitiesScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        capabilitiesScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        Tab capabilities = new Tab("Capabilities");
+        capabilities.setContent(capabilitiesScroll);
+
         tabs.getTabs().addAll(
-                tab("Capabilities", "Discovery status, issuer, authorization and token "
-                        + "endpoints, advertised capabilities, supported scopes and supported "
-                        + "PKCE methods will be listed here. Nothing has been discovered yet: "
-                        + "SMART discovery arrives in Phase 02."),
+                capabilities,
                 tab("Session", "Authorization state, granted scopes, patient id, encounter "
                         + "id, user identity and token expiry will be listed here. No session "
                         + "exists yet; authorization arrives in Phase 03. The raw access "
@@ -203,11 +237,10 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         validateButton.setOnAction(event -> onValidate());
         validateButton.getStyleClass().add("button-ghost");
 
-        // Disabled with a tooltip that names the phase, never enabled with a stub handler:
-        // pressing these must not be able to produce a success the flow has not earned.
-        discoverButton.setDisable(true);
-        discoverButton.setTooltip(new javafx.scene.control.Tooltip(
-                "Not available yet: SMART discovery arrives in Phase 02."));
+        // Discover is live as of Phase 02. Authorize stays disabled with a tooltip naming
+        // the phase: a button with no implementation must never be pressable, or the
+        // workbench would be showing a success the flow has not earned.
+        discoverButton.setOnAction(event -> onDiscover());
         authorizeButton.setDisable(true);
         authorizeButton.setTooltip(new javafx.scene.control.Tooltip(
                 "Not available yet: PKCE authorization arrives in Phase 03."));
@@ -285,8 +318,9 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         // Save works on whatever the form holds, so it is enabled both for a selected
         // launch and while a new one is being filled in. Delete only ever applies to a
         // launch that is already in the list. Validate always works: it reads the form,
-        // not the store. Discover and Authorize stay disabled until their phases exist -
-        // set at construction and never touched here, which is the point.
+        // not the store. Discover is live since Phase 02 and is locked only while a
+        // request is in flight. Authorize stays disabled until Phase 03 - set at
+        // construction and never touched here, which is the point.
         saveButton.setDisable(!(editing != null || addingNew));
         deleteButton.setDisable(editing == null);
     }
@@ -398,6 +432,91 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         }
     }
 
+    /**
+     * Reads this server's SMART configuration document, off the JavaFX thread.
+     *
+     * <p>The issuer is taken from the form rather than from the selected configuration, so
+     * a user can discover against a URL they just typed without saving it first — which is
+     * the whole point of a workbench. Nothing is persisted by pressing this: discovery
+     * changes what the workbench knows, not what is stored.</p>
+     */
+    private void onDiscover() {
+        String issuer = form.issuerField().getText() == null
+                ? ""
+                : form.issuerField().getText().trim();
+        if (issuer.isEmpty()) {
+            setStatus("Enter a FHIR server base URL (iss) first, then choose Discover.");
+            return;
+        }
+
+        cancelDiscovery();
+        capabilitiesPane.showNothingYet();
+        setDiscoverBusy(true);
+        // The origin, never the full URL: a URL can carry a query string, and a query
+        // string can carry a patient identifier. originOf swallows anything unparseable,
+        // so a URL the service will refuse is still safe to name here.
+        setStatus("Discovering from " + SmartDiscoveryService.originOf(issuer) + " ...");
+
+        discoveryTask = BackgroundTasks.runAttempt("smart-discovery",
+                () -> BackgroundTasks.attempt(() -> discoveryService.discover(issuer)),
+                attempt -> {
+                    setDiscoverBusy(false);
+                    discoveryTask = null;
+                    if (attempt.cancelled()) {
+                        capabilitiesPane.showNothingYet();
+                        setStatus("Discovery was cancelled.");
+                    } else if (!attempt.succeeded()) {
+                        capabilitiesPane.showFailure(ServerErrors.redact(attempt.failure()));
+                        setStatus("Discovery failed: " + ServerErrors.redact(attempt.failure()));
+                    } else {
+                        showDiscovered(attempt.value(), issuer);
+                    }
+                });
+    }
+
+    /** Fills the Capabilities panel and says what was learned, problems included. */
+    private void showDiscovered(SmartConfiguration configuration, String issuer) {
+        capabilitiesPane.show(configuration);
+        List<String> problems = configuration.problems();
+        if (problems.isEmpty()) {
+            setStatus("Discovered " + configuration.capabilities().size()
+                    + " capability(ies). The server can be launched against.");
+        } else {
+            setStatus("Discovered the configuration, but it has " + problems.size()
+                    + " problem(s): " + problems.get(0)
+                    + (problems.size() > 1 ? " (see the Capabilities panel)" : ""));
+        }
+        // A mismatch is worth naming in the status line too: the user typed one address and
+        // the document claims another, and only they can say which is right. Wrapped because
+        // normalize can refuse a URL the service may have accepted through another path.
+        String declared = configuration.issuer();
+        String typed;
+        try {
+            typed = SmartUrls.normalizeFhirBase(issuer);
+        } catch (IllegalArgumentException refused) {
+            typed = issuer;
+        }
+        if (declared != null && !declared.isBlank() && !declared.equalsIgnoreCase(typed)) {
+            setStatus(statusLabel.getText() + " Note: the document's issuer (" + declared
+                    + ") differs from the URL it was fetched from.");
+        }
+    }
+
+    /** Stops a discovery in flight, if there is one. Safe to call when there is none. */
+    private void cancelDiscovery() {
+        if (discoveryTask != null) {
+            discoveryTask.cancel();
+            discoveryTask = null;
+        }
+    }
+
+    /** Locks the form while discovery runs, so the URL cannot change under the request. */
+    private void setDiscoverBusy(boolean busy) {
+        discoverButton.setDisable(busy);
+        saveButton.setDisable(busy || !(editing != null || addingNew));
+        deleteButton.setDisable(busy || editing == null);
+    }
+
     private void setStatus(String message) {
         statusLabel.setText(message);
     }
@@ -446,5 +565,10 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     /** The status line's text, so a test can assert what the user was told. */
     String statusText() {
         return statusLabel.getText();
+    }
+
+    /** The Capabilities panel, so a test can assert what discovery put on screen. */
+    SmartCapabilitiesPane capabilitiesPane() {
+        return capabilitiesPane;
     }
 }

@@ -83,13 +83,14 @@ class SmartLaunchWorkbenchUiTest {
     }
 
     @Test
-    @DisplayName("The workbench builds, and the unimplemented phases stay disabled")
+    @DisplayName("The workbench builds, and only the not-yet-implemented phase stays disabled")
     void workbenchBuildsAndFutureActionsStayDisabled() throws Exception {
         runOnFxThread(() -> {
             SmartLaunchDialog dialog = new SmartLaunchDialog(store);
-            assertTrue(dialog.discoverButton().isDisabled(),
-                    "Discover must be disabled until Phase 02 implements it - an enabled "
-                            + "button with no implementation is how fake success starts");
+            // Discover went live in Phase 02; Authorize waits for Phase 03. An enabled
+            // button with no implementation would be how fake success starts.
+            assertFalse(dialog.discoverButton().isDisabled(),
+                    "Discover is implemented: it must be pressable");
             assertTrue(dialog.authorizeButton().isDisabled(),
                     "Authorize must be disabled until Phase 03 implements it");
             assertNotNull(dialog.validateButton(), "Validate is live: it only reads the form");
@@ -230,6 +231,106 @@ class SmartLaunchWorkbenchUiTest {
             }
             dialog.close();
         });
+    }
+
+    @Test
+    @DisplayName("Discovery fills the Capabilities panel with what the server advertises")
+    void discoveryFillsTheCapabilitiesPanel() throws Exception {
+        StubServer server = new StubServer();
+        server.start();
+        try {
+            String base = server.baseUrl();
+            server.answerWith(200, "application/json", """
+                    {
+                      "issuer": "__BASE__",
+                      "authorization_endpoint": "http://127.0.0.1/authorize",
+                      "token_endpoint": "http://127.0.0.1/token",
+                      "capabilities": ["launch-standalone", "client-public"],
+                      "scopes_supported": ["openid", "launch/patient"],
+                      "code_challenge_methods_supported": ["S256"]
+                    }
+                    """.replace("__BASE__", base));
+
+            AtomicReference<SmartLaunchDialog> shown = new AtomicReference<>();
+            runOnFxThread(() -> {
+                SmartLaunchDialog dialog = new SmartLaunchDialog(store);
+                dialog.form().issuerField().setText(base);
+                dialog.discoverButton().fire();
+                shown.set(dialog);
+            });
+
+            String status = waitForDiscovery(shown.get());
+            assertTrue(status.contains("Discovered"),
+                    "the status must say what was learned: " + status);
+            assertTrue(status.contains("can be launched against"),
+                    "a conformant loopback document is usable: " + status);
+            assertEquals("/fhir/.well-known/smart-configuration", server.lastPath(),
+                    "discovery anchors the well-known path at the FHIR base, path and all");
+            runOnFxThread(() -> {
+                String display = shown.get().capabilitiesPane().displayText();
+                assertTrue(display.contains("launch-standalone"),
+                        "capabilities must reach the panel: " + display);
+                assertTrue(display.contains("S256"),
+                        "the PKCE methods must reach the panel: " + display);
+                assertTrue(display.contains("authorize"),
+                        "the endpoints must reach the panel: " + display);
+            });
+            runOnFxThread(shown.get()::close);
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("A server with no SMART configuration gets a diagnosis, not a crash")
+    void nonSmartServerGetsADiagnosis() throws Exception {
+        StubServer server = new StubServer();
+        server.start();
+        try {
+            server.answerWith(404, "text/plain", "Not Found");
+
+            AtomicReference<SmartLaunchDialog> shown = new AtomicReference<>();
+            runOnFxThread(() -> {
+                SmartLaunchDialog dialog = new SmartLaunchDialog(store);
+                dialog.form().issuerField().setText(server.baseUrl());
+                dialog.discoverButton().fire();
+                shown.set(dialog);
+            });
+
+            String status = waitForDiscovery(shown.get());
+            assertTrue(status.contains("does not publish a SMART configuration"),
+                    "the user must be told the server is not SMART: " + status);
+            runOnFxThread(() -> {
+                String display = shown.get().capabilitiesPane().displayText();
+                assertTrue(display.contains("does not publish a SMART configuration"),
+                        "the failure must reach the panel too: " + display);
+            });
+            runOnFxThread(shown.get()::close);
+        } finally {
+            server.stop();
+        }
+    }
+
+    /**
+     * Waits for a discovery started in the workbench to settle.
+     *
+     * <p>Discovery runs on a background daemon thread and its callback lands on the FX
+     * thread, so the test thread can only poll — reading nodes directly would race it.
+     * Gives up after fifteen seconds, the same order as the service's own deadline.</p>
+     *
+     * @return the settled status text
+     */
+    private static String waitForDiscovery(SmartLaunchDialog dialog) throws Exception {
+        long deadline = System.currentTimeMillis() + 15_000;
+        AtomicReference<String> status = new AtomicReference<>("");
+        while (System.currentTimeMillis() < deadline) {
+            runOnFxThread(() -> status.set(dialog.statusText()));
+            if (!status.get().contains("Discovering from")) {
+                return status.get();
+            }
+            Thread.sleep(100);
+        }
+        return status.get();
     }
 
     /** Runs an action on the JavaFX thread and waits for it, so a throw is not swallowed. */

@@ -16,7 +16,7 @@ Use this file as the source of truth for progress. Update it at the end of each 
 |---|---|---|---|
 | 00 — Repository assessment | Implemented — automated tests pass | compile exit 0; 760 tests, 0 failures | Findings in `PHASE-00-REPOSITORY-ASSESSMENT.md`. No production code changed. Awaiting review before Phase 01. |
 | 01 — Workbench UI | Implemented — automated tests pass | compile exit 0; 776 tests, 0 failures | Tools > SMART Launch Workbench. CRUD persists to `~/.fhirviewer/smart-launches.properties`; Validate is local-only and says so; Discover/Authorize stay disabled until Phases 02/03. |
-| 02 — SMART discovery | Not started | Not run | |
+| 02 — SMART discovery | Implemented — automated tests pass | compile exit 0; 798 tests, 0 failures | Discover is live in the workbench against `/.well-known/smart-configuration`; endpoints validated, redirects never followed, Authorize still disabled for Phase 03. |
 | 03 — OAuth / PKCE | Not started | Not run | |
 | 04 — Authorized FHIR access | Not started | Not run | |
 | 05 — EHR launch simulation | Not started | Not run | |
@@ -52,6 +52,12 @@ Record decisions here, including rationale:
   `Dialog<T>` opened from the Tools menu, mirroring `ServerManagerDialog`/`ServerFormPanel`
   (selector over a form, `Result(changed, message)`, package-private test access). The model and
   store live under `server/smart/` as decided above; `ui/` stays flat and JavaFX-only.
+- Discovery transport: **the JDK `HttpClient` directly in `SmartDiscoveryService`, not
+  `JdkHttpRestClient`.** A deliberate, narrow exception to the reuse note: the shared client
+  follows same-scheme redirects and reads unbounded bodies, which is right for resource
+  reads and wrong for the call that decides where credentials go next. No third-party HTTP
+  library was added — the same JDK client the shared layer wraps — and TLS validation is
+  never weakened.
 
 ## Dependencies added or changed
 
@@ -120,5 +126,63 @@ Record decisions here, including rationale:
   and edit a launch, Validate it, restart the application and confirm the launch and its
   selection came back, try the smallest window size, and hover Discover/Authorize to see the
   phase tooltips.
+
+### Phase 02 — SMART configuration discovery
+
+- **Date:** 13 October 2026
+- **Phase:** 02
+- **Files changed:**
+  - `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartUrls.java` (new: normalize
+    the FHIR base without stripping path segments, build the well-known URL, loopback
+    detection; pure functions, fully unit-tested)
+  - `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartConfiguration.java` (new:
+    typed document for the SMART App Launch v2.2.0 fields, `problems()`, `isUsable()`,
+    unknown fields preserved as JSON text)
+  - `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartDiscoveryException.java`
+    (new: checked, `Kind`-carrying, user-facing message)
+  - `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartDiscoveryService.java`
+    (new: JDK `HttpClient` GET with `Redirect.NEVER`, connect/request timeouts, 512 KB
+    body cap, 3xx/404/other mapping, origin-only messages)
+  - `src/main/java/com/spiraleyes/fhirviewer/ui/SmartCapabilitiesPane.java` (new: the live
+    Capabilities panel — rows for every advertised field, problems beside the metadata,
+    hidden rows stay hidden)
+  - `src/main/java/com/spiraleyes/fhirviewer/ui/SmartLaunchDialog.java` (Discover wired
+    through `BackgroundTasks`, cancellation on hide, issuer-mismatch named in the status)
+  - `src/test/java/com/spiraleyes/fhirviewer/server/smart/SmartUrlsTest.java` (new, 6)
+  - `src/test/java/com/spiraleyes/fhirviewer/server/smart/SmartConfigurationTest.java`
+    (new, 6 — the specification's own sample response, unknown fields, missing endpoints,
+    insecure endpoints, PKCE, malformed answers)
+  - `src/test/java/com/spiraleyes/fhirviewer/server/smart/SmartStubServer.java` (new test
+    helper: scripted local server — status, redirect, delay, oversized body)
+  - `src/test/java/com/spiraleyes/fhirviewer/server/smart/SmartDiscoveryServiceTest.java`
+    (new, 8 — happy path, 404, redirect-not-followed, HTML, bad URL, oversized body,
+    timeout, refused connection; no internet)
+  - `src/test/java/com/spiraleyes/fhirviewer/ui/SmartLaunchWorkbenchUiTest.java` (updated:
+    Discover asserted live, Authorize still disabled; +2 toolkit tests discovering from
+    the local stub into the Capabilities panel)
+  - `docs/smartonfhir/IMPLEMENTATION-STATUS.md` (this file)
+- **Commands executed:**
+  - `mvnw.cmd -q compile -DskipTests` → exit 0
+  - `mvnw.cmd -o test` → BUILD SUCCESS; surefire tally **798 tests, 0 failures, 0 errors,
+    0 skipped** (baseline 776 + 22 new)
+- **Acceptance criteria (Phase 02 brief):** discovery URL follows the current SMART
+  specification (`{iss}/.well-known/smart-configuration`, validated against v2.2.0
+  §Conformance); metadata displayed in the workbench's Capabilities panel; a non-SMART
+  server produces a typed `NOT_SMART` diagnosis and never a crash; network runs on a
+  `BackgroundTasks` daemon thread with cancellation; existing features — full suite green.
+- **Supported metadata:** `issuer`, `authorization_endpoint`, `token_endpoint`,
+  `jwks_uri`, `registration_endpoint`, `capabilities`, `scopes_supported`,
+  `code_challenge_methods_supported`, `grant_types_supported`,
+  `response_types_supported`, `token_endpoint_auth_methods_supported`,
+  `management_endpoint`, `introspection_endpoint`, `revocation_endpoint`, plus any
+  unknown fields preserved for diagnostics.
+- **Known limitations:** no `Accept` negotiation beyond `application/json`; a
+  non-matching document `issuer` is reported but not resolved (only the deployment can
+  say which address is right); the Capabilities panel is text — there is no endpoint
+  editing or copying yet; Authorize stays disabled for Phase 03.
+- **Manual verification required:** run the app against a public SMART test server
+  (e.g. the HL7 FHIR R4 reference or a local HAPI with SMART), confirm the Capabilities
+  panel fills and the status names the endpoint count; point at a plain FHIR server and
+  confirm the not-SMART diagnosis.
 
 Do not mark a phase complete unless the documented acceptance criteria are met. Distinguish automated test success from manual end-to-end verification.
