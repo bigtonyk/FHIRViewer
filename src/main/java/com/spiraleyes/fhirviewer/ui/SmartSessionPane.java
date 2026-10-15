@@ -76,19 +76,44 @@ final class SmartSessionPane extends VBox {
                 : "Authorized. The access token is held in memory and never shown here.");
         setRowVisible(stateValue, true);
         setRow(scopesValue, grantedText(session));
-        setRow(patientValue, session.patient());
+        // A launch can succeed without patient context — identity-scoped launches carry
+        // none — so an absent patient says so rather than hiding. A row that vanishes
+        // whenever there is nothing to show reads as a bug in the panel, not as a
+        // normal outcome of a launch.
+        setRow(patientValue, patientText(session));
         setRow(encounterValue, session.encounter());
         setRow(subjectValue, session.subject().orElse(null));
         setRow(expiryValue, session.expiresAt().map(Object::toString)
                 .orElse("The server did not state a lifetime."));
     }
 
+    /**
+     * What the server granted, which may differ from what the launch requested.
+     *
+     * <p>Reported from the token response — never from the request — so a server that
+     * narrows a scope is shown as narrowing it.</p>
+     */
     private static String grantedText(SmartAuthorizationSession session) {
         String granted = session.grantedScope();
         if (granted == null || granted.isBlank()) {
             return null;
         }
         return granted;
+    }
+
+    /**
+     * The granted patient context, or the reason there is none.
+     *
+     * <p>A blank patient is rendered as an explanation rather than a hidden row: a
+     * successful launch without patient context is a normal outcome, and the panel
+     * should say so rather than imply a field failed to load.</p>
+     */
+    private static String patientText(SmartAuthorizationSession session) {
+        String patient = session.patient();
+        if (patient != null && !patient.isBlank()) {
+            return patient;
+        }
+        return "None granted — a launch can succeed without patient context.";
     }
 
     /** Everything on display, for a test to assert against. */

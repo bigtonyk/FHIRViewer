@@ -47,6 +47,7 @@ import com.spiraleyes.fhirviewer.server.ServerDefinition;
 import com.spiraleyes.fhirviewer.server.ServerOperationException;
 import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.server.ServerWriteResult;
+import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchStore;
 import com.spiraleyes.fhirviewer.util.FileSupport;
 
@@ -1502,15 +1503,19 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     /**
-     * Opens the SMART Launch Workbench: CRUD on launch configurations, plus the reserved
-     * panels Phases 02 to 04 will fill.
+     * Opens the SMART Launch Workbench: CRUD on launch configurations, discovery,
+     * authorization, and authorized reads through the application's real plugins.
      *
      * <p>The store is constructed fresh for the visit, the way the server credential store
      * is, so the dialog reads whatever is on disk now rather than a list this window has
-     * been holding.</p>
+     * been holding. Reads resolve through the same registry the server dialogs use, so
+     * the plugins a phase runs against in production are the plugins the user
+     * configured, not a second discovery.</p>
      */
     private void openSmartLaunchWorkbench() {
-        SmartLaunchDialog dialog = new SmartLaunchDialog(new SmartLaunchStore(smartLaunchFile()));
+        SmartLaunchDialog dialog = new SmartLaunchDialog(
+                new SmartLaunchStore(smartLaunchFile()),
+                new SmartFhirAccess(serverService.registry()));
         dialog.initOwner(stage);
         applyDialogTheme(dialog.getDialogPane());
         dialog.showAndWait();
@@ -1521,6 +1526,18 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
             // persist here - the message reports what the dialog already saved, or the
             // session-only warning it could not.
             setStatus(result.message());
+        }
+        // The resource, if any, reaches the existing viewer exactly like a REST console
+        // outcome does: this window — and this window alone — displays it, so there is
+        // one rendering path and the unsaved-changes guard is honoured in one place.
+        if (result.hasResource()) {
+            if (!confirmUnsavedChanges("displaying a resource read through a SMART session")) {
+                return;
+            }
+            display(new LoadedResource(result.resource(), ResourceFormat.JSON,
+                    result.resourceLabel(), null));
+            setStatus("Showing " + result.resourceLabel()
+                    + ", read through the authorized SMART session.");
         }
     }
 

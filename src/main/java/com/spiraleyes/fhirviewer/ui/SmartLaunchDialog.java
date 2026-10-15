@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -20,6 +21,9 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
+import org.hl7.fhir.instance.model.api.IBaseResource;
+
+import com.spiraleyes.fhirviewer.server.PluginLoader;
 import com.spiraleyes.fhirviewer.server.smart.BrowserLauncher;
 import com.spiraleyes.fhirviewer.server.smart.DesktopBrowserLauncher;
 import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationFlow;
@@ -27,6 +31,7 @@ import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationSession;
 import com.spiraleyes.fhirviewer.server.smart.SmartConfiguration;
 import com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryException;
 import com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryService;
+import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchConfig;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchStore;
 import com.spiraleyes.fhirviewer.server.smart.SmartUrls;
@@ -55,23 +60,41 @@ import com.spiraleyes.fhirviewer.server.smart.SmartUrls;
 public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
 
     /**
-     * What the user did, for the caller to report in the status bar.
+     * What the user did, for the caller to report in the status bar — plus, as of Phase
+     * 04, any resource read through the authorized session and opened in the viewer.
      *
-     * <p>Same shape as {@link ServerManagerDialog.Result}: the caller only needs to know
-     * whether anything changed and what to say about it.</p>
+     * <p>Same shape as {@link ServerManagerDialog.Result}, with an optional resource on
+     * top: the workbench collects a read but never renders it itself, so the resource
+     * travels to the caller exactly like {@link RestConsoleDialog.Outcome} does, and the
+     * existing tree and Pretty View display it. A plain Close after a read carries
+     * nothing; only an explicit Open in viewer does, so closing the workbench never
+     * opens something the user did not ask to see.</p>
      */
-    public record Result(boolean changed, String message) {
+    public record Result(boolean changed, String message, IBaseResource resource,
+            String resourceLabel) {
         /** Nothing was changed. */
-        public static final Result UNCHANGED = new Result(false, "");
+        public static final Result UNCHANGED = new Result(false, "", null, null);
+
+        /** A result with no resource, as before Phase 04. */
+        public Result(boolean changed, String message) {
+            this(changed, message, null, null);
+        }
+
+        /** True when a resource was read and opened in the viewer. */
+        public boolean hasResource() {
+            return resource != null;
+        }
     }
 
     private final SmartLaunchStore store;
     private final SmartLaunchFormPanel form = new SmartLaunchFormPanel();
     private final SmartCapabilitiesPane capabilitiesPane = new SmartCapabilitiesPane();
     private final SmartSessionPane sessionPane = new SmartSessionPane();
+    private final SmartResourcePane resourcePane = new SmartResourcePane();
     private final SmartDiscoveryService discoveryService;
     private final BrowserLauncher browserLauncher;
     private final SmartAuthorizationFlow authorizationFlow;
+    private final SmartFhirAccess fhirAccess;
     private final List<SmartLaunchConfig> configs = new ArrayList<>();
     private final Label statusLabel = new Label();
 
@@ -86,6 +109,22 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
 
     /** The authorization currently in flight, so a close can stop it. */
     private BackgroundTasks.Running authorizationTask;
+
+    /**
+     * The authorized read currently in flight, so a second press or a close can stop
+     * it. Cancelled like the other two, from {@code setOnHidden} and before a re-read.
+     */
+    private BackgroundTasks.Running readTask;
+
+    /**
+     * The last resource read through the session, waiting for an explicit Open in
+     * viewer. Kept off {@link #lastResult} until then: a plain Close after a read must
+     * not open something the user did not ask to see.
+     */
+    private IBaseResource pendingResource;
+
+    /** The label for {@link #pendingResource} in the existing viewer. */
+    private String pendingLabel;
 
     private final Button newButton = new Button("New");
     private final Button saveButton = new Button("Save");
@@ -104,7 +143,19 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
      */
     public SmartLaunchDialog(SmartLaunchStore store) {
         this(store, new SmartDiscoveryService(), new DesktopBrowserLauncher(),
-                new SmartAuthorizationFlow());
+                new SmartAuthorizationFlow(), new SmartFhirAccess(PluginLoader.load()));
+    }
+
+    /**
+     * A dialog that reads through the application's real plugins: authorized reads
+     * resolve against the servers the user actually configured.
+     *
+     * @param store where the configurations are read from and written to
+     * @param fhirAccess the authorized-read service; never {@code null}
+     */
+    public SmartLaunchDialog(SmartLaunchStore store, SmartFhirAccess fhirAccess) {
+        this(store, new SmartDiscoveryService(), new DesktopBrowserLauncher(),
+                new SmartAuthorizationFlow(), fhirAccess);
     }
 
     /**
@@ -115,15 +166,23 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
      */
     SmartLaunchDialog(SmartLaunchStore store, SmartDiscoveryService discoveryService) {
         this(store, discoveryService, new DesktopBrowserLauncher(),
-                new SmartAuthorizationFlow());
+                new SmartAuthorizationFlow(), new SmartFhirAccess(PluginLoader.load()));
     }
 
     SmartLaunchDialog(SmartLaunchStore store, SmartDiscoveryService discoveryService,
             BrowserLauncher browserLauncher, SmartAuthorizationFlow authorizationFlow) {
+        this(store, discoveryService, browserLauncher, authorizationFlow,
+                new SmartFhirAccess(PluginLoader.load()));
+    }
+
+    SmartLaunchDialog(SmartLaunchStore store, SmartDiscoveryService discoveryService,
+            BrowserLauncher browserLauncher, SmartAuthorizationFlow authorizationFlow,
+            SmartFhirAccess fhirAccess) {
         this.store = store;
         this.discoveryService = Objects.requireNonNull(discoveryService, "discoveryService");
         this.browserLauncher = Objects.requireNonNull(browserLauncher, "browserLauncher");
         this.authorizationFlow = Objects.requireNonNull(authorizationFlow, "authorizationFlow");
+        this.fhirAccess = Objects.requireNonNull(fhirAccess, "fhirAccess");
 
         setTitle("SMART Launch Workbench");
         setHeaderText("Configure a SMART launch, discover what the server advertises, then "
@@ -157,6 +216,7 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         setOnHidden(event -> {
             cancelDiscovery();
             cancelAuthorization();
+            cancelRead();
         });
         buildContent();
         setStatus("Choose a saved launch, or fill in the form to create one. Nothing has "
@@ -172,6 +232,8 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     }
     private void buildContent() {
         form.onConfigChosen(this::onConfigChosen);
+        resourcePane.readButton().setOnAction(event -> onReadPatient());
+        resourcePane.openButton().setOnAction(event -> onOpenResource());
 
         // fitToWidth is what makes the form grow with the window: without it the grid stays
         // at its preferred width and the right-hand end of each field is cut off.
@@ -207,13 +269,13 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     }
 
     /**
-     * The four reserved panels: server capabilities, session and patient context,
+     * The panels beside the form: server capabilities, session and patient context,
      * diagnostics, and resource access.
      *
-     * <p>Real panels with real titles, stating what will appear in them and that nothing
-     * has run yet. An empty panel whose purpose is only written in the plan would read as
-     * "broken"; a panel that names the phase that fills it reads as the honest
-     * placeholder it is.</p>
+     * <p>The Diagnostics and Resource access entries arrived as honest placeholders in
+     * Phase 01; Capabilities went live in Phase 02, the Session panel in Phase 03, and
+     * Resource access in Phase 04, each replacing its placeholder text with a real
+     * panel. Diagnostics is still reserved for Phase 06.</p>
      */
     private TabPane buildReservedPanels() {
         TabPane tabs = new TabPane();
@@ -236,15 +298,24 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         Tab sessionTab = new Tab("Session");
         sessionTab.setContent(sessionScroll);
 
+        // The Resource access panel is live as of Phase 04: it performs the minimal
+        // authorized read (the granted patient context) and hands the resource to the
+        // caller for the existing viewer. Wrapped in a ScrollPane like the others, and
+        // named as the reserved tab was so its purpose reads the same.
+        ScrollPane resourcesScroll = new ScrollPane(resourcePane);
+        resourcesScroll.setFitToWidth(true);
+        resourcesScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        resourcesScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        Tab resourcesTab = new Tab("Resource access");
+        resourcesTab.setContent(resourcesScroll);
+
         tabs.getTabs().addAll(
                 capabilities,
                 sessionTab,
                 tab("Diagnostics", "Structured, redacted diagnostic events from discovery and "
                         + "authorization will be listed here as the launch progresses. "
                         + "Nothing has run yet."),
-                tab("Resource access", "Resources read through an authorized session will be "
-                        + "shown here with the existing tree and Pretty View. Nothing can be "
-                        + "read until a session exists."));
+                resourcesTab);
         return tabs;
     }
 
@@ -587,8 +658,11 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         }
         session = next;
         sessionPane.show(next);
+        clearPendingResource();
+        resourcePane.show(next);
         setStatus(next.describe() + ". Granted scopes, patient context, and expiry "
-                + "are in the Session panel.");
+                + "are in the Session panel. The granted patient can be read in the "
+                + "Resource access panel.");
         changed = true;
     }
 
@@ -599,7 +673,112 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
             session = null;
         }
         sessionPane.showNothingYet();
+        clearPendingResource();
+        resourcePane.showNothingYet();
         updateButtonState();
+    }
+
+    /** Drops a read result: it belonged to the session that just changed. */
+    private void clearPendingResource() {
+        pendingResource = null;
+        pendingLabel = null;
+    }
+
+    /**
+     * Reads the granted patient context through the authorized session, off the
+     * JavaFX thread.
+     *
+     * <p>The button is enabled only when the session granted a patient, so pressing it
+     * with nothing to read cannot happen through the UI; the guard stays anyway because
+     * a session can expire between the button being enabled and pressed. The session is
+     * captured up front and re-checked on completion: an authorize or logout that lands
+     * mid-read must not have its predecessor's resource displayed as if it belonged to
+     * the new session, which is exactly the concurrent-session overwrite Phase 04
+     * forbids.</p>
+     */
+    private void onReadPatient() {
+        SmartAuthorizationSession active = session;
+        if (active == null || active.isLoggedOut()) {
+            setStatus("Authorize first: a resource can only be read through an "
+                    + "authorized session.");
+            return;
+        }
+        cancelRead();
+        resourcePane.setReading(true);
+        setStatus("Reading the authorized patient from "
+                + SmartDiscoveryService.originOf(active.fhirBaseUrl()) + " ...");
+        readTask = BackgroundTasks.runAttempt("smart-fhir-read",
+                () -> BackgroundTasks.attempt(() -> fhirAccess.patient(active)),
+                attempt -> {
+                    readTask = null;
+                    resourcePane.setReading(false);
+                    if (attempt.cancelled()) {
+                        resourcePane.showFailure("The read was cancelled.");
+                        setStatus("The read was cancelled.");
+                        return;
+                    }
+                    if (!attempt.succeeded()) {
+                        String message = ServerErrors.redact(attempt.failure());
+                        resourcePane.showFailure(message);
+                        setStatus("Read failed: " + message);
+                        return;
+                    }
+                    Optional<IBaseResource> value = attempt.value();
+                    if (value == null || value.isEmpty()) {
+                        // The token granted a patient the server no longer serves — a
+                        // 404, not a scope problem — and the pane must say which.
+                        resourcePane.showFailure("The server says Patient "
+                                + active.patient() + " does not exist.");
+                        setStatus("The read finished, but the server has no Patient "
+                                + active.patient() + ".");
+                        return;
+                    }
+                    if (active.isLoggedOut() || active != session) {
+                        resourcePane.showFailure("The session changed while reading. "
+                                + "Read again if the current session can.");
+                        setStatus("The read finished for a session that is no longer "
+                                + "current; its resource was dropped, not displayed.");
+                        return;
+                    }
+                    pendingResource = value.get();
+                    pendingLabel = describeResource(pendingResource,
+                            active.fhirBaseUrl());
+                    resourcePane.showResource(pendingLabel);
+                    setStatus("Read " + pendingLabel + ". Choose Open in viewer "
+                            + "to display it with the existing tree and Pretty View.");
+                });
+    }
+
+    /**
+     * Hands the read resource to the caller and closes: exactly like
+     * {@code RestConsoleDialog}, the workbench collects the resource and never renders
+     * it, so the existing viewer does. Only this explicit button puts a resource on the
+     * result; a plain Close after a read carries nothing.
+     */
+    private void onOpenResource() {
+        if (pendingResource == null) {
+            return;
+        }
+        lastResult = new Result(changed, "Read " + pendingLabel + " through the "
+                + "authorized session.", pendingResource, pendingLabel);
+        close();
+    }
+
+    /** A human name for a resource bound for the main window; never any content. */
+    private static String describeResource(IBaseResource resource, String baseUrl) {
+        String id = resource.getIdElement() != null
+                && resource.getIdElement().hasIdPart()
+                        ? resource.getIdElement().getIdPart() : null;
+        return resource.fhirType() + (id == null ? "" : "/" + id)
+                + " (from an authorized SMART session)";
+    }
+
+    /** Stops an authorized read in flight, if there is one. Safe when idle. */
+    private void cancelRead() {
+        if (readTask != null) {
+            readTask.cancel();
+            readTask = null;
+        }
     }
 
     /** Stops an authorization in flight, if there is one. Safe when idle. */
@@ -686,6 +865,11 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     /** The Session panel, so a test can assert what authorization put on screen. */
     SmartSessionPane sessionPane() {
         return sessionPane;
+    }
+
+    /** The Resource access panel, so a test can drive reads like a user. */
+    SmartResourcePane resourcePane() {
+        return resourcePane;
     }
 
     /** The live session, or {@code null} when none exists. */

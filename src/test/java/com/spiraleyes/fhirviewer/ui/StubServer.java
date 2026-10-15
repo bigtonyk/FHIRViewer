@@ -32,6 +32,12 @@ final class StubServer {
     private final AtomicReference<String> contentType = new AtomicReference<>("");
     private final AtomicInteger requests = new AtomicInteger();
     /**
+     * The most recent {@code Authorization} header, or {@code null} when the last
+     * request carried none. Used so a test can prove which credential — or none —
+     * a screen actually sent, without reimplementing the request.
+     */
+    private final AtomicReference<String> authorization = new AtomicReference<>();
+    /**
      * Called with the running request count on every request, for tests that care how many
      * round trips a screen made rather than what came back.
      */
@@ -87,6 +93,11 @@ final class StubServer {
         return contentType.get();
     }
 
+    /** The most recent {@code Authorization} header, or {@code null} when none. */
+    String lastAuthorization() {
+        return authorization.get();
+    }
+
     int requestCount() {
         return requests.get();
     }
@@ -109,6 +120,7 @@ final class StubServer {
         path.set(exchange.getRequestURI().getRawPath());
         query.set(exchange.getRequestURI().getRawQuery());
         contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+        authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
         try (java.io.InputStream in = exchange.getRequestBody()) {
             // Always drained: a stream nobody read leaves the client waiting on a socket.
             body.set(new String(in.readAllBytes(), StandardCharsets.UTF_8));
