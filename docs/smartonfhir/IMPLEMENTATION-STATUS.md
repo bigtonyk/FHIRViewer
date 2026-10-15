@@ -17,7 +17,7 @@ Use this file as the source of truth for progress. Update it at the end of each 
 | 00 — Repository assessment | Implemented — automated tests pass | compile exit 0; 760 tests, 0 failures | Findings in `PHASE-00-REPOSITORY-ASSESSMENT.md`. No production code changed. Awaiting review before Phase 01. |
 | 01 — Workbench UI | Implemented — automated tests pass | compile exit 0; 776 tests, 0 failures | Tools > SMART Launch Workbench. CRUD persists to `~/.fhirviewer/smart-launches.properties`; Validate is local-only and says so; Discover/Authorize stay disabled until Phases 02/03. |
 | 02 — SMART discovery | Implemented — automated tests pass | compile exit 0; 798 tests, 0 failures | Discover is live in the workbench against `/.well-known/smart-configuration`; endpoints validated, redirects never followed, Authorize still disabled for Phase 03. |
-| 03 — OAuth / PKCE | Not started | Not run | |
+| 03 — OAuth / PKCE | Implemented — automated tests pass | compile exit 0; 836 tests, 0 failures | Authorization Code with PKCE S256: `SmartAuthorizationFlow` opens the system browser, the `LoopbackCallbackServer` on `127.0.0.1:0` collects the code/state, `SmartTokenExchangeService` posts the code + verifier (no client secret), then `SmartIdTokenValidator` verifies the ID token against the published JWKS. Tokens live in memory only (`SmartAuthorizationSession`), never logged. Workbench: Authorize enabled after Discover; Session panel; logout clears the session. UI test drives the full flow against scripted authorize + token stubs. |
 | 04 — Authorized FHIR access | Not started | Not run | |
 | 05 — EHR launch simulation | Not started | Not run | |
 | 06 — Diagnostics and release readiness | Not started | Not run | |

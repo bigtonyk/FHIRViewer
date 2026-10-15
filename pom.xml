@@ -171,6 +171,30 @@
       <version>0.21.0</version>
     </dependency>
 
+    <!--
+      JSON parsing for SMART discovery and token documents. Already on the
+      class path transitively via HAPI, but used directly by application
+      code — declared here (2.21.6, the resolved version) so a HAPI upgrade
+      cannot silently remove it. Apache License 2.0.
+    -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>2.21.6</version>
+    </dependency>
+
+    <!--
+      OIDC identity-token signature verification for SMART authorization.
+      Already on the class path transitively via HAPI (10.0.2, the resolved
+      version); declared direct by Phase 03 because ID-token trust must not
+      depend on a transitive accident. Apache License 2.0.
+    -->
+    <dependency>
+      <groupId>com.nimbusds</groupId>
+      <artifactId>nimbus-jose-jwt</artifactId>
+      <version>10.0.2</version>
+    </dependency>
+
     <!-- ==================== Tests ==================== -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>

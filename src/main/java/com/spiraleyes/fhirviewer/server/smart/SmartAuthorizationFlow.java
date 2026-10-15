@@ -1,0 +1,171 @@
+package com.spiraleyes.fhirviewer.server.smart;
+
+import java.io.IOException;
+import java.net.URI;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+
+import com.nimbusds.jose.jwk.JWK;
+import com.nimbusds.jwt.JWTClaimsSet;
+
+/**
+ * Runs one standalone authorization attempt end to end: discovery is
+ * already done by the caller, and this flow opens the browser, waits for
+ * the loopback callback, exchanges the code, and validates the ID token.
+ *
+ * <p>Blocking throughout — the caller runs it on a background thread, never
+ * on the JavaFX thread. The loopback server is owned here and is stopped on
+ * every path. Nothing is persisted: the session lives in memory and the
+ * PKCE verifier never leaves this attempt except in the token POST.</p>
+ */
+public final class SmartAuthorizationFlow {
+
+    /** How long the flow waits for the browser to return. */
+    public static final long CALLBACK_TIMEOUT_MINUTES = 5;
+
+    private final BrowserLauncher browserLauncher;
+    private final SmartTokenExchangeService exchangeService;
+    private final SmartJwksFetcher jwksFetcher;
+
+    /** A flow with production collaborators. */
+    public SmartAuthorizationFlow() {
+        this(new DesktopBrowserLauncher(), new SmartTokenExchangeService(),
+                new SmartJwksFetcher());
+    }
+
+    public SmartAuthorizationFlow(BrowserLauncher browserLauncher,
+            SmartTokenExchangeService exchangeService, SmartJwksFetcher jwksFetcher) {
+        this.browserLauncher = Objects.requireNonNull(browserLauncher, "browserLauncher");
+        this.exchangeService = Objects.requireNonNull(exchangeService, "exchangeService");
+        this.jwksFetcher = Objects.requireNonNull(jwksFetcher, "jwksFetcher");
+    }
+
+    /**
+     * Authorizes the launch: opens the browser and returns the session.
+     *
+     * @param config the launch to authorize; standalone with iss + client id
+     * @param discovered the discovery document; must be usable
+     * @return the in-memory session
+     * @throws SmartAuthorizationException when any step fails
+     */
+    public SmartAuthorizationSession authorize(SmartLaunchConfig config,
+            SmartConfiguration discovered) throws SmartAuthorizationException {
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(discovered, "discovered");
+        checkReady(config, discovered);
+        SmartAuthState authState = SmartAuthState.generate();
+        Pkce pkce = Pkce.generate();
+        LoopbackCallbackServer callback = listen(authState.state());
+        try {
+            callback.start();
+            String redirectUri = callback.redirectUri();
+            SmartAuthorizationRequest request = requestFor(
+                    config, discovered, authState, pkce, redirectUri);
+            URI authorizeUrl = request.toUri();
+            openBrowser(authorizeUrl);
+            String code = awaitCode(callback);
+            SmartTokenResponse tokens = exchangeService.exchange(
+                    discovered.tokenEndpoint(), config.clientId(), code,
+                    redirectUri, pkce.verifier());
+            String subject = validateIdentity(tokens, config, discovered, authState);
+            return new SmartAuthorizationSession(config.issuer(), tokens, subject);
+        } finally {
+            callback.close();
+        }
+    }
+
+    private static void checkReady(SmartLaunchConfig config, SmartConfiguration discovered)
+            throws SmartAuthorizationException {
+        if (!discovered.isUsable()) {
+            throw new SmartAuthorizationException(
+                    SmartAuthorizationException.Kind.INVALID_REQUEST,
+                    "This server cannot be launched against: its discovery document "
+                            + "is missing a usable authorization or token endpoint.");
+        }
+        List<String> problems = config.problems();
+        if (!problems.isEmpty()) {
+            throw new SmartAuthorizationException(
+                    SmartAuthorizationException.Kind.INVALID_REQUEST, problems.get(0));
+        }
+        if (!discovered.codeChallengeMethodsSupported().contains(Pkce.METHOD_S256)) {
+            throw new SmartAuthorizationException(
+                    SmartAuthorizationException.Kind.INVALID_REQUEST,
+                    "This server does not advertise PKCE S256, which is the only "
+                            + "method this application sends.");
+        }
+    }
+
+    private static LoopbackCallbackServer listen(String state)
+            throws SmartAuthorizationException {
+        try {
+            return new LoopbackCallbackServer(state);
+        } catch (IOException e) {
+            throw new SmartAuthorizationException(
+                    SmartAuthorizationException.Kind.NETWORK,
+                    "The local callback listener could not start.", e);
+        }
+    }
+
+    private static SmartAuthorizationRequest requestFor(SmartLaunchConfig config,
+            SmartConfiguration discovered, SmartAuthState authState, Pkce pkce,
+            String redirectUri) throws SmartAuthorizationException {
+        try {
+            String audience = config.audience() != null ? config.audience() : config.issuer();
+            return SmartAuthorizationRequest
+                    .to(discovered.authorizationEndpoint())
+                    .clientId(config.clientId())
+                    .redirectUri(redirectUri)
+                    .scopes(config.scopes())
+                    .audience(audience)
+                    .authState(authState)
+                    .pkce(pkce)
+                    .build();
+        } catch (IllegalArgumentException e) {
+            throw new SmartAuthorizationException(
+                    SmartAuthorizationException.Kind.INVALID_REQUEST, e.getMessage(), e);
+        }
+    }
+
+    private void openBrowser(URI authorizeUrl) throws SmartAuthorizationException {
+        BrowserLauncher.LaunchResult launched = browserLauncher.openAuthorizationUrl(authorizeUrl);
+        if (launched instanceof BrowserLauncher.LaunchResult.Unavailable unavailable) {
+            throw new SmartAuthorizationException(
+                    SmartAuthorizationException.Kind.BROWSER_UNAVAILABLE,
+                    unavailable.message() + " The authorization URL is: " + authorizeUrl);
+        }
+    }
+
+    private static String awaitCode(LoopbackCallbackServer callback)
+            throws SmartAuthorizationException {
+        LoopbackCallbackServer.CallbackOutcome outcome;
+        try {
+            outcome = callback.await(CALLBACK_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new SmartAuthorizationException(
+                    SmartAuthorizationException.Kind.CANCELLED,
+                    "The authorization was cancelled.", e);
+        }
+        if (outcome instanceof LoopbackCallbackServer.CallbackOutcome.Success success) {
+            return success.code();
+        }
+        throw new SmartAuthorizationException(
+                SmartAuthorizationException.Kind.INVALID_CALLBACK,
+                "The authorization did not complete.");
+    }
+
+    private String validateIdentity(SmartTokenResponse tokens, SmartLaunchConfig config,
+            SmartConfiguration discovered, SmartAuthState authState)
+            throws SmartAuthorizationException {
+        if (tokens.idToken() == null) {
+            return null;
+        }
+        List<JWK> keys = jwksFetcher.fetch(discovered.jwksUri());
+        JWTClaimsSet claims = SmartIdTokenValidator.validate(tokens.idToken(),
+                discovered.issuer() != null ? discovered.issuer() : config.issuer(),
+                config.clientId(), authState.nonce(), keys);
+        return claims.getSubject();
+    }
+}
+

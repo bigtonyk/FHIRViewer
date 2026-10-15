@@ -83,20 +83,22 @@ class SmartLaunchWorkbenchUiTest {
     }
 
     @Test
-    @DisplayName("The workbench builds, and only the not-yet-implemented phase stays disabled")
+    @DisplayName("The workbench builds, and Authorize waits for a usable discovery")
     void workbenchBuildsAndFutureActionsStayDisabled() throws Exception {
         runOnFxThread(() -> {
             SmartLaunchDialog dialog = new SmartLaunchDialog(store);
-            // Discover went live in Phase 02; Authorize waits for Phase 03. An enabled
-            // button with no implementation would be how fake success starts.
+            // Discover is live; Authorize needs a successful Discover behind
+            // it, so it starts disabled with no endpoints to send anywhere.
             assertFalse(dialog.discoverButton().isDisabled(),
                     "Discover is implemented: it must be pressable");
             assertTrue(dialog.authorizeButton().isDisabled(),
-                    "Authorize must be disabled until Phase 03 implements it");
+                    "Authorize needs discovery endpoints first");
             assertNotNull(dialog.validateButton(), "Validate is live: it only reads the form");
             assertTrue(dialog.statusText().contains("Nothing has"),
                     "the workbench must open saying no launch has happened: "
                             + dialog.statusText());
+            assertTrue(dialog.sessionPane().displayText().contains("No session"),
+                    "the Session panel must say no session exists yet");
             dialog.close();
         });
     }
@@ -311,6 +313,152 @@ class SmartLaunchWorkbenchUiTest {
         }
     }
 
+    @Test
+    @DisplayName("Authorize enables after discovery and completes against stub endpoints")
+    void authorizeCompletesAgainstStubs() throws Exception {
+        StubServer discovery = new StubServer();
+        discovery.start();
+        com.sun.net.httpserver.HttpServer auth = null;
+        try {
+            auth = com.sun.net.httpserver.HttpServer.create(
+                    new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+            String tokenBase = "http://127.0.0.1:" + auth.getAddress().getPort();
+            auth.createContext("/token", exchange -> {
+                byte[] request;
+                try (java.io.InputStream in = exchange.getRequestBody()) {
+                    request = in.readAllBytes();
+                }
+                String form = new String(request, java.nio.charset.StandardCharsets.UTF_8);
+                String answer;
+                int status;
+                if (form.contains("grant_type=authorization_code")
+                        && form.contains("code_verifier=")
+                        && !form.contains("client_secret")) {
+                    status = 200;
+                    answer = "{\"access_token\": \"stub-access-token\","
+                            + " \"token_type\": \"Bearer\", \"expires_in\": 3600,"
+                            + " \"scope\": \"launch/patient patient/*.read\","
+                            + " \"patient\": \"stub-patient\"}";
+                } else {
+                    status = 400;
+                    answer = "{\"error\":\"invalid_request\"}";
+                }
+                byte[] bytes = answer.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(status, bytes.length);
+                try (java.io.OutputStream out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+            });
+            auth.createContext("/authorize", exchange -> {
+                String query = exchange.getRequestURI().getRawQuery();
+                String state = "";
+                String redirect = "";
+                for (String pair : query.split("&")) {
+                    int at = pair.indexOf('=');
+                    String name = at < 0 ? pair : pair.substring(0, at);
+                    String value = at < 0 ? "" : pair.substring(at + 1);
+                    if (name.equals("state")) {
+                        state = value;
+                    } else if (name.equals("redirect_uri")) {
+                        redirect = java.net.URLDecoder.decode(
+                                value, java.nio.charset.StandardCharsets.UTF_8);
+                    }
+                }
+                exchange.getResponseHeaders().set("Location",
+                        redirect + "?code=stub-code&state=" + state);
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+            });
+            auth.start();
+            String fhirBase = discovery.baseUrl();
+            discovery.answerWith(200, "application/json", """
+                    {
+                      "issuer": "__AUTH__",
+                      "authorization_endpoint": "__AUTH__/authorize",
+                      "token_endpoint": "__AUTH__/token",
+                      "capabilities": ["launch-standalone", "client-public"],
+                      "code_challenge_methods_supported": ["S256"]
+                    }
+                    """.replace("__AUTH__", tokenBase));
+
+            com.spiraleyes.fhirviewer.server.smart.BrowserLauncher following = url -> {
+                try {
+                    java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                            .connectTimeout(java.time.Duration.ofSeconds(10))
+                            .followRedirects(java.net.http.HttpClient.Redirect.ALWAYS)
+                            .build();
+                    client.send(java.net.http.HttpRequest.newBuilder(url)
+                                    .timeout(java.time.Duration.ofSeconds(10)).GET().build(),
+                            java.net.http.HttpResponse.BodyHandlers.discarding());
+                } catch (Exception e) {
+                    return new com.spiraleyes.fhirviewer.server.smart.BrowserLauncher
+                            .LaunchResult.Unavailable("stub browser failed");
+                }
+                return new com.spiraleyes.fhirviewer.server.smart.BrowserLauncher
+                        .LaunchResult.Opened();
+            };
+            com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationFlow flow =
+                    new com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationFlow(
+                            following,
+                            new com.spiraleyes.fhirviewer.server.smart
+                                    .SmartTokenExchangeService(
+                                            java.time.Duration.ofSeconds(10),
+                                            java.time.Duration.ofSeconds(10)),
+                            new com.spiraleyes.fhirviewer.server.smart.SmartJwksFetcher(
+                                    java.time.Duration.ofSeconds(10),
+                                    java.time.Duration.ofSeconds(10)));
+
+            AtomicReference<SmartLaunchDialog> shown = new AtomicReference<>();
+            runOnFxThread(() -> {
+                SmartLaunchDialog dialog = new SmartLaunchDialog(store,
+                        new com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryService(
+                                java.time.Duration.ofSeconds(10),
+                                java.time.Duration.ofSeconds(10)),
+                        following, flow);
+                dialog.form().issuerField().setText(fhirBase);
+                dialog.form().clientIdField().setText("stub-client");
+                dialog.form().scopesField().setText("launch/patient patient/*.read");
+                dialog.form().nameField().setText("Stub patient");
+                dialog.discoverButton().fire();
+                shown.set(dialog);
+            });
+
+            String discovered = waitForDiscovery(shown.get());
+            assertTrue(discovered.contains("Discovered"), "discovery must succeed: " + discovered);
+            runOnFxThread(() -> {
+                assertFalse(shown.get().authorizeButton().isDisabled(),
+                        "Authorize enables after a usable discovery");
+                shown.get().authorizeButton().fire();
+            });
+
+            String settled = waitForStatus(shown.get(), "Waiting for the browser", 30_000);
+            assertTrue(settled.contains("Access token received"),
+                    "the stub grant must become a session: " + settled);
+            assertFalse(settled.contains("stub-access-token"),
+                    "the status must never carry the token: " + settled);
+            runOnFxThread(() -> {
+                assertNotNull(shown.get().session(), "a session must exist after Authorize");
+                assertEquals("stub-patient", shown.get().session().patient());
+                assertEquals("stub-access-token", shown.get().session().accessToken());
+                String display = shown.get().sessionPane().displayText();
+                assertTrue(display.contains("stub-patient"),
+                        "patient context must reach the panel: " + display);
+                assertFalse(display.contains("stub-access-token"),
+                        "the token must never reach the panel: " + display);
+                shown.get().logoutSession();
+                assertTrue(shown.get().sessionPane().displayText().contains("No session"),
+                        "logout must reset the panel");
+                shown.get().close();
+            });
+        } finally {
+            discovery.stop();
+            if (auth != null) {
+                auth.stop(0);
+            }
+        }
+    }
+
     /**
      * Waits for a discovery started in the workbench to settle.
      *
@@ -326,6 +474,24 @@ class SmartLaunchWorkbenchUiTest {
         while (System.currentTimeMillis() < deadline) {
             runOnFxThread(() -> status.set(dialog.statusText()));
             if (!status.get().contains("Discovering from")) {
+                return status.get();
+            }
+            Thread.sleep(100);
+        }
+        return status.get();
+    }
+
+    /**
+     * Waits until the workbench stops saying {@code waitingText}, then
+     * returns the settled status.
+     */
+    private static String waitForStatus(SmartLaunchDialog dialog, String waitingText,
+            long timeoutMillis) throws Exception {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        AtomicReference<String> status = new AtomicReference<>("");
+        while (System.currentTimeMillis() < deadline) {
+            runOnFxThread(() -> status.set(dialog.statusText()));
+            if (!status.get().contains(waitingText)) {
                 return status.get();
             }
             Thread.sleep(100);

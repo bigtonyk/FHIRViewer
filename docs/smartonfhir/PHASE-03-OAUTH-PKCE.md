@@ -95,3 +95,50 @@ If a test server cannot complete the flow, document the blocker. Do not weaken s
 ## Completion report
 
 Record changed files, dependencies, test results, security decisions, and manual verification steps. Update `IMPLEMENTATION-STATUS.md`. Stop after this phase.
+
+### What was implemented
+
+- **New package `server/smart/`:**
+  - `Pkce.java` — S256 verifier/challenge from the platform CSPRNG
+  - `SmartAuthState.java` — opaque CSRF `state` + OIDC `nonce`
+  - `SmartAuthorizationRequest.java` — URI-built authorize URL (no query-string concat)
+  - `LoopbackCallbackServer.java` — `127.0.0.1` ephemeral port, one callback, path/state/code validation, timeouts, no repeat processing
+  - `BrowserLauncher.java` / `DesktopBrowserLauncher.java` — `Desktop.browse` with an unavailable result
+  - `SmartTokenResponse.java` — grant model: access token, type, expiry, granted scope, patient, encounter, id_token, refresh_token
+  - `SmartTokenExchangeService.java` — authorization-code POST with the original verifier and exact redirect URI; no client secret
+  - `SmartIdTokenValidator.java` — Nimbus JOSE+JWT signature verification, then issuer/audience/expiry/nonce claims
+  - `SmartAuthorizationSession.java` — in-memory session with expiry, granted scopes, patient/encounter, logout
+  - `SmartAuthorizationFlow.java` — blocking end-to-end orchestration
+  - `SmartJwksFetcher.java` — JDK `HttpClient`, redirects never followed, capped body
+  - `SmartAuthorizationException.java` — typed, user-facing diagnostics
+- **Workflow:** `SmartLaunchDialog` now shows the Authorize button after a successful Discover, opens the browser, and renders the new `SmartSessionPane`; a session is cleared on logout.
+
+### Dependencies
+
+- `jackson-databind` 2.21.6 — JSON parsing for discovery and token documents (Apache-2.0)
+- `nimbus-jose-jwt` 10.0.2 — ID-token signature verification (Apache-2.0)
+
+Both were previously only transitive via HAPI and are now declared direct so ID-token trust does not depend on a transitive accident.
+
+### Test results
+
+`mvnw.cmd -o test` → BUILD SUCCESS; surefire tally **836 tests, 0 failures, 0 errors, 0 skipped** (the Phase 02 total 798 + 38 in this phase).
+
+### Security decisions
+
+- Public client, no client secret anywhere in the flow.
+- Tokens are only in memory; `SmartAuthorizationSession.logout()` clears them.
+- No secret, code, verifier, or state reaches any log line — `ServerErrors.redact()` applies to every diagnostic.
+- Redirect URI is loopback-only; the token endpoint is not downgraded to plain http.
+- The ID token is signature-checked before any claims are trusted; an unsigned token is rejected.
+
+### Manual verification steps
+
+1. Open Tools > SMART Launch Workbench, enter a FHIR base URL and client id, choose Discover; the Capabilities panel fills with the advertised endpoints.
+2. Choose Authorize and complete the sign-in in the system browser that opens; the Session panel shows granted scopes, patient context, token expiry, and a user identity when the server issues one.
+3. Log out and confirm the Session panel resets and the Client ID is no longer used for anything else.
+4. Point the base URL at a plain (non-SMART) FHIR server and confirm the workbench reports a diagnosis rather than launching.
+
+### Stop
+
+The SMART on FHIR feature reaches Phase 03. `IMPLEMENTATION-STATUS.md` records the result; `PHASE-04` is the next phase.

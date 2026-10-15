@@ -20,6 +20,10 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
+import com.spiraleyes.fhirviewer.server.smart.BrowserLauncher;
+import com.spiraleyes.fhirviewer.server.smart.DesktopBrowserLauncher;
+import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationFlow;
+import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationSession;
 import com.spiraleyes.fhirviewer.server.smart.SmartConfiguration;
 import com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryException;
 import com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryService;
@@ -64,12 +68,24 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     private final SmartLaunchStore store;
     private final SmartLaunchFormPanel form = new SmartLaunchFormPanel();
     private final SmartCapabilitiesPane capabilitiesPane = new SmartCapabilitiesPane();
+    private final SmartSessionPane sessionPane = new SmartSessionPane();
     private final SmartDiscoveryService discoveryService;
+    private final BrowserLauncher browserLauncher;
+    private final SmartAuthorizationFlow authorizationFlow;
     private final List<SmartLaunchConfig> configs = new ArrayList<>();
     private final Label statusLabel = new Label();
 
+    /** Discovery metadata from the last successful Discover, for Authorize. */
+    private SmartConfiguration discovered;
+
+    /** The live session, or {@code null} when none exists. */
+    private SmartAuthorizationSession session;
+
     /** The discovery currently in flight, so a second press or a close can stop it. */
     private BackgroundTasks.Running discoveryTask;
+
+    /** The authorization currently in flight, so a close can stop it. */
+    private BackgroundTasks.Running authorizationTask;
 
     private final Button newButton = new Button("New");
     private final Button saveButton = new Button("Save");
@@ -87,23 +103,31 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
      * @param store where the configurations are read from and written to
      */
     public SmartLaunchDialog(SmartLaunchStore store) {
-        this(store, new SmartDiscoveryService());
+        this(store, new SmartDiscoveryService(), new DesktopBrowserLauncher(),
+                new SmartAuthorizationFlow());
     }
 
     /**
-     * A dialog with a chosen discovery service, so a test can give it short deadlines.
+     * A dialog with chosen services, so a test can give short deadlines.
      *
-     * @param store            where the configurations are read from and written to
+     * @param store where the configurations are read from and written to
      * @param discoveryService the discovery implementation; never {@code null}
      */
     SmartLaunchDialog(SmartLaunchStore store, SmartDiscoveryService discoveryService) {
+        this(store, discoveryService, new DesktopBrowserLauncher(),
+                new SmartAuthorizationFlow());
+    }
+
+    SmartLaunchDialog(SmartLaunchStore store, SmartDiscoveryService discoveryService,
+            BrowserLauncher browserLauncher, SmartAuthorizationFlow authorizationFlow) {
         this.store = store;
         this.discoveryService = Objects.requireNonNull(discoveryService, "discoveryService");
+        this.browserLauncher = Objects.requireNonNull(browserLauncher, "browserLauncher");
+        this.authorizationFlow = Objects.requireNonNull(authorizationFlow, "authorizationFlow");
 
         setTitle("SMART Launch Workbench");
         setHeaderText("Configure a SMART launch, discover what the server advertises, then "
-                + "authorize. Authorization arrives with Phase 03 and stays disabled until "
-                + "then.");
+                + "authorize in the system browser.");
         setResizable(true);
         // Wide enough for the form beside the reserved panels; the ScrollPane inside the
         // form handles anything the fields need beyond this.
@@ -128,11 +152,12 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         });
 
         setResultConverter(button -> null);
-        // Dialog.close() is final, so this is where a discovery in flight is stopped: the
-        // hidden event fires for a Close press and for a programmatic close alike, and a
-        // result delivered to nodes that are no longer shown would be both useless and a
-        // hold on the daemon thread for the length of its deadline.
-        setOnHidden(event -> cancelDiscovery());
+        // Dialog.close() is final, so this is where work in flight is stopped: the
+        // hidden event fires for a Close press and for a programmatic close alike.
+        setOnHidden(event -> {
+            cancelDiscovery();
+            cancelAuthorization();
+        });
         buildContent();
         setStatus("Choose a saved launch, or fill in the form to create one. Nothing has "
                 + "been discovered or authorized yet.");
@@ -204,12 +229,16 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         Tab capabilities = new Tab("Capabilities");
         capabilities.setContent(capabilitiesScroll);
 
+        ScrollPane sessionScroll = new ScrollPane(sessionPane);
+        sessionScroll.setFitToWidth(true);
+        sessionScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        sessionScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        Tab sessionTab = new Tab("Session");
+        sessionTab.setContent(sessionScroll);
+
         tabs.getTabs().addAll(
                 capabilities,
-                tab("Session", "Authorization state, granted scopes, patient id, encounter "
-                        + "id, user identity and token expiry will be listed here. No session "
-                        + "exists yet; authorization arrives in Phase 03. The raw access "
-                        + "token is never shown in this panel."),
+                sessionTab,
                 tab("Diagnostics", "Structured, redacted diagnostic events from discovery and "
                         + "authorization will be listed here as the launch progresses. "
                         + "Nothing has run yet."),
@@ -237,13 +266,13 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         validateButton.setOnAction(event -> onValidate());
         validateButton.getStyleClass().add("button-ghost");
 
-        // Discover is live as of Phase 02. Authorize stays disabled with a tooltip naming
-        // the phase: a button with no implementation must never be pressable, or the
-        // workbench would be showing a success the flow has not earned.
+        // Discover is live since Phase 02; Authorize is live since Phase 03 and
+        // runs only after a successful Discover, because the flow needs the
+        // authorization and token endpoints discovery learned.
         discoverButton.setOnAction(event -> onDiscover());
-        authorizeButton.setDisable(true);
+        authorizeButton.setOnAction(event -> onAuthorize());
         authorizeButton.setTooltip(new javafx.scene.control.Tooltip(
-                "Not available yet: PKCE authorization arrives in Phase 03."));
+                "Authorize in the system browser. Needs a successful Discover first."));
 
         newButton.setOnAction(event -> onNew());
         for (Button button : List.of(newButton, saveButton, deleteButton, validateButton,
@@ -318,11 +347,13 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         // Save works on whatever the form holds, so it is enabled both for a selected
         // launch and while a new one is being filled in. Delete only ever applies to a
         // launch that is already in the list. Validate always works: it reads the form,
-        // not the store. Discover is live since Phase 02 and is locked only while a
-        // request is in flight. Authorize stays disabled until Phase 03 - set at
-        // construction and never touched here, which is the point.
+        // not the store. Discover is locked only while a request is in flight.
+        // Authorize needs a successful Discover behind it — without endpoints the
+        // flow has nowhere to send the browser — and locks while authorizing.
         saveButton.setDisable(!(editing != null || addingNew));
         deleteButton.setDisable(editing == null);
+        boolean busy = discoveryTask != null || authorizationTask != null;
+        authorizeButton.setDisable(busy || discovered == null || !discovered.isUsable());
     }
     private void onSave() {
         // Captured first: editing the fields must not lose the id this is derived from.
@@ -476,11 +507,13 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
 
     /** Fills the Capabilities panel and says what was learned, problems included. */
     private void showDiscovered(SmartConfiguration configuration, String issuer) {
+        this.discovered = configuration;
         capabilitiesPane.show(configuration);
         List<String> problems = configuration.problems();
         if (problems.isEmpty()) {
             setStatus("Discovered " + configuration.capabilities().size()
-                    + " capability(ies). The server can be launched against.");
+                    + " capability(ies). The server can be launched against. "
+                    + "Choose Authorize to sign in.");
         } else {
             setStatus("Discovered the configuration, but it has " + problems.size()
                     + " problem(s): " + problems.get(0)
@@ -500,6 +533,89 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
             setStatus(statusLabel.getText() + " Note: the document's issuer (" + declared
                     + ") differs from the URL it was fetched from.");
         }
+        updateButtonState();
+    }
+
+    /**
+     * Authorizes the launch in the system browser: PKCE + loopback callback
+     * + token exchange, off the JavaFX thread.
+     *
+     * <p>The configuration comes from the form, not the store, so a user can
+     * authorize a launch they just typed without saving it first — the same
+     * arrangement discovery uses. A session replaces the previous one; the
+     * old session is logged out first so two tokens never coexist.</p>
+     */
+    private void onAuthorize() {
+        SmartLaunchConfig config;
+        try {
+            config = form.toConfig(editing);
+        } catch (IllegalArgumentException e) {
+            setStatus(e.getMessage());
+            return;
+        }
+        if (discovered == null || !discovered.isUsable()) {
+            setStatus("Choose Discover first: authorization needs the endpoints discovery learns.");
+            return;
+        }
+        cancelAuthorization();
+        setAuthorizeBusy(true);
+        setStatus("Waiting for the browser: sign in there, then return here. "
+                + "Closing this dialog cancels the attempt.");
+
+        SmartConfiguration endpoints = discovered;
+        authorizationTask = BackgroundTasks.runAttempt("smart-authorize",
+                () -> BackgroundTasks.attempt(() -> authorizationFlow.authorize(config, endpoints)),
+                attempt -> {
+                    setAuthorizeBusy(false);
+                    authorizationTask = null;
+                    if (attempt.cancelled()) {
+                        setStatus("Authorization was cancelled.");
+                    } else if (!attempt.succeeded()) {
+                        setStatus("Authorization failed: "
+                                + ServerErrors.redact(attempt.failure()));
+                    } else {
+                        showSession(attempt.value());
+                    }
+                    updateButtonState();
+                });
+    }
+
+    /** Shows the new session and logs out the previous one, if there was one. */
+    private void showSession(SmartAuthorizationSession next) {
+        if (session != null && !session.isLoggedOut()) {
+            session.logout();
+        }
+        session = next;
+        sessionPane.show(next);
+        setStatus(next.describe() + ". Granted scopes, patient context, and expiry "
+                + "are in the Session panel.");
+        changed = true;
+    }
+
+    /** Clears the session (logout): tokens are dropped, the panel resets. */
+    void logoutSession() {
+        if (session != null) {
+            session.logout();
+            session = null;
+        }
+        sessionPane.showNothingYet();
+        updateButtonState();
+    }
+
+    /** Stops an authorization in flight, if there is one. Safe when idle. */
+    private void cancelAuthorization() {
+        if (authorizationTask != null) {
+            authorizationTask.cancel();
+            authorizationTask = null;
+        }
+    }
+
+    /** Locks the buttons while authorization runs. */
+    private void setAuthorizeBusy(boolean busy) {
+        authorizeButton.setDisable(busy);
+        discoverButton.setDisable(busy);
+        saveButton.setDisable(busy || !(editing != null || addingNew));
+        deleteButton.setDisable(busy || editing == null);
     }
 
     /** Stops a discovery in flight, if there is one. Safe to call when there is none. */
@@ -557,18 +673,28 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         return discoverButton;
     }
 
-    /** Stays disabled until Phase 03 wires authorization up; a test asserts exactly that. */
+    /** Stays disabled until a usable discovery exists; a test asserts exactly that. */
     Button authorizeButton() {
         return authorizeButton;
-    }
-
-    /** The status line's text, so a test can assert what the user was told. */
-    String statusText() {
-        return statusLabel.getText();
     }
 
     /** The Capabilities panel, so a test can assert what discovery put on screen. */
     SmartCapabilitiesPane capabilitiesPane() {
         return capabilitiesPane;
+    }
+
+    /** The Session panel, so a test can assert what authorization put on screen. */
+    SmartSessionPane sessionPane() {
+        return sessionPane;
+    }
+
+    /** The live session, or {@code null} when none exists. */
+    SmartAuthorizationSession session() {
+        return session;
+    }
+
+    /** The status line's text, so a test can assert what the user was told. */
+    String statusText() {
+        return statusLabel.getText();
     }
 }
