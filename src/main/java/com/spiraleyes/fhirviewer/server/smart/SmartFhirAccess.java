@@ -1,5 +1,7 @@
 package com.spiraleyes.fhirviewer.server.smart;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -10,6 +12,7 @@ import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
 import com.spiraleyes.fhirviewer.server.ServerDefinition;
 import com.spiraleyes.fhirviewer.server.ServerOperationException;
 import com.spiraleyes.fhirviewer.server.ServerSession;
+import com.spiraleyes.fhirviewer.ui.ServerErrors;
 
 /**
  * The minimal authorized FHIR reads a SMART session enables, and only ever against the
@@ -39,6 +42,7 @@ import com.spiraleyes.fhirviewer.server.ServerSession;
 public final class SmartFhirAccess {
 
     private final FhirServerPluginRegistry registry;
+    private final SmartDiagnostics diagnostics;
 
     /**
      * @param registry the plugin registry that serves the session's server; never
@@ -46,7 +50,17 @@ public final class SmartFhirAccess {
      *                 production, so a vendor plugin still answers its own servers.
      */
     public SmartFhirAccess(FhirServerPluginRegistry registry) {
+        this(registry, new SmartDiagnostics());
+    }
+
+    /**
+     * @param registry the plugin registry that serves the session's server; never
+     *                 {@code null}
+     * @param diagnostics the diagnostic recorder; never {@code null}
+     */
+    SmartFhirAccess(FhirServerPluginRegistry registry, SmartDiagnostics diagnostics) {
         this.registry = Objects.requireNonNull(registry, "registry");
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
     }
 
     /**
@@ -73,7 +87,28 @@ public final class SmartFhirAccess {
         if (patientId == null || patientId.isBlank()) {
             return Optional.empty();
         }
-        return readGranted(session, "Patient", patientId);
+        Instant started = Instant.now();
+        diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
+                SmartDiagnosticsEvent.Kind.REQUEST_STARTED,
+                "Reading patient context through the authorized session",
+                "GET " + session.fhirBaseUrl() + "/Patient/" + patientId);
+        try {
+            Optional<IBaseResource> result = readGranted(session, "Patient", patientId);
+            long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
+            diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
+                    SmartDiagnosticsEvent.Kind.REQUEST_COMPLETED,
+                    "Patient context read completed",
+                    "status=200, elapsed=" + elapsedMillis + "ms");
+            return result;
+        } catch (ServerOperationException failure) {
+            long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
+            int status = failure.httpStatus();
+            diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
+                    SmartDiagnosticsEvent.Kind.FAILED,
+                    "Patient context read failed: " + ServerErrors.redact(failure.getMessage()),
+                    "status=" + status + ", elapsed=" + elapsedMillis + "ms");
+            throw failure;
+        }
     }
 
     /**
@@ -103,7 +138,32 @@ public final class SmartFhirAccess {
             throw new IllegalArgumentException("A resource id is required for a read.");
         }
         requireUsable(session);
-        return readGranted(session, resourceType.strip(), resourceId.strip());
+        Instant started = Instant.now();
+        String endpoint = session.fhirBaseUrl() + "/" + resourceType.strip() + "/"
+                + resourceId.strip();
+        diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
+                SmartDiagnosticsEvent.Kind.REQUEST_STARTED,
+                "Reading " + resourceType.strip() + " through the authorized session",
+                "GET " + endpoint);
+        try {
+            Optional<IBaseResource> result = readGranted(session, resourceType.strip(),
+                    resourceId.strip());
+            long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
+            diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
+                    SmartDiagnosticsEvent.Kind.REQUEST_COMPLETED,
+                    resourceType.strip() + " read completed",
+                    "status=200, elapsed=" + elapsedMillis + "ms");
+            return result;
+        } catch (ServerOperationException failure) {
+            long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
+            int status = failure.httpStatus();
+            diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
+                    SmartDiagnosticsEvent.Kind.FAILED,
+                    resourceType.strip() + " read failed: "
+                            + ServerErrors.redact(failure.getMessage()),
+                    "status=" + status + ", elapsed=" + elapsedMillis + "ms");
+            throw failure;
+        }
     }
 
     /**

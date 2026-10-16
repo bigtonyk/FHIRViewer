@@ -29,6 +29,8 @@ import com.spiraleyes.fhirviewer.server.smart.DesktopBrowserLauncher;
 import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationFlow;
 import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationSession;
 import com.spiraleyes.fhirviewer.server.smart.SmartConfiguration;
+import com.spiraleyes.fhirviewer.server.smart.SmartDiagnostics;
+import com.spiraleyes.fhirviewer.server.smart.SmartDiagnosticsEvent;
 import com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryException;
 import com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryService;
 import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
@@ -91,6 +93,8 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     private final SmartCapabilitiesPane capabilitiesPane = new SmartCapabilitiesPane();
     private final SmartSessionPane sessionPane = new SmartSessionPane();
     private final SmartResourcePane resourcePane = new SmartResourcePane();
+    private final SmartDiagnostics diagnostics = new SmartDiagnostics();
+    private final SmartDiagnosticsPane diagnosticsPane = new SmartDiagnosticsPane(diagnostics);
     private final SmartDiscoveryService discoveryService;
     private final BrowserLauncher browserLauncher;
     private final SmartAuthorizationFlow authorizationFlow;
@@ -312,9 +316,7 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         tabs.getTabs().addAll(
                 capabilities,
                 sessionTab,
-                tab("Diagnostics", "Structured, redacted diagnostic events from discovery and "
-                        + "authorization will be listed here as the launch progresses. "
-                        + "Nothing has run yet."),
+                new Tab("Diagnostics", diagnosticsPane),
                 resourcesTab);
         return tabs;
     }
@@ -492,6 +494,11 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
                     + "Phase 02.");
         } else {
             setStatus(config.name() + ": " + String.join(" ", problems));
+            diagnostics.record(SmartDiagnosticsEvent.Phase.VALIDATION,
+                    SmartDiagnosticsEvent.Kind.ERROR,
+                    "Launch configuration validation found " + problems.size()
+                            + " problem(s): " + String.join("; ", problems),
+                    config.name());
         }
     }
     /** Reads the saved configurations once, at construction. */
@@ -557,6 +564,10 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         // string can carry a patient identifier. originOf swallows anything unparseable,
         // so a URL the service will refuse is still safe to name here.
         setStatus("Discovering from " + SmartDiscoveryService.originOf(issuer) + " ...");
+        diagnostics.record(SmartDiagnosticsEvent.Phase.DISCOVERY,
+                SmartDiagnosticsEvent.Kind.STARTED,
+                "Discovery started against " + SmartDiscoveryService.originOf(issuer),
+                issuer);
 
         discoveryTask = BackgroundTasks.runAttempt("smart-discovery",
                 () -> BackgroundTasks.attempt(() -> discoveryService.discover(issuer)),
@@ -567,8 +578,13 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
                         capabilitiesPane.showNothingYet();
                         setStatus("Discovery was cancelled.");
                     } else if (!attempt.succeeded()) {
-                        capabilitiesPane.showFailure(ServerErrors.redact(attempt.failure()));
-                        setStatus("Discovery failed: " + ServerErrors.redact(attempt.failure()));
+                        String reason = ServerErrors.redact(attempt.failure());
+                        capabilitiesPane.showFailure(reason);
+                        setStatus("Discovery failed: " + reason);
+                        diagnostics.record(SmartDiagnosticsEvent.Phase.DISCOVERY,
+                                SmartDiagnosticsEvent.Kind.FAILED,
+                                "Discovery failed: " + reason,
+                                issuer);
                     } else {
                         showDiscovered(attempt.value(), issuer);
                     }
@@ -579,6 +595,12 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     private void showDiscovered(SmartConfiguration configuration, String issuer) {
         this.discovered = configuration;
         capabilitiesPane.show(configuration);
+        diagnostics.record(SmartDiagnosticsEvent.Phase.DISCOVERY,
+                SmartDiagnosticsEvent.Kind.COMPLETED,
+                "Discovery completed; " + configuration.capabilities().size()
+                        + " capability(ies) advertised, "
+                        + configuration.problems().size() + " problem(s)",
+                configuration.issuer());
         List<String> problems = configuration.problems();
         if (problems.isEmpty()) {
             setStatus("Discovered " + configuration.capabilities().size()
@@ -631,6 +653,10 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         setAuthorizeBusy(true);
         setStatus("Waiting for the browser: sign in there, then return here. "
                 + "Closing this dialog cancels the attempt.");
+        diagnostics.record(SmartDiagnosticsEvent.Phase.AUTHORIZATION,
+                SmartDiagnosticsEvent.Kind.REQUEST_INITIATED,
+                "Authorization request initiated for " + SmartDiscoveryService.originOf(config.issuer()),
+                "mode=" + config.mode());
 
         SmartConfiguration endpoints = discovered;
         authorizationTask = BackgroundTasks.runAttempt("smart-authorize",
@@ -640,9 +666,17 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
                     authorizationTask = null;
                     if (attempt.cancelled()) {
                         setStatus("Authorization was cancelled.");
+                        diagnostics.record(SmartDiagnosticsEvent.Phase.AUTHORIZATION,
+                                SmartDiagnosticsEvent.Kind.FAILED,
+                                "Authorization was cancelled by the user",
+                                null);
                     } else if (!attempt.succeeded()) {
-                        setStatus("Authorization failed: "
-                                + ServerErrors.redact(attempt.failure()));
+                        String reason = ServerErrors.redact(attempt.failure());
+                        setStatus("Authorization failed: " + reason);
+                        diagnostics.record(SmartDiagnosticsEvent.Phase.AUTHORIZATION,
+                                SmartDiagnosticsEvent.Kind.FAILED,
+                                "Authorization failed: " + reason,
+                                null);
                     } else {
                         showSession(attempt.value());
                     }
@@ -659,6 +693,12 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         sessionPane.show(next);
         clearPendingResource();
         resourcePane.show(next);
+        diagnostics.record(SmartDiagnosticsEvent.Phase.SESSION,
+                SmartDiagnosticsEvent.Kind.CREATED,
+                "Session created; access token held in memory, never logged",
+                "patient=" + (next.patient() == null ? "absent" : "present")
+                        + ", encounter=" + (next.encounter() == null ? "absent" : "present")
+                        + ", scopes=" + (next.grantedScope() == null ? "not stated" : next.grantedScope()));
         setStatus(next.describe() + ". Granted scopes, patient context, and expiry "
                 + "are in the Session panel. The granted patient can be read in the "
                 + "Resource access panel.");
@@ -671,6 +711,10 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
             session.logout();
             session = null;
         }
+        diagnostics.record(SmartDiagnosticsEvent.Phase.SESSION,
+                SmartDiagnosticsEvent.Kind.LOGGED_OUT,
+                "Session cleared by logout; token dropped from memory",
+                null);
         sessionPane.showNothingYet();
         clearPendingResource();
         resourcePane.showNothingYet();

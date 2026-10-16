@@ -31,18 +31,30 @@ public final class SmartAuthorizationFlow {
     private final BrowserLauncher browserLauncher;
     private final SmartTokenExchangeService exchangeService;
     private final SmartJwksFetcher jwksFetcher;
+    private final SmartDiagnostics diagnostics;
 
     /** A flow with production collaborators. */
     public SmartAuthorizationFlow() {
         this(new DesktopBrowserLauncher(), new SmartTokenExchangeService(),
-                new SmartJwksFetcher());
+                new SmartJwksFetcher(), new SmartDiagnostics());
     }
 
     public SmartAuthorizationFlow(BrowserLauncher browserLauncher,
             SmartTokenExchangeService exchangeService, SmartJwksFetcher jwksFetcher) {
+        this(browserLauncher, exchangeService, jwksFetcher, new SmartDiagnostics());
+    }
+
+    /**
+     * A flow with chosen collaborators, so a test can supply short deadlines and
+     * a diagnostics recorder to capture what the flow does.
+     */
+    SmartAuthorizationFlow(BrowserLauncher browserLauncher,
+            SmartTokenExchangeService exchangeService, SmartJwksFetcher jwksFetcher,
+            SmartDiagnostics diagnostics) {
         this.browserLauncher = Objects.requireNonNull(browserLauncher, "browserLauncher");
         this.exchangeService = Objects.requireNonNull(exchangeService, "exchangeService");
         this.jwksFetcher = Objects.requireNonNull(jwksFetcher, "jwksFetcher");
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
     }
 
     /**
@@ -63,6 +75,10 @@ public final class SmartAuthorizationFlow {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(discovered, "discovered");
         checkReady(config, discovered);
+        diagnostics.record(SmartDiagnosticsEvent.Phase.AUTHORIZATION,
+                SmartDiagnosticsEvent.Kind.REQUEST_INITIATED,
+                "Authorization request built for " + SmartDiscoveryService.originOf(config.issuer()),
+                "mode=" + config.mode() + ", scopes=" + config.scopes());
         SmartAuthState authState = SmartAuthState.generate();
         Pkce pkce = Pkce.generate();
         LoopbackCallbackServer callback = listen(authState.state());
@@ -74,9 +90,29 @@ public final class SmartAuthorizationFlow {
             URI authorizeUrl = request.toUri();
             openBrowser(authorizeUrl);
             String code = awaitCode(callback);
-            SmartTokenResponse tokens = exchangeService.exchange(
-                    discovered.tokenEndpoint(), config.clientId(), code,
-                    redirectUri, pkce.verifier());
+            diagnostics.record(SmartDiagnosticsEvent.Phase.CALLBACK,
+                    SmartDiagnosticsEvent.Kind.RECEIVED,
+                    "Authorization callback received; code returned from the loopback server",
+                    null);
+            SmartTokenResponse tokens;
+            try {
+                tokens = exchangeService.exchange(
+                        discovered.tokenEndpoint(), config.clientId(), code,
+                        redirectUri, pkce.verifier());
+            } catch (SmartAuthorizationException exchangeFailed) {
+                diagnostics.record(SmartDiagnosticsEvent.Phase.TOKEN_EXCHANGE,
+                        SmartDiagnosticsEvent.Kind.FAILURE,
+                        "Token exchange failed: " + exchangeFailed.getMessage(),
+                        null);
+                throw exchangeFailed;
+            }
+            diagnostics.record(SmartDiagnosticsEvent.Phase.TOKEN_EXCHANGE,
+                    SmartDiagnosticsEvent.Kind.SUCCESS,
+                    "Access token received from the token endpoint",
+                    "granted scopes: " + (tokens.grantedScope() == null
+                            ? "not stated" : tokens.grantedScope())
+                            + ", patient context: "
+                            + (tokens.patient() == null ? "absent" : "present"));
             String subject = validateIdentity(tokens, config, discovered, authState);
             return new SmartAuthorizationSession(config.issuer(), tokens, subject);
         } finally {
@@ -151,10 +187,18 @@ public final class SmartAuthorizationFlow {
     private void openBrowser(URI authorizeUrl) throws SmartAuthorizationException {
         BrowserLauncher.LaunchResult launched = browserLauncher.openAuthorizationUrl(authorizeUrl);
         if (launched instanceof BrowserLauncher.LaunchResult.Unavailable unavailable) {
+            diagnostics.record(SmartDiagnosticsEvent.Phase.AUTHORIZATION,
+                    SmartDiagnosticsEvent.Kind.BROWSER_UNAVAILABLE,
+                    "The system browser could not be launched",
+                    unavailable.message());
             throw new SmartAuthorizationException(
                     SmartAuthorizationException.Kind.BROWSER_UNAVAILABLE,
                     unavailable.message() + " The authorization URL is: " + authorizeUrl);
         }
+        diagnostics.record(SmartDiagnosticsEvent.Phase.AUTHORIZATION,
+                SmartDiagnosticsEvent.Kind.BROWSER_LAUNCHED,
+                "Authorization URL opened in the system browser",
+                SmartDiscoveryService.originOf(authorizeUrl.toString()));
     }
 
     private static String awaitCode(LoopbackCallbackServer callback)

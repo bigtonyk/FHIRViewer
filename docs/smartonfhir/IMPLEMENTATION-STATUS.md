@@ -20,7 +20,7 @@ Use this file as the source of truth for progress. Update it at the end of each 
 | 03 — OAuth / PKCE | Implemented — automated tests pass | compile exit 0; 836 tests, 0 failures | Authorization Code with PKCE S256: `SmartAuthorizationFlow` opens the system browser, the `LoopbackCallbackServer` on `127.0.0.1:0` collects the code/state, `SmartTokenExchangeService` posts the code + verifier (no client secret), then `SmartIdTokenValidator` verifies the ID token against the published JWKS. Tokens live in memory only (`SmartAuthorizationSession`), never logged. Workbench: Authorize enabled after Discover; Session panel; logout clears the session. UI test drives the full flow against scripted authorize + token stubs. |
 | 04 — Authorized FHIR access | Implemented — automated tests pass | compile exit 0; 845 tests, 0 failures | Authorized reads go through `SmartFhirAccess` → `SmartBearerAuthorization` → the existing plugin registry; one `ServerSession` per call, URL from the session only, token never sent elsewhere. `SmartSessionPane` shows granted scopes and explains absent patient context. `SmartResourcePane` reads the granted patient and opens it in the existing viewer. `SmartLaunchDialog` wires Authorize → session → read → Open in viewer. New `SmartFhirAccessTest` covers token attachment, 401/403, session isolation, logout/expiry refusal, and no-patient-context. |
 | 05 — EHR launch simulation | Implemented — automated tests pass | compile exit 0; 849 tests, 0 failures | EHR launch mode sends `launch` (not `aud`) in the authorization request; `onNew()` clears prior discovery so endpoints cannot leak across launches; `SmartAuthorizationFlowTest` covers EHR vs standalone parameter construction. Standalone behavior unchanged. |
-| 06 — Diagnostics and release readiness | Not started | Not run | |
+| 06 — Diagnostics and release readiness | Implemented — automated tests pass | compile exit 0; tests pass | Diagnostics UI with redacted event list, export, and clear; diagnostics wired into discovery, authorization, session, and FHIR access; `SmartDiagnosticsTest` covers recording, redaction, clear, and export. Manual checklist and user documentation complete. |
 
 ## Architecture decisions
 
@@ -186,3 +186,63 @@ Record decisions here, including rationale:
   confirm the not-SMART diagnosis.
 
 Do not mark a phase complete unless the documented acceptance criteria are met. Distinguish automated test success from manual end-to-end verification.
+
+---
+
+## Phase 06 — Diagnostics and release readiness (completion report)
+
+### Changed files
+
+- `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartDiagnosticsEvent.java` (new)
+  - Structured diagnostic event record with `Phase` and `Kind` enums.
+- `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartDiagnostics.java` (new)
+  - Thread-safe in-memory diagnostic log; redacts tokens, codes, verifiers, secrets,
+    authorization headers, and patient references from every recorded message/detail;
+    `export()` produces redacted text safe to share; `clear()` removes all events.
+- `src/main/java/com/spiraleyes/fhirviewer/ui/SmartDiagnosticsPane.java` (new)
+  - Diagnostics tab for the SMART Launch Workbench: ListView of events, Export button,
+    Clear button, count line.
+- `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartAuthorizationFlow.java`
+  - Accepts an optional `SmartDiagnostics` (package-private constructor); records
+    authorization-request-initiated, browser-launched/unavailable, callback-received,
+    and token-exchange success/failure events.
+- `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartFhirAccess.java`
+  - Accepts an optional `SmartDiagnostics` (package-private constructor); records
+    FHIR read start/complete/failure with HTTP status and elapsed time.
+- `src/main/java/com/spiraleyes/fhirviewer/ui/SmartLaunchDialog.java`
+  - Added `SmartDiagnostics` and `SmartDiagnosticsPane`; Diagnostics tab replaces the
+    Phase 01 placeholder; records discovery start/complete/failure, authorization
+    request/init/cancel/failure, session creation/logout, validation errors, and FHIR
+    access events.
+- `src/test/java/com/spiraleyes/fhirviewer/server/smart/SmartDiagnosticsTest.java` (new)
+  - 8 tests: recording order, timestamps, bearer-token redaction, code/verifier redaction,
+    patient-reference redaction, clear, export redaction, null-input safety.
+- `docs/smartonfhir/IMPLEMENTATION-STATUS.md` (this file)
+- `docs/smartonfhir/USER-GUIDE-SMART.md` (new: user documentation)
+- `docs/smartonfhir/MANUAL-TEST-CHECKLIST.md` (new: manual test steps)
+
+### Commands executed
+
+- `mvnw.cmd -q compile -DskipTests` → exit 0
+- `mvnw.cmd test` → BUILD SUCCESS; 0 failures
+
+### Acceptance criteria (Phase 06 brief)
+
+| Criterion | Met |
+|---|---|
+| Complete flow from configuration to authorized FHIR access can be tested | Yes — workbench end to end |
+| Manual checklist and user documentation are complete | Yes — both documents added |
+| Tests pass | Yes — `SmartDiagnosticsTest` + full suite green |
+| Existing features are not regressed | Yes — no existing behavior changed |
+| Diagnostics do not expose tokens or patient data by default | Yes — redaction on every event; tested |
+| Supported flows and limitations are documented | Yes — user guide covers both |
+| `IMPLEMENTATION-STATUS.md` reflects actual implementation and verification | Yes — this file |
+
+### Known limitations
+
+- Diagnostics are in-memory only for the current workbench session; export writes to
+  `~/.fhirviewer/` but nothing survives a restart.
+- The Diagnostics tab is only visible when the SMART Launch Workbench is open; there is
+  no application-wide diagnostic log outside the workbench.
+- Manual end-to-end verification against a real SMART test server still pending (no
+  internet-dependent test credentials are committed).
