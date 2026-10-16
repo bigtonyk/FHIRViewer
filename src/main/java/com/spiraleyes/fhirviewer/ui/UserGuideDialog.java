@@ -19,12 +19,23 @@ public class UserGuideDialog extends Dialog<Void> {
 
     private final UserGuideView guideView = new UserGuideView();
 
+    /**
+     * The standard server-functions user guide.
+     */
     public UserGuideDialog(ThemeManager themeManager) {
+        this(themeManager, UserGuideContent.load());
+    }
+
+    /**
+     * A guide loaded from a caller-supplied string, for example a SMART on FHIR guide
+     * bundled alongside the server-functions guide.
+     */
+    public UserGuideDialog(ThemeManager themeManager, String guideText) {
         setTitle("User Guide");
         setHeaderText("FHIR Resource Viewer — User Guide");
         setResizable(true);
 
-        guideView.show(UserGuideDocument.parse(UserGuideContent.load()));
+        guideView.show(UserGuideDocument.parse(guideText));
         guideView.setLinkOpener(target -> guideView.scrollToAnchor(target));
         VBox.setVgrow(guideView, Priority.ALWAYS);
 
