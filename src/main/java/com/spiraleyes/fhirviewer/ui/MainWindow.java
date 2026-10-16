@@ -650,9 +650,20 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     private Menu buildHelpMenu() {
         MenuItem userGuide = new MenuItem("User Guide");
         userGuide.setOnAction(event -> showUserGuide());
+        MenuItem smartGuide = new MenuItem("SMART on FHIR Launch Guide");
+        smartGuide.setOnAction(event -> showSmartGuide());
         MenuItem about = new MenuItem("About");
         about.setOnAction(event -> showAbout());
-        return new Menu("Help", null, userGuide, new SeparatorMenuItem(), about);
+        return new Menu("Help", null, userGuide, new SeparatorMenuItem(),
+                smartGuide, new SeparatorMenuItem(), about);
+    }
+
+    /** Opens the SMART on FHIR Launch Guide, bundled alongside the server-functions guide. */
+    private void showSmartGuide() {
+        UserGuideDialog dialog = new UserGuideDialog(themeManager,
+                UserGuideContent.loadSmartGuide());
+        dialog.initOwner(stage);
+        dialog.showAndWait();
     }
 
     private ToolBar buildToolBar() {

@@ -192,9 +192,10 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         setHeaderText("Configure a SMART launch, discover what the server advertises, then "
                 + "authorize in the system browser.");
         setResizable(true);
-        // Wide enough for the form beside the reserved panels; the ScrollPane inside the
-        // form handles anything the fields need beyond this.
-        getDialogPane().setPrefWidth(1000);
+        // Wider dialog so the form has enough room: content is 976px with 12px padding,
+        // the reserved panels get 490px, and the form gets the remaining 486px. The
+        // form's own ScrollPane handles overflow for any field that needs more.
+        getDialogPane().setPrefWidth(1020);
         getDialogPane().setPrefHeight(680);
         getDialogPane().setMinWidth(760);
         getDialogPane().setMinHeight(520);
@@ -263,7 +264,10 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
 
         TabPane reserved = buildReservedPanels();
         HBox.setHgrow(reserved, Priority.ALWAYS);
-        reserved.setPrefWidth(430);
+        // Reserved panels get a fixed share: 490px of the 976px content width,
+        // leaving 486px for the form side. The form's own ScrollPane handles
+        // overflow for any field that needs more.
+        reserved.setPrefWidth(490);
 
         HBox content = new HBox(12, formSide, reserved);
         BorderPane root = new BorderPane(content);

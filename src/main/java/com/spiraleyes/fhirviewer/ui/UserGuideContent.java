@@ -16,6 +16,9 @@ public final class UserGuideContent {
     /** The guide on the class path, copied from {@code docs/user-guide}. */
     public static final String RESOURCE = "/help/User-Guide.md";
 
+    /** The SMART on FHIR launch guide on the class path. */
+    public static final String RESOURCE_SMART = "/help/SMART-on-FHIR-Guide.md";
+
     private UserGuideContent() {
         // static entry point
     }
@@ -24,16 +27,28 @@ public final class UserGuideContent {
     public static String load() {
         try (InputStream in = UserGuideContent.class.getResourceAsStream(RESOURCE)) {
             if (in == null) {
-                return missing();
+                return missing("the server-functions user guide");
             }
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException | RuntimeException problem) {
-            return missing();
+            return missing("the server-functions user guide");
         }
     }
 
-    private static String missing() {
-        return "The user guide could not be found in this build.\n\n"
-                + "Read docs/user-guide/FHIR-Server-Functions.md in the project sources.";
+    /** The SMART on FHIR launch guide text, or a fallback message. */
+    public static String loadSmartGuide() {
+        try (InputStream in = UserGuideContent.class.getResourceAsStream(RESOURCE_SMART)) {
+            if (in == null) {
+                return missing("the SMART on FHIR launch guide");
+            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException problem) {
+            return missing("the SMART on FHIR launch guide");
+        }
+    }
+
+    private static String missing(String which) {
+        return "The " + which + " could not be found in this build.\n\n"
+                + "See docs/smartonfhir/USER-GUIDE-SMART.md in the project sources.";
     }
 }
