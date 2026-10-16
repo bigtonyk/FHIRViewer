@@ -10,9 +10,13 @@ import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jwt.JWTClaimsSet;
 
 /**
- * Runs one standalone authorization attempt end to end: discovery is
- * already done by the caller, and this flow opens the browser, waits for
- * the loopback callback, exchanges the code, and validates the ID token.
+ * Runs one authorization attempt end to end: discovery is already done by
+ * the caller, and this flow opens the browser, waits for the loopback
+ * callback, exchanges the code, and validates the ID token.
+ *
+ * <p>Supports both launch modes from {@link SmartLaunchMode}: a standalone
+ * launch sends {@code aud} (the FHIR base URL) and no launch token; an EHR
+ * launch sends the EHR-supplied {@code launch} token and no {@code aud}.
  *
  * <p>Blocking throughout — the caller runs it on a background thread, never
  * on the JavaFX thread. The loopback server is owned here and is stopped on
@@ -44,7 +48,12 @@ public final class SmartAuthorizationFlow {
     /**
      * Authorizes the launch: opens the browser and returns the session.
      *
-     * @param config the launch to authorize; standalone with iss + client id
+     * <p>Standalone launches send {@code aud} (the FHIR base URL) and no
+     * launch token; EHR launches send the EHR-supplied {@code launch}
+     * token and no {@code aud}.</p>
+     *
+     * @param config the launch to authorize; either standalone with iss +
+     *        client id, or EHR launch with iss + launch parameter
      * @param discovered the discovery document; must be usable
      * @return the in-memory session
      * @throws SmartAuthorizationException when any step fails
@@ -107,20 +116,32 @@ public final class SmartAuthorizationFlow {
         }
     }
 
-    private static SmartAuthorizationRequest requestFor(SmartLaunchConfig config,
+    static SmartAuthorizationRequest requestFor(SmartLaunchConfig config,
             SmartConfiguration discovered, SmartAuthState authState, Pkce pkce,
             String redirectUri) throws SmartAuthorizationException {
         try {
-            String audience = config.audience() != null ? config.audience() : config.issuer();
-            return SmartAuthorizationRequest
+            SmartAuthorizationRequest.Builder builder = SmartAuthorizationRequest
                     .to(discovered.authorizationEndpoint())
                     .clientId(config.clientId())
                     .redirectUri(redirectUri)
                     .scopes(config.scopes())
-                    .audience(audience)
                     .authState(authState)
-                    .pkce(pkce)
-                    .build();
+                    .pkce(pkce);
+            if (config.mode() == SmartLaunchMode.EHR_LAUNCH) {
+                // EHR launch: send the EHR-supplied launch token, not aud.
+                // The issuer is the resource server and does not need aud.
+                if (config.launchParameter() == null || config.launchParameter().isBlank()) {
+                    throw new IllegalArgumentException(
+                            "An EHR launch needs a launch parameter (the EHR-supplied context token).");
+                }
+                builder.launchParameter(config.launchParameter());
+            } else {
+                // Standalone launch: send the FHIR base URL as audience,
+                // never a launch token.
+                String audience = config.audience() != null ? config.audience() : config.issuer();
+                builder.audience(audience);
+            }
+            return builder.build();
         } catch (IllegalArgumentException e) {
             throw new SmartAuthorizationException(
                     SmartAuthorizationException.Kind.INVALID_REQUEST, e.getMessage(), e);

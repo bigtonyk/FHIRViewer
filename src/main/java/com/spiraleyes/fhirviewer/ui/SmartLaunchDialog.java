@@ -368,11 +368,10 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     private void onNew() {
         form.clear();
         editing = null;
-        // Keep Save enabled: New has started the job of configuring a launch and the user
-        // finishes it with Save.
+        // A new start drops the last discovery: endpoints learned for one launch
+        // must not leak into a differently-configured one.
+        discovered = null;
         addingNew = true;
-        // Back to the blank entry, selected quietly - selecting it noisily would fire the
-        // chosen handler and clear the form that was just cleared.
         form.selectConfigQuietly(null);
         updateButtonState();
         setStatus("Fill in the details, then choose Save to add this launch.");

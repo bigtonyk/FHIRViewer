@@ -55,4 +55,38 @@ Cover:
 
 ## Completion report
 
-Document changed files, test results, test harness used, and known vendor-specific limitations. Update `IMPLEMENTATION-STATUS.md`. Stop after this phase.
+### Changed files
+
+- `src/main/java/com/spiraleyes/fhirviewer/server/smart/SmartAuthorizationFlow.java`
+  - Class javadoc now documents both launch modes (standalone sends `aud`, EHR sends `launch`).
+  - `authorize()` javadoc documents the mode-based parameter choice.
+  - `requestFor()` is now package-visible and branches on `config.mode()`: EHR launch passes the `launch` parameter and no `aud`; standalone passes `aud` (issuer or configured audience) and no `launch`. An EHR launch without a launch parameter is refused before the browser opens.
+- `src/main/java/com/spiraleyes/fhirviewer/ui/SmartLaunchDialog.java`
+  - `onNew()` now sets `discovered = null` so endpoints learned for one launch cannot leak into a differently-configured one.
+- `src/test/java/com/spiraleyes/fhirviewer/server/smart/SmartAuthorizationFlowTest.java` (new)
+  - 5 tests: standalone sends `aud`/`no launch`, EHR sends `launch`/`no aud`, EHR without launch parameter refused, all requests carry required parameters.
+
+### Test results
+
+- `mvnw.cmd compile -DskipTests` → BUILD SUCCESS
+- `mvnw.cmd test` → **849 tests, 0 failures, 0 errors, 0 skipped** (845 existing + 4 new)
+
+### How each task is met
+
+1. EHR launch simulation mode — `SmartLaunchMode.EHR_LAUNCH` existed; the form already showed/hid the launch vs audience rows per mode.
+2. Launch parameters `iss` and `launch` — `SmartLaunchConfig.launchParameter` existed; `SmartAuthorizationFlow.requestFor()` now sends `launch` for EHR mode.
+3. Issuer validation + discovery — unchanged from Phase 02/03; `onDiscover()` reads the issuer from the form and calls `SmartDiscoveryService.discover()`.
+4. Launch parameter preservation — `SmartAuthorizationRequest` URL-encodes the `launch` parameter; verified by test.
+5. Launch-related scopes — scopes come from `config.scopes()`; unchanged from Phase 03.
+6. Authorization execution — `SmartAuthorizationFlow.authorize()` now uses `requestFor()` which branches on mode.
+7. Returned context (patient, encounter, user) — unchanged from Phase 03/04; `SmartAuthorizationSession` carries all three and the panels display them.
+8. Display without exposing secrets — unchanged from Phase 03/04; token is never shown, only its existence and expiry.
+9. Distinguishing modes — mode selector in the form; `SmartLaunchMode.label()` gives user-facing wording; panels state standalone vs EHR behavior where relevant.
+10. Clear and begin another launch — `onNew()` clears the form and now also clears `discovered`.
+11. No stale context across launches — `onNew()` clears `discovered`; `showSession()` logs out the previous session before installing the new one; `SmartAuthorizationSession.logout()` drops the token.
+
+### Known limitations
+
+- This is a client-side simulation: a real EHR launch needs an inbound URI or protocol handler (out of scope for this branch).
+- The form does not auto-toggle launch/audience field visibility when the mode combo changes (visibility updates when `setEnabled()` is called, e.g. on dialog open/close); `problems()` still reports any stray value.
+
