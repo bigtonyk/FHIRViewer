@@ -24,3 +24,24 @@ for (int n = 3; n >= 1; n--) {
     System.out.println("  " + n);
 }
 java.util.stream.IntStream.range(1, 6).map(n -> n * n).sum()
+
+// ------------------------------------------------------------------
+// Phase 2: the FHIRViewer scripting API.
+// The names fhir, viewer, validation, server and log are bound before this
+// script runs. Nothing here touches a server unless one is selected.
+
+log.info("FHIRViewer scripting API example running.");
+
+var current = server.activeServer();
+if (current == null) {
+    log.info("No server is selected. Configure one in Tools > FHIR Servers, "
+            + "then select it, and read/search become available.");
+} else {
+    log.info("Connected to " + current.name() + " at " + current.baseUrl()
+            + " (FHIR " + current.fhirVersion() + ").");
+}
+
+// viewer.* renders to this console; it never touches JavaFX controls directly.
+viewer.showText("Ready. Try: var patient = fhir.read(\"Patient\", \"example-id\");");
+
+square(7)

@@ -28,8 +28,18 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 
+import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptRunResult;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
+import com.spiraleyes.fhirviewer.service.scripting.api.FhirApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.LogApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
+import com.spiraleyes.fhirviewer.service.scripting.api.ServerApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.ValidationApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.ViewerApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.WritePolicy;
+import com.spiraleyes.fhirviewer.server.FhirServerManager;
+import com.spiraleyes.fhirviewer.server.FhirServerService;
 
 /**
  * The Scripting Console: a multiline Java editor over a read-only output
@@ -83,18 +93,37 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private String savedContent = "";
     private boolean trustAcknowledged;
 
+    /** The script API objects exposed to every run, built from the application services. */
+    private final ScriptBindings bindings;
+
     /**
      * @param themeManager the application's theme source; never {@code null}
+     * @param fhirService  shared local FHIR processing (validation, rendering)
+     * @param serverService the active server connection used by {@code fhir}
+     * @param serverManager  the configured servers, for {@code server}
      */
-    public ScriptingConsoleDialog(ThemeManager themeManager) {
+    public ScriptingConsoleDialog(ThemeManager themeManager,
+            FhirService fhirService, FhirServerService serverService,
+            FhirServerManager serverManager) {
         if (themeManager == null) {
             throw new IllegalArgumentException("A theme manager is required.");
         }
+        if (fhirService == null || serverService == null || serverManager == null) {
+            throw new IllegalArgumentException("The scripting services are required.");
+        }
+
+        bindings = new ScriptBindings(
+                new FhirApi(serverService, serverManager, WritePolicy.READ_ONLY),
+                new ViewerApi(fhirService),
+                new ValidationApi(fhirService),
+                new ServerApi(serverService, serverManager),
+                new LogApi());
+
         this.stylesheets = List.copyOf(themeManager.stylesheets());
 
         setTitle("Scripting Console");
         setHeaderText("Java snippets, powered by the embedded JShell. "
-                + "Scripts run with your user's permissions Ã¢â‚¬â€ this is not a sandbox.");
+                + "Scripts run with your user's permissions — this is not a sandbox.");
         setResizable(true);
 
         statusLabel.getStyleClass().add("app-subtitle");
@@ -112,16 +141,16 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
         VBox content = new VBox(8, toolbar, split, statusLabel);
         content.setPadding(new Insets(12));
-        content.setPrefWidth(920);
-        content.setPrefHeight(560);
+        content.setPrefWidth(1180);
+        content.setPrefHeight(640);
 
         getDialogPane().setContent(content);
         getDialogPane().getButtonTypes().addAll(ButtonType.CLOSE);
         getDialogPane().getStylesheets().addAll(stylesheets);
-        getDialogPane().setPrefWidth(960);
-        getDialogPane().setMinWidth(720);
-        getDialogPane().setPrefHeight(640);
-        getDialogPane().setMinHeight(480);
+        getDialogPane().setPrefWidth(1220);
+        getDialogPane().setMinWidth(820);
+        getDialogPane().setPrefHeight(720);
+        getDialogPane().setMinHeight(540);
 
         // Dialog.close() is final, so cleanup goes here: hide fires for a Close
         // press and a programmatic close alike Ã¢â‚¬â€ the arrangement SmartLaunchDialog
@@ -149,7 +178,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         String source = editor.getText();
         setBusy(true);
         setStatus("Running \u2026");
-        coordinator.run(source, result -> Platform.runLater(() -> {
+        coordinator.run(source, bindings, result -> Platform.runLater(() -> {
             setBusy(false);
             present(result);
         }));

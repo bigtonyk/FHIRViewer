@@ -19,6 +19,8 @@ import jdk.jshell.SnippetEvent;
 import jdk.jshell.SourceCodeAnalysis.Completeness;
 import jdk.jshell.SourceCodeAnalysis.CompletionInfo;
 
+import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
+
 /**
  * One embedded JShell session: split a buffer into snippets, evaluate them,
  * capture what they printed, and turn JShell's events into
@@ -101,7 +103,20 @@ public final class ScriptingSession implements AutoCloseable {
      * @param source the editor buffer; never {@code null}
      * @return the ordered entries and the status; never {@code null}
      */
+    /** Runs one editor buffer with no script API bindings. */
     public ScriptRunResult run(String source) {
+        return run(source, null);
+    }
+
+    /**
+     * Runs one editor buffer, binding the script API objects declared by
+     * {@code bindings} as top-level names before the user's source.
+     *
+     * <p>When {@code bindings} is {@code null} this behaves like {@link #run(String)}.
+     * The bindings are published for this run only: {@link #reset()} drops them
+     * with the shell, and the next run re-binds through its own preamble.
+     */
+    public ScriptRunResult run(String source, ScriptBindings bindings) {
         Objects.requireNonNull(source, "source");
         long start = System.nanoTime();
         if (closed) {
@@ -119,12 +134,28 @@ public final class ScriptingSession implements AutoCloseable {
         if (split.stuckAt() != null) {
             return incomplete(split.stuckAt(), start);
         }
-        if (split.parts().isEmpty()) {
+        List<String> parts = new ArrayList<>(split.parts());
+        List<String> preamble = bindings == null
+                ? List.of()
+                // Declare the script API names first; the user's source then refers to them.
+                : bindings.preamble();
+        if (parts.isEmpty()) {
             // Only comments and blank space: nothing to execute, and that is fine.
             return new ScriptRunResult(ScriptRunResult.Status.COMPLETED, List.of(), 0,
                     Duration.ofNanos(System.nanoTime() - start));
         }
-        return evaluate(split.parts(), start);
+        ScriptBindings previous = ScriptBindings.currentOrNull();
+        ScriptBindings previousActive = ScriptBindings.activeOrNull();
+        ScriptBindings.set(bindings);
+        // The preamble is evaluated on JShell's own thread, which cannot see
+        // the thread-local; the run-wide field is what it falls back to.
+        ScriptBindings.setActive(bindings);
+        try {
+            return evaluate(preamble, parts, start);
+        } finally {
+            ScriptBindings.set(previous);
+            ScriptBindings.setActive(previousActive);
+        }
     }
 
     /** Stops the snippets running right now, from any thread. Best effort, and honest about it. */
@@ -271,69 +302,65 @@ public final class ScriptingSession implements AutoCloseable {
     // ------------------------------------------------------------------
 
     /**
-     * Hands each complete part to JShell in order, with the console captured
-     * around every evaluation, and folds the events into entries.
+     * Evaluates the preamble and then the user's parts, folding the events
+     * into entries.
      *
      * <p>One part's failure never stops the buffer: a rejected snippet is
      * reported and the next one runs, exactly like the REPL — the later
      * diagnostic that says "cannot find symbol" is itself useful information
      * about which earlier part failed. A Stop between parts stops the loop; a
      * Stop during a part is what {@link JShell#stop()} is for.</p>
+     *
+     * <p>The preamble is the framework's own code, not the user's, so its
+     * results are not reported as the user's output: the values of the
+     * declared API variables would otherwise appear in the console as
+     * {@code VALUE} lines for every run, which is noise the user never asked
+     * for. A preamble that fails is still reported — that is how a broken
+     * binding shows up.</p>
+     *
+     * @param preamble the framework's declarations; may be empty
+     * @param parts the user's snippets, in order
      */
-    private ScriptRunResult evaluate(List<String> parts, long start) {
+    private ScriptRunResult evaluate(List<String> preamble, List<String> parts, long start) {
         List<ScriptRunResult.Entry> entries = new ArrayList<>();
         boolean rejected = false;
         boolean raised = false;
         int evaluated = 0;
 
+        for (String part : preamble) {
+            if (stopRequested) {
+                break;
+            }
+            Evaluation outcome = evaluatePart(part);
+            if (outcome.engineFailure != null) {
+                entries.add(new ScriptRunResult.Entry(Instant.now(),
+                        ScriptRunResult.Kind.ERROR, outcome.engineFailure));
+                return new ScriptRunResult(ScriptRunResult.Status.FAILED, entries,
+                        evaluated, Duration.ofNanos(System.nanoTime() - start));
+            }
+            // Only failures are reported from the preamble; its values and any
+            // printing it does belong to the framework, not to the user's run.
+            rejected |= reportEvents(entries, outcome.events, false);
+            raised |= raisedIn(outcome.events);
+        }
+
         for (String part : parts) {
             if (stopRequested) {
                 break;
             }
-            ByteArrayOutputStream printed = new ByteArrayOutputStream();
-            PrintStream capture = new PrintStream(printed, true, StandardCharsets.UTF_8);
-            List<SnippetEvent> events;
-            PrintStream previousOut = System.out;
-            PrintStream previousErr = System.err;
-            try {
-                System.setOut(capture);
-                System.setErr(capture);
-                events = shell.eval(part);
-            } catch (IllegalStateException broken) {
-                closed = true;
-                return ScriptRunResult.failed(
-                        "The scripting session closed while the script was running.");
-            } catch (RuntimeException engineProblem) {
+            Evaluation outcome = evaluatePart(part);
+            if (outcome.engineFailure != null) {
                 entries.add(new ScriptRunResult.Entry(Instant.now(),
-                        ScriptRunResult.Kind.ERROR,
-                        "The session could not evaluate this snippet: "
-                                + messageOf(engineProblem)));
+                        ScriptRunResult.Kind.ERROR, outcome.engineFailure));
                 return new ScriptRunResult(ScriptRunResult.Status.FAILED, entries,
                         evaluated, Duration.ofNanos(System.nanoTime() - start));
-            } finally {
-                System.setOut(previousOut);
-                System.setErr(previousErr);
-                capture.flush();
             }
-
-            for (String line : linesOf(printed.toString(StandardCharsets.UTF_8))) {
+            for (String line : outcome.printed) {
                 entries.add(new ScriptRunResult.Entry(Instant.now(),
                         ScriptRunResult.Kind.OUTPUT, line));
             }
-            for (SnippetEvent event : events) {
-                if (event.status() == Snippet.Status.REJECTED) {
-                    rejected = true;
-                    addDiagnostics(entries, event.snippet());
-                } else if (event.exception() != null) {
-                    raised = true;
-                    entries.add(new ScriptRunResult.Entry(Instant.now(),
-                            ScriptRunResult.Kind.EXCEPTION,
-                            describeFailure(event.exception())));
-                } else if (event.value() != null && !event.value().isBlank()) {
-                    entries.add(new ScriptRunResult.Entry(Instant.now(),
-                            ScriptRunResult.Kind.VALUE, event.value()));
-                }
-            }
+            rejected |= reportEvents(entries, outcome.events, true);
+            raised |= raisedIn(outcome.events);
             evaluated++;
         }
 
@@ -344,6 +371,77 @@ public final class ScriptingSession implements AutoCloseable {
                         : ScriptRunResult.Status.COMPLETED;
         return new ScriptRunResult(status, entries, evaluated,
                 Duration.ofNanos(System.nanoTime() - start));
+    }
+
+    /**
+     * What one evaluation produced: the console output, the JShell events, and
+     * an engine failure if the snippet could not be evaluated at all.
+     */
+    private record Evaluation(List<String> printed, List<SnippetEvent> events, String engineFailure) {
+    }
+
+    /**
+     * Evaluates one snippet with the console captured around it.
+     *
+     * <p>The console is captured for the framework's preamble snippets too,
+     * because those run in the same engine; their output is simply not
+     * reported to the user.</p>
+     */
+    private Evaluation evaluatePart(String part) {
+        ByteArrayOutputStream printed = new ByteArrayOutputStream();
+        PrintStream capture = new PrintStream(printed, true, StandardCharsets.UTF_8);
+        List<SnippetEvent> events;
+        PrintStream previousOut = System.out;
+        PrintStream previousErr = System.err;
+        try {
+            System.setOut(capture);
+            System.setErr(capture);
+            events = shell.eval(part);
+        } catch (IllegalStateException broken) {
+            closed = true;
+            return new Evaluation(List.of(), List.of(),
+                    "The scripting session closed while the script was running.");
+        } catch (RuntimeException engineProblem) {
+            return new Evaluation(List.of(), List.of(),
+                    "The session could not evaluate this snippet: " + messageOf(engineProblem));
+        } finally {
+            System.setOut(previousOut);
+            System.setErr(previousErr);
+            capture.flush();
+        }
+        return new Evaluation(linesOf(printed.toString(StandardCharsets.UTF_8)), events, null);
+    }
+
+    /**
+     * Turns JShell's events into entries.
+     *
+     * @param includeValues when false, the value of a snippet is not reported;
+     *        used for the preamble, whose declared variables are the
+     *        framework's business and not the user's output
+     * @return true when a snippet was rejected
+     */
+    private boolean reportEvents(List<ScriptRunResult.Entry> entries, List<SnippetEvent> events,
+            boolean includeValues) {
+        boolean rejected = false;
+        for (SnippetEvent event : events) {
+            if (event.status() == Snippet.Status.REJECTED) {
+                rejected = true;
+                addDiagnostics(entries, event.snippet());
+            } else if (event.exception() != null) {
+                entries.add(new ScriptRunResult.Entry(Instant.now(),
+                        ScriptRunResult.Kind.EXCEPTION,
+                        describeFailure(event.exception())));
+            } else if (includeValues && event.value() != null && !event.value().isBlank()) {
+                entries.add(new ScriptRunResult.Entry(Instant.now(),
+                        ScriptRunResult.Kind.VALUE, event.value()));
+            }
+        }
+        return rejected;
+    }
+
+    /** True when any of the events carried a raised exception. */
+    private static boolean raisedIn(List<SnippetEvent> events) {
+        return events.stream().anyMatch(event -> event.exception() != null);
     }
 
     /** Appends one diagnostic per compiler message; a rejection with none still says so. */

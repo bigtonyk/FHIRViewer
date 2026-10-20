@@ -612,6 +612,9 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         MenuItem restConsole = new MenuItem("REST Console...");
         restConsole.setOnAction(event -> openRestConsole());
 
+        MenuItem scriptingConsole = new MenuItem("Scripting Console...");
+        scriptingConsole.setOnAction(event -> openScriptingConsole());
+
         // SMART on FHIR launches. The workbench itself opens like every other screen: a
         // dialog from the Tools menu. Discovery and authorization inside it stay disabled
         // until Phases 02 and 03 wire them up.
@@ -644,6 +647,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                 deleteFromServer, new SeparatorMenuItem(), manageServers, managePlugins,
                 new SeparatorMenuItem(), serverStatus, runOperation,
                 new SeparatorMenuItem(), restConsole,
+                new SeparatorMenuItem(), scriptingConsole,
                 new SeparatorMenuItem(), smartWorkbench);
     }
 
@@ -2081,6 +2085,14 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
             display(new LoadedResource(outcome.resource(), ResourceFormat.JSON, outcome.label(), null));
             setStatus("Showing the result of a REST request.");
         });
+    }
+
+    /** Opens the scripting console, sharing the application's FHIR services. */
+    private void openScriptingConsole() {
+        ScriptingConsoleDialog dialog = new ScriptingConsoleDialog(themeManager, fhirService,
+                serverService, serverManager);
+        dialog.initOwner(stage);
+        dialog.showAndWait();
     }
 
 // ------------------------------------------------------------------

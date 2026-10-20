@@ -17,6 +17,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.spiraleyes.fhirviewer.service.FhirService;
+import com.spiraleyes.fhirviewer.service.scripting.api.FhirApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.LogApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
+import com.spiraleyes.fhirviewer.service.scripting.api.ServerApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.ValidationApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.ViewerApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.WritePolicy;
+import com.spiraleyes.fhirviewer.server.FhirServerManager;
+import com.spiraleyes.fhirviewer.server.FhirServerService;
+
 /**
  * Tests {@link ScriptingSession} without starting the JavaFX toolkit.
  *
@@ -31,6 +42,20 @@ class ScriptingSessionTest {
     @BeforeEach
     void openSession() {
         session = new ScriptingSession();
+    }
+
+    /**
+     * The bindings the console binds for every run. The example script uses
+     * {@code log}, {@code server} and {@code viewer}, so it only makes sense
+     * with them bound — which is exactly how the console runs it.
+     */
+    private static ScriptBindings bindings() {
+        return new ScriptBindings(
+                new FhirApi(new FhirServerService(), new FhirServerManager(), WritePolicy.READ_ONLY),
+                new ViewerApi(new FhirService()),
+                new ValidationApi(new FhirService()),
+                new ServerApi(new FhirServerService(), new FhirServerManager()),
+                new LogApi());
     }
 
     @AfterEach
@@ -240,13 +265,26 @@ class ScriptingSessionTest {
         String example = loadExample();
         assertFalse(example.isBlank(), "the example resource must not be empty");
 
-        ScriptRunResult result = session.run(example);
+        ScriptRunResult result = session.run(example, bindings());
 
         assertEquals(ScriptRunResult.Status.COMPLETED, result.status(),
                 "the example must run with no errors; entries: " + result.entries());
         assertTrue(result.entries().stream()
                 .anyMatch(e -> e.kind() == ScriptRunResult.Kind.VALUE && e.text().equals("49")),
                 "square(7) should report 49: " + result.entries());
+    }
+
+    @Test
+    @DisplayName("The bindings are visible to a script but not reported as its output")
+    void bindingsAreInvisibleInTheOutput() {
+        ScriptRunResult result = session.run("fhir != null", bindings());
+
+        assertEquals(ScriptRunResult.Status.COMPLETED, result.status());
+        assertEquals("true", first(result, ScriptRunResult.Kind.VALUE).text());
+        assertTrue(result.entries().stream()
+                .noneMatch(e -> e.kind() == ScriptRunResult.Kind.VALUE
+                        && e.text().contains("FhirApi")),
+                "the preamble's own values must not appear as the user's output: " + result.entries());
     }
 }
 

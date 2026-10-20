@@ -106,7 +106,7 @@ public class ValidationService {
                     resolvable.add(canonical);
                 } else {
                     issues.add(ValidationIssue.profileResolutionFailure(
-                            ValidationIssue.Severity.WARNING,
+                            ValidationIssue.Severity.ERROR,
                             profileNotAvailable(canonical), "meta.profile", null, null));
                 }
             }
@@ -137,6 +137,9 @@ public class ValidationService {
                 copyWithProfiles(resource, List.of()));
         for (SingleValidationMessage message : result.getMessages()) {
             ValidationIssue issue = analyzer.classify(message);
+            if (isBestPracticeRecommendation(issue)) {
+                continue;
+            }
             keys.add(keyOf(issue));
             issues.add(issue);
         }
@@ -159,6 +162,9 @@ public class ValidationService {
                     copyWithProfiles(resource, List.of(canonical)));
             for (SingleValidationMessage message : result.getMessages()) {
                 ValidationIssue issue = analyzer.classify(message);
+                if (isBestPracticeRecommendation(issue)) {
+                    continue;
+                }
                 if (baseIssueKeys.contains(keyOf(issue))) {
                     continue; // already reported by the base pass
                 }
@@ -240,7 +246,11 @@ public class ValidationService {
         return sb.toString();
     }
 
-    /** Identity of an issue, used to de-duplicate the two validation phases. */
+    private static boolean isBestPracticeRecommendation(ValidationIssue issue) {
+        return issue.severity() == ValidationIssue.Severity.WARNING
+                && issue.message() != null
+                && issue.message().toLowerCase().contains("best practice recommendation");
+    }
     private static String keyOf(ValidationIssue issue) {
         return issue.severity() + "|" + issue.location() + "|" + issue.message();
     }

@@ -8,6 +8,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
+import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
+
 /**
  * Owns one {@link ScriptingSession} and serializes every call to it on a
  * dedicated worker thread.
@@ -84,6 +86,49 @@ public final class ScriptingCoordinator implements AutoCloseable {
                             "The script could not be run: " + problem.getClass().getSimpleName()
                                     + (problem.getMessage() == null ? ""
                                             : ": " + problem.getMessage()));
+                } finally {
+                    running.set(false);
+                }
+                onDone.accept(result);
+            });
+        } catch (RejectedExecutionException racedClose) {
+            running.set(false);
+            onDone.accept(ScriptRunResult.failed(
+                    "The scripting session was closed before the run could start."));
+        }
+    }
+
+    /**
+     * Runs one editor buffer on the worker thread with script API bindings.
+     *
+     * @param source   the script; never {@code null}
+     * @param bindings the {@code fhir}, {@code viewer}, {@code validation},
+     *                 {@code server} and {@code log} objects exposed to the
+     *                 script, or {@code null} to run without them
+     * @param onDone   receives the result on the worker thread; never {@code null}
+     */
+    public void run(String source, ScriptBindings bindings, Consumer<ScriptRunResult> onDone) {
+        Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(onDone, "onDone");
+        if (closed.get()) {
+            onDone.accept(ScriptRunResult.failed(
+                    "The scripting session is closed. Close and reopen the console to run again."));
+            return;
+        }
+        if (!running.compareAndSet(false, true)) {
+            onDone.accept(ScriptRunResult.failed(
+                    "A script is already running \u2014 wait for it to finish, or press Stop."));
+            return;
+        }
+        try {
+            worker.execute(() -> {
+                ScriptRunResult result;
+                try {
+                    result = session().run(source, bindings);
+                } catch (RuntimeException problem) {
+                    result = ScriptRunResult.failed(
+                            "The script could not be run: " + problem.getClass().getSimpleName()
+                                    + (problem.getMessage() == null ? "" : ": " + problem.getMessage()));
                 } finally {
                     running.set(false);
                 }

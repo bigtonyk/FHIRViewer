@@ -103,8 +103,14 @@ public class ServerCapabilities {
         if (described.isPresent()) {
             return described.get().supportsOrUnrestricted(interaction);
         }
-        // No per-type detail anywhere: fall back to what the server declared overall.
-        return resources.isEmpty() && interactions.contains(interaction);
+        // A type the server never described at all (and not even listed among its
+        // supported resource types) supports nothing.
+        if (resourceType == null || !resourceTypes.contains(resourceType.trim())) {
+            return false;
+        }
+        // The type is listed but has no per-type detail: fall back to what the
+        // server declared overall.
+        return interactions.contains(interaction);
     }
 
     /**
