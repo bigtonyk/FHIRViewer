@@ -91,14 +91,21 @@ public final class ScriptBindings {
     public final ValidationApi validation;
     public final ServerApi server;
     public final LogApi log;
+    public final TestApi test;
 
     public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
             ServerApi server, LogApi log) {
+        this(fhir, viewer, validation, server, log, new TestApi());
+    }
+
+    public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
+            ServerApi server, LogApi log, TestApi test) {
         this.fhir = fhir;
         this.viewer = viewer;
         this.validation = validation;
         this.server = server;
         this.log = log;
+        this.test = test == null ? new TestApi() : test;
     }
 
     /**
@@ -112,6 +119,7 @@ public final class ScriptBindings {
         String validationApi = ValidationApi.class.getName();
         String serverApi = ServerApi.class.getName();
         String logApi = LogApi.class.getName();
+        String testApi = TestApi.class.getName();
         String bindings = ScriptBindings.class.getName();
         return List.of(
                 "import org.hl7.fhir.instance.model.api.IBaseResource;",
@@ -122,6 +130,7 @@ public final class ScriptBindings {
                 "final " + viewerApi + " viewer = " + bindings + ".current().viewer;",
                 "final " + validationApi + " validation = " + bindings + ".current().validation;",
                 "final " + serverApi + " server = " + bindings + ".current().server;",
-                "final " + logApi + " log = " + bindings + ".current().log;");
+                "final " + logApi + " log = " + bindings + ".current().log;",
+                "final " + testApi + " test = " + bindings + ".current().test;");
     }
 }
