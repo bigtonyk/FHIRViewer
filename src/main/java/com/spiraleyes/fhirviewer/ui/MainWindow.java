@@ -656,16 +656,26 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         userGuide.setOnAction(event -> showUserGuide());
         MenuItem smartGuide = new MenuItem("SMART on FHIR Launch Guide");
         smartGuide.setOnAction(event -> showSmartGuide());
+        MenuItem phase6Guide = new MenuItem("Phase 6 Scripting API Documentation");
+        phase6Guide.setOnAction(event -> showPhase6Guide());
         MenuItem about = new MenuItem("About");
         about.setOnAction(event -> showAbout());
         return new Menu("Help", null, userGuide, new SeparatorMenuItem(),
-                smartGuide, new SeparatorMenuItem(), about);
+                smartGuide, new SeparatorMenuItem(), phase6Guide, new SeparatorMenuItem(), about);
     }
 
     /** Opens the SMART on FHIR Launch Guide, bundled alongside the server-functions guide. */
     private void showSmartGuide() {
         UserGuideDialog dialog = new UserGuideDialog(themeManager,
                 UserGuideContent.loadSmartGuide());
+        dialog.initOwner(stage);
+        dialog.showAndWait();
+    }
+
+    /** Opens the Phase 6 Scripting API Documentation. */
+    private void showPhase6Guide() {
+        UserGuideDialog dialog = new UserGuideDialog(themeManager,
+                UserGuideContent.loadPhase6Guide());
         dialog.initOwner(stage);
         dialog.showAndWait();
     }
