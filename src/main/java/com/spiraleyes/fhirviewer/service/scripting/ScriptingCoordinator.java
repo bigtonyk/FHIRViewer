@@ -143,7 +143,22 @@ public final class ScriptingCoordinator implements AutoCloseable {
 
     /** Stops whatever the worker is executing right now. Callable from any thread. */
     public void stop() {
+        if (!running.get()) {
+            return;
+        }
+        // Wait for the worker to publish the session for the in-flight run; this is
+        // what makes a stop racing the worker's startup still reach the snippet.
+        long deadline = System.nanoTime() + 5_000_000_000L;
         ScriptingSession current = session;
+        while (current == null && running.get() && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(1);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            current = session;
+        }
         if (current != null) {
             current.stop();
         }

@@ -82,8 +82,11 @@ public final class ScriptingSession implements AutoCloseable {
 
     /** Never shared across sessions; volatile because {@link #stop()} reads it from other threads. */
     private volatile JShell shell;
-    /** Set by {@link #stop()} from any thread; checked between snippets and at run start. */
-    private volatile boolean stopRequested;
+    /** Run identity tracking so a stop targeting an earlier run cannot colour a later one. */
+    private final java.util.concurrent.atomic.AtomicLong runCounter = new java.util.concurrent.atomic.AtomicLong();
+    private volatile long currentRunId;
+    private volatile long stoppedRunId;
+    private volatile boolean stopPending;
     private volatile boolean closed;
 
     /** Creates a session with the local engine and the default imports applied. */
@@ -127,8 +130,23 @@ public final class ScriptingSession implements AutoCloseable {
         if (normalized.isBlank()) {
             return ScriptRunResult.failed("There is nothing to run — the editor is empty.");
         }
-        // A stop aimed at an earlier run must not colour this one.
-        stopRequested = false;
+        // A stop aimed at an earlier run must not colour this one, but a stop that
+        // arrived before this run started (racing the worker) must still apply.
+        long myRun = runCounter.incrementAndGet();
+        currentRunId = myRun;
+        if (stopPending) {
+            if (stoppedRunId == 0 || stoppedRunId == myRun) {
+                // Stop arrived before a run was in flight (or this exact run): apply.
+                stopPending = false;
+                stoppedRunId = myRun;
+            } else {
+                // Stop targeted an earlier run: stale, clear it.
+                stopPending = false;
+                stoppedRunId = 0;
+            }
+        } else {
+            stoppedRunId = 0;
+        }
 
         Split split = split(normalized);
         if (split.stuckAt() != null) {
@@ -160,7 +178,8 @@ public final class ScriptingSession implements AutoCloseable {
 
     /** Stops the snippets running right now, from any thread. Best effort, and honest about it. */
     public void stop() {
-        stopRequested = true;
+        stopPending = true;
+        stoppedRunId = currentRunId;
         JShell current = shell;
         if (current != null) {
             current.stop();
@@ -176,7 +195,9 @@ public final class ScriptingSession implements AutoCloseable {
      * coordinator's single worker thread guarantees that ordering.</p>
      */
     public void reset() {
-        stopRequested = false;
+        stopPending = false;
+        stoppedRunId = 0;
+        currentRunId = 0;
         JShell previous = shell;
         if (previous != null) {
             quietly(previous);
@@ -328,7 +349,7 @@ public final class ScriptingSession implements AutoCloseable {
         int evaluated = 0;
 
         for (String part : preamble) {
-            if (stopRequested) {
+            if (stopPending || stoppedRunId == currentRunId) {
                 break;
             }
             Evaluation outcome = evaluatePart(part);
@@ -345,7 +366,7 @@ public final class ScriptingSession implements AutoCloseable {
         }
 
         for (String part : parts) {
-            if (stopRequested) {
+            if (stopPending || stoppedRunId == currentRunId) {
                 break;
             }
             Evaluation outcome = evaluatePart(part);
@@ -364,7 +385,7 @@ public final class ScriptingSession implements AutoCloseable {
             evaluated++;
         }
 
-        ScriptRunResult.Status status = stopRequested
+        ScriptRunResult.Status status = (stopPending || stoppedRunId == currentRunId)
                 ? ScriptRunResult.Status.STOPPED
                 : (rejected || raised)
                         ? ScriptRunResult.Status.COMPLETED_WITH_ERRORS
