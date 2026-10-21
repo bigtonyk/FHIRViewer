@@ -17,7 +17,7 @@
 | 3. Automated testing | Complete | |
 | 4. SMART on FHIR integration | Complete | |
 | 5. Advanced scripting | In progress | Added ScriptParameter model with validation/redaction |
-| 6. Scripting API documentation | Not started | |
+| 6. Scripting API documentation | Complete | User-facing guide created at docs/scripting/Scripting-Guide.md |
 
 ## Latest work
 - Date: 2026-10-20
