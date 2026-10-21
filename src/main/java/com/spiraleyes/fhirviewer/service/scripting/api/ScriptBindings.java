@@ -2,6 +2,8 @@ package com.spiraleyes.fhirviewer.service.scripting.api;
 
 import java.util.List;
 
+import com.spiraleyes.fhirviewer.service.scripting.BatchProcessor;
+
 /**
  * The objects a script may see, bound to top-level names in a JShell session.
  *
@@ -93,19 +95,25 @@ public final class ScriptBindings {
     public final LogApi log;
     public final TestApi test;
     public final SmartApi smart;
+    public final BatchProcessor batch;
 
     public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
             ServerApi server, LogApi log) {
-        this(fhir, viewer, validation, server, log, new TestApi(), null);
+        this(fhir, viewer, validation, server, log, new TestApi(), null, new BatchProcessor());
     }
 
     public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
             ServerApi server, LogApi log, TestApi test) {
-        this(fhir, viewer, validation, server, log, test, null);
+        this(fhir, viewer, validation, server, log, test, null, new BatchProcessor());
     }
 
     public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
             ServerApi server, LogApi log, TestApi test, SmartApi smart) {
+        this(fhir, viewer, validation, server, log, test, smart, new BatchProcessor());
+    }
+
+    public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
+            ServerApi server, LogApi log, TestApi test, SmartApi smart, BatchProcessor batch) {
         this.fhir = fhir;
         this.viewer = viewer;
         this.validation = validation;
@@ -113,6 +121,7 @@ public final class ScriptBindings {
         this.log = log;
         this.test = test == null ? new TestApi() : test;
         this.smart = smart == null ? new SmartApi() : smart;
+        this.batch = batch == null ? new BatchProcessor() : batch;
     }
 
     /**
@@ -127,18 +136,22 @@ public final class ScriptBindings {
         String serverApi = ServerApi.class.getName();
         String logApi = LogApi.class.getName();
         String testApi = TestApi.class.getName();
+        String smartApi = SmartApi.class.getName();
+        String batchApi = BatchProcessor.class.getName();
         String bindings = ScriptBindings.class.getName();
         return List.of(
                 "import org.hl7.fhir.instance.model.api.IBaseResource;",
                 "import com.spiraleyes.fhirviewer.server.SearchCriterion;",
                 "import com.spiraleyes.fhirviewer.server.ServerInteraction;",
                 "import com.spiraleyes.fhirviewer.service.scripting.api.SearchResults;",
+                "import com.spiraleyes.fhirviewer.service.scripting.BatchErrorPolicy;",
                 "final " + fhirApi + " fhir = " + bindings + ".current().fhir;",
                 "final " + viewerApi + " viewer = " + bindings + ".current().viewer;",
                 "final " + validationApi + " validation = " + bindings + ".current().validation;",
                 "final " + serverApi + " server = " + bindings + ".current().server;",
                 "final " + logApi + " log = " + bindings + ".current().log;",
                 "final " + testApi + " test = " + bindings + ".current().test;",
-                "final " + SmartApi.class.getName() + " smart = " + bindings + ".current().smart;");
+                "final " + smartApi + " smart = " + bindings + ".current().smart;",
+                "final " + batchApi + " batch = " + bindings + ".current().batch;");
     }
 }
