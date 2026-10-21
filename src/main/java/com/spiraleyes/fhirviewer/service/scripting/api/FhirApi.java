@@ -11,6 +11,7 @@ import org.hl7.fhir.instance.model.api.IIdType;
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
+import com.spiraleyes.fhirviewer.server.PatchFormat;
 import com.spiraleyes.fhirviewer.server.SearchRequest;
 import com.spiraleyes.fhirviewer.server.SearchCriterion;
 import com.spiraleyes.fhirviewer.server.SearchResultPage;
@@ -39,12 +40,19 @@ public class FhirApi {
     private final FhirServerService serverService;
     private final FhirServerManager serverManager;
     private final WritePolicy writePolicy;
+    private final WritePolicy.Confirmation confirmation;
 
     public FhirApi(FhirServerService serverService, FhirServerManager serverManager,
             WritePolicy writePolicy) {
+        this(serverService, serverManager, writePolicy, null);
+    }
+
+    public FhirApi(FhirServerService serverService, FhirServerManager serverManager,
+            WritePolicy writePolicy, WritePolicy.Confirmation confirmation) {
         this.serverService = Objects.requireNonNull(serverService, "serverService");
         this.serverManager = Objects.requireNonNull(serverManager, "serverManager");
         this.writePolicy = writePolicy == null ? WritePolicy.READ_ONLY : writePolicy;
+        this.confirmation = confirmation;
     }
 
     /** Reads one resource by type and id, or {@code null} when the server says it does not exist. */
@@ -135,11 +143,36 @@ public class FhirApi {
         }
     }
 
+    /** Applies a partial update (patch) to one resource. Refused unless writes are enabled. */
+    public ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format) {
+        writePolicy.requireWrite();
+        require(resourceType, resourceId);
+        if (body == null || body.isBlank()) {
+            throw new ScriptApiException("A patch body is required and must not be blank.");
+        }
+        Objects.requireNonNull(format, "format");
+        FhirServerConfiguration server = activeServer("patch");
+        try {
+            return serverService.patch(server,
+                    ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, null),
+                    body, format);
+        } catch (ServerOperationException e) {
+            throw new ScriptApiException("Cannot patch " + resourceType + "/" + resourceId
+                    + " on " + server.name() + ": " + e.getMessage(), e);
+        }
+    }
+
     /** Deletes one resource by type and id. Refused unless writes are enabled. */
     public void delete(String resourceType, String resourceId) {
         writePolicy.requireWrite();
         require(resourceType, resourceId);
         FhirServerConfiguration server = activeServer("delete");
+        String summary = "Delete " + resourceType + "/" + resourceId + " on " + server.name();
+        WritePolicy.Confirmation handler = writePolicy.confirmation() != null
+                ? writePolicy.confirmation() : confirmation;
+        if (handler != null && !handler.confirm(summary)) {
+            throw new WriteDeniedException("Delete cancelled.");
+        }
         try {
             serverService.delete(server,
                     ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, null));

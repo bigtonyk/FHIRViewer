@@ -35,7 +35,7 @@
 - Create/update/patch policy: routed through WritePolicy.
 - Destructive operations covered: DELETE, bulk destructive, destructive bundles require confirmation.
 - Confirmation dialog location and impact details: central WritePolicy/confirmation in FhirApi.
-- Confirmation cancellation test: covered by WritePolicy tests.
+- Confirmation cancellation test: covered by FhirApiTest (policy and handler cancellation).
 - Bundle/batch destructive-operation handling: policy enforced per operation.
 - Secret/resource redaction: LogApi redacts; ScriptParameter redacts sensitive values.
 - Script trust warning: shown before first execution and after opening files.

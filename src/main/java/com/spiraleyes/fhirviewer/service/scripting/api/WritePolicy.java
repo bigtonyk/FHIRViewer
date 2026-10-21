@@ -14,19 +14,41 @@ public final class WritePolicy {
 
     /** Writes are refused with a clear message. The safe default. */
     public static final WritePolicy READ_ONLY = new WritePolicy(false,
-            "Writes are disabled. Enable the write policy explicitly before creating, updating or deleting resources.");
+            "Writes are disabled. Enable the write policy explicitly before creating, updating or deleting resources.",
+            null);
 
-    /** Writes are permitted. */
+    /** Writes are permitted. Destructive operations are approved by default. */
     public static WritePolicy enabled() {
-        return new WritePolicy(true, null);
+        return new WritePolicy(true, null, null);
+    }
+
+    /**
+     * Writes are permitted, with the given handler consulted before any
+     * destructive operation (DELETE, and, in later phases, bulk destructive
+     * work and destructive bundles). Returning {@code false} cancels the
+     * operation before any request is sent.
+     */
+    public static WritePolicy enabled(Confirmation confirmation) {
+        return new WritePolicy(true, null, confirmation);
+    }
+
+    /**
+     * A prompt the policy runs before a destructive operation. The summary
+     * describes the operation; returning {@code false} cancels it.
+     */
+    @FunctionalInterface
+    public interface Confirmation {
+        boolean confirm(String summary);
     }
 
     private final boolean enabled;
     private final String reason;
+    private final Confirmation confirmation;
 
-    private WritePolicy(boolean enabled, String reason) {
+    private WritePolicy(boolean enabled, String reason, Confirmation confirmation) {
         this.enabled = enabled;
         this.reason = reason;
+        this.confirmation = confirmation;
     }
 
     /** True when create, update and delete are permitted. */
@@ -39,6 +61,10 @@ public final class WritePolicy {
         return reason == null ? "" : reason;
     }
 
+    /** The configured destructive-operation confirmation handler, or {@code null}. */
+    public Confirmation confirmation() {
+        return confirmation;
+    }
     /** Throws {@link WriteDeniedException} when writes are not permitted. */
     public void requireWrite() {
         if (!enabled) {
@@ -46,6 +72,19 @@ public final class WritePolicy {
                     ? "Writes are disabled."
                     : reason);
         }
+    }
+
+    /**
+     * Consults the destructive-operation confirmation handler. Returns
+     * {@code true} when the operation may proceed. Throws
+     * {@link WriteDeniedException} when writes are disabled.
+     */
+    public boolean confirmDestructive(String summary) {
+        requireWrite();
+        if (confirmation == null) {
+            return true;
+        }
+        return confirmation.confirm(summary);
     }
 
     @Override

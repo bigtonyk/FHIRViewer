@@ -5,6 +5,7 @@ import org.hl7.fhir.instance.model.api.IBaseResource;
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
+import com.spiraleyes.fhirviewer.server.PatchFormat;
 import com.spiraleyes.fhirviewer.server.SearchRequest;
 import com.spiraleyes.fhirviewer.server.SearchResultPage;
 import com.spiraleyes.fhirviewer.server.ServerCapabilities;
@@ -71,10 +72,21 @@ class TestFhirServerService extends FhirServerService {
         return writeResult;
     }
 
+    int deleteCalls;
+    int patchCalls;
+    ServerWriteResult patchResult = ServerWriteResult.updated("patched-id", "v2");
+
+    @Override
+    public ServerWriteResult patch(FhirServerConfiguration server, ServerOrigin origin, String body,
+            PatchFormat format) throws ServerOperationException {
+        patchCalls++;
+        return patchResult == null ? writeResult : patchResult;
+    }
+
     @Override
     public void delete(FhirServerConfiguration server, ServerOrigin origin)
             throws ServerOperationException {
-        // nothing to do for a fake
+        deleteCalls++;
     }
 
     @Override

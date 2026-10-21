@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
+import com.spiraleyes.fhirviewer.server.PatchFormat;
 import com.spiraleyes.fhirviewer.server.SearchCriterion;
 import com.spiraleyes.fhirviewer.server.SearchPageLinks;
 import com.spiraleyes.fhirviewer.server.SearchResultPage;
@@ -141,6 +142,47 @@ class FhirApiTest {
     @Test
     void deleteIsRefusedByDefault() {
         assertThrows(WriteDeniedException.class, () -> api.delete("Patient", "1"));
+    }
+
+    @Test
+    void patchIsRefusedByDefault() {
+        assertThrows(WriteDeniedException.class,
+                () -> api.patch("Patient", "1", "{\"active\":false}", PatchFormat.JSON_MERGE_PATCH));
+    }
+
+    @Test
+    void patchIsAllowedWhenWritesAreEnabled() {
+        service.patchResult = ServerWriteResult.updated("1", "v3");
+        ServerWriteResult result = writes.patch("Patient", "1", "{\"active\":false}", PatchFormat.JSON_MERGE_PATCH);
+        assertEquals("1", result.resourceId());
+        assertEquals("v3", result.versionId());
+        assertFalse(result.created());
+        assertEquals(1, service.patchCalls);
+    }
+
+    @Test
+    void deleteIsAllowedWhenWritesAreEnabled() {
+        int before = service.deleteCalls;
+        writes.delete("Patient", "1");
+        assertEquals(before + 1, service.deleteCalls);
+    }
+
+    @Test
+    void deleteIsCancelledWhenConfirmationDenies() {
+        int before = service.deleteCalls;
+        FhirApi cancelling = new FhirApi(service, manager,
+                WritePolicy.enabled((summary) -> false));
+        assertThrows(WriteDeniedException.class, () -> cancelling.delete("Patient", "1"));
+        assertEquals(before, service.deleteCalls);
+    }
+
+    @Test
+    void deleteIsCancelledWhenHandlerDenies() {
+        int before = service.deleteCalls;
+        FhirApi cancelling = new FhirApi(service, manager, WritePolicy.enabled(),
+                (summary) -> false);
+        assertThrows(WriteDeniedException.class, () -> cancelling.delete("Patient", "1"));
+        assertEquals(before, service.deleteCalls);
     }
 
     @Test
