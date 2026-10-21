@@ -100,3 +100,63 @@ JShell runs Java with the user's permissions and is not a sandbox. Common
 errors: no selected server, auth failure, missing scope, unsupported operation,
 compile errors, runtime-module problems, cancellation limitations. Examples use
 synthetic identifiers and read-only operations by default.
+
+## API reference details
+
+### FhirApi (`fhir`)
+- `IBaseResource read(String resourceType, String resourceId)`
+- `SearchResults search(String resourceType, SearchCriterion... criteria)`
+- `IBaseResource create(IBaseResource resource)` (write policy)
+- `ServerWriteResult update(IBaseResource resource)` (write policy)
+- `void delete(String resourceType, String resourceId)` (write policy)
+- `SearchResults nextPage(String pageToken)`
+- `SearchResults previousPage(String pageToken)`
+
+### ViewerApi (`viewer`)
+- `void showResource(IBaseResource resource)`
+- `void showSearchResults(SearchResults results)`
+- `void showText(String text)`
+
+### ValidationApi (`validation`)
+- `ValidationReport validate(IBaseResource resource)`
+- `ValidationReport validate(IBaseResource resource, String profileCanonical)`
+
+### ServerApi (`server`)
+- `ServerInfo activeServer()`
+- `List<ServerInfo> servers()`
+- `ServerCapabilities capabilities()`
+- `boolean supports(String resourceType, ServerInteraction interaction)`
+- `String fhirVersion()`
+
+### LogApi (`log`)
+- `void info(String message)`
+- `void warn(String message)`
+- `void error(String message)`
+
+### TestApi (`test`)
+- `void assertTrue(boolean condition)` / `assertTrue(boolean, String)`
+- `void assertFalse(boolean condition)` / `assertFalse(boolean, String)`
+- `void assertEquals(Object expected, Object actual)` / `assertEquals(Object, Object, String)`
+- `void fail()` / `fail(String)`
+
+### SmartApi (`smart`)
+- `boolean isSessionActive()`
+- `List<String> grantedScopes()`
+- `String launchPatientId()`
+- `String launchEncounterId()`
+- `IBaseResource read(String resourceType, String id)`
+
+### SearchResults
+- `List<IBaseResource> resources()`
+- `Integer total()`
+- `String nextPageToken()`
+- `String previousPageToken()`
+- `boolean hasNextPage()`
+- `boolean hasPreviousPage()`
+- `int size()`
+
+### ServerInfo
+- `String name()`
+- `String baseUrl()`
+- `String fhirVersion()`
+- `String pluginId()`
