@@ -18,7 +18,7 @@
 |---|---|---|
 | 1. Interactive console and saved `.jsh` files | Complete | Coordinator race fixed; unit tests pass; packaging module list updated |
 | 2. FHIRViewer scripting API and write policy | Complete | fhir/viewer/validation/server/log facades |
-| 3. Automated testing and repeatable workflows | Complete | ScriptTestRunner/TestApi |
+| 3. Automated testing and repeatable workflows | Partial | ScriptTestRunner/TestApi; focused runner tests added; suite execution, progress/cancel, report export, destructive labeling, and UI not yet implemented |
 | 4. SMART on FHIR integration | Complete | SmartApi |
 | 5. Advanced scripting and batch workflows | In progress | ScriptParameter and partial collections/reporting |
 | 6. Scripting API documentation | Complete | docs/scripting/Scripting-Guide.md |
