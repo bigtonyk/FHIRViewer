@@ -13,8 +13,8 @@ import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
 /** Script-facing facade over an existing authorized SMART session. Never exposes tokens. */
 public class SmartApi {
 
-    private final SmartAuthorizationSession session;
-    private final SmartFhirAccess access;
+    private SmartAuthorizationSession session;
+    private SmartFhirAccess access;
 
     public SmartApi(SmartAuthorizationSession session, SmartFhirAccess access) {
         this.session = session;
@@ -23,6 +23,19 @@ public class SmartApi {
 
     public SmartApi() {
         this(null, null);
+    }
+
+    /**
+     * Replaces the backing SMART session and accessor, for example when a launch completes
+     * and an authorized session becomes available. Safe to call from any thread; the next
+     * script evaluation sees the new session.
+     *
+     * @param session the active SMART session, or {@code null} to clear it
+     * @param access the authorized FHIR accessor for the session, or {@code null}
+     */
+    public void updateSession(SmartAuthorizationSession session, SmartFhirAccess access) {
+        this.session = session;
+        this.access = access;
     }
 
     public boolean isSessionActive() {
