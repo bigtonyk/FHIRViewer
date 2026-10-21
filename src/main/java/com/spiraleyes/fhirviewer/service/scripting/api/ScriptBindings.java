@@ -92,20 +92,27 @@ public final class ScriptBindings {
     public final ServerApi server;
     public final LogApi log;
     public final TestApi test;
+    public final SmartApi smart;
 
     public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
             ServerApi server, LogApi log) {
-        this(fhir, viewer, validation, server, log, new TestApi());
+        this(fhir, viewer, validation, server, log, new TestApi(), null);
     }
 
     public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
             ServerApi server, LogApi log, TestApi test) {
+        this(fhir, viewer, validation, server, log, test, null);
+    }
+
+    public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
+            ServerApi server, LogApi log, TestApi test, SmartApi smart) {
         this.fhir = fhir;
         this.viewer = viewer;
         this.validation = validation;
         this.server = server;
         this.log = log;
         this.test = test == null ? new TestApi() : test;
+        this.smart = smart == null ? new SmartApi() : smart;
     }
 
     /**
@@ -131,6 +138,7 @@ public final class ScriptBindings {
                 "final " + validationApi + " validation = " + bindings + ".current().validation;",
                 "final " + serverApi + " server = " + bindings + ".current().server;",
                 "final " + logApi + " log = " + bindings + ".current().log;",
-                "final " + testApi + " test = " + bindings + ".current().test;");
+                "final " + testApi + " test = " + bindings + ".current().test;",
+                "final " + SmartApi.class.getName() + " smart = " + bindings + ".current().smart;");
     }
 }
