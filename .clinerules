@@ -28,3 +28,35 @@ When implementing new functionality:
 - Keep UI, validation, FHIR processing, plugin interfaces, and utilities separated.
 - Create interfaces and implementations in separate files where appropriate.
 - Do not combine unrelated functionality into a single file merely to reduce file count.
+
+# powershell commands:
+My development environment is Windows, and commands must work in PowerShell.
+
+Requirements:
+
+Never use Linux/macOS-only commands such as tail, head, grep, cat, which, or export in PowerShell terminal commands.
+
+- Use Select-Object -Last N instead of tail -N.
+
+- Use Select-Object -First N instead of head -N.
+
+- Use Select-String instead of grep.
+
+- Use Get-Content instead of cat.
+
+- Use Get-Command instead of which.
+
+- Use $env:VARIABLE = "value" instead of export VARIABLE=value.
+
+- Use .\mvnw.cmd for Maven wrapper commands on Windows.
+
+- Use PowerShell-compatible command chaining and quoting.
+
+When capturing Maven test output, use PowerShell-compatible commands, for example:
+.\mvnw.cmd test 2>&1 | Select-Object -Last 80
+
+Inspect the existing Cline rules and project configuration before editing. Add this as a focused rule without overwriting unrelated rules.
+
+Verify that the rule is stored in the location supported by the installed Cline version.
+
+Apply this rule to future terminal commands for this project.

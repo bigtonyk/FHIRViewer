@@ -19,6 +19,9 @@ public final class UserGuideContent {
     /** The SMART on FHIR launch guide on the class path. */
     public static final String RESOURCE_SMART = "/help/SMART-on-FHIR-Guide.md";
 
+    /** The Scripting Guide on the class path. */
+    public static final String RESOURCE_PHASE6 = "/help/Scripting-Guide.md";
+
     private UserGuideContent() {
         // static entry point
     }
@@ -44,6 +47,18 @@ public final class UserGuideContent {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException | RuntimeException problem) {
             return missing("the SMART on FHIR launch guide");
+        }
+    }
+
+    /** The Scripting Guide text, or a fallback message. */
+    public static String loadPhase6Guide() {
+        try (InputStream in = UserGuideContent.class.getResourceAsStream(RESOURCE_PHASE6)) {
+            if (in == null) {
+                return missing("the Phase 6 Scripting API Documentation");
+            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException problem) {
+            return missing("the Phase 6 Scripting API Documentation");
         }
     }
 

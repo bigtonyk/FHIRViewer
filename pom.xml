@@ -689,7 +689,7 @@
                       request from the trimmed runtime was checked to work
                       without it.
                     -->
-                    <argument>javafx.base,javafx.graphics,javafx.controls,java.base,java.desktop,java.instrument,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml.crypto,jdk.attach,jdk.httpserver,jdk.javadoc,jdk.jdi,jdk.jfr,jdk.unsupported</argument>
+                    <argument>javafx.base,javafx.graphics,javafx.controls,java.base,java.desktop,java.instrument,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml.crypto,jdk.attach,jdk.httpserver,jdk.javadoc,jdk.jdi,jdk.jfr,jdk.unsupported,jdk.jshell,jdk.compiler</argument>
                     <!--
                       The two opens the development launcher has always
                       passed. Carried across rather than left out: without

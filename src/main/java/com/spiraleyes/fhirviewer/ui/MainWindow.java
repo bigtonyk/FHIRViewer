@@ -612,6 +612,9 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         MenuItem restConsole = new MenuItem("REST Console...");
         restConsole.setOnAction(event -> openRestConsole());
 
+        MenuItem scriptingConsole = new MenuItem("Scripting Console...");
+        scriptingConsole.setOnAction(event -> openScriptingConsole());
+
         // SMART on FHIR launches. The workbench itself opens like every other screen: a
         // dialog from the Tools menu. Discovery and authorization inside it stay disabled
         // until Phases 02 and 03 wire them up.
@@ -644,6 +647,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                 deleteFromServer, new SeparatorMenuItem(), manageServers, managePlugins,
                 new SeparatorMenuItem(), serverStatus, runOperation,
                 new SeparatorMenuItem(), restConsole,
+                new SeparatorMenuItem(), scriptingConsole,
                 new SeparatorMenuItem(), smartWorkbench);
     }
 
@@ -652,16 +656,26 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         userGuide.setOnAction(event -> showUserGuide());
         MenuItem smartGuide = new MenuItem("SMART on FHIR Launch Guide");
         smartGuide.setOnAction(event -> showSmartGuide());
+        MenuItem scriptingGuide = new MenuItem("Scripting Guide");
+        scriptingGuide.setOnAction(event -> showPhase6Guide());
         MenuItem about = new MenuItem("About");
         about.setOnAction(event -> showAbout());
         return new Menu("Help", null, userGuide, new SeparatorMenuItem(),
-                smartGuide, new SeparatorMenuItem(), about);
+                smartGuide, new SeparatorMenuItem(), scriptingGuide, new SeparatorMenuItem(), about);
     }
 
     /** Opens the SMART on FHIR Launch Guide, bundled alongside the server-functions guide. */
     private void showSmartGuide() {
         UserGuideDialog dialog = new UserGuideDialog(themeManager,
                 UserGuideContent.loadSmartGuide());
+        dialog.initOwner(stage);
+        dialog.showAndWait();
+    }
+
+    /** Opens the Scripting Guide. */
+    private void showPhase6Guide() {
+        UserGuideDialog dialog = new UserGuideDialog(themeManager,
+                UserGuideContent.loadPhase6Guide());
         dialog.initOwner(stage);
         dialog.showAndWait();
     }
@@ -2081,6 +2095,14 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
             display(new LoadedResource(outcome.resource(), ResourceFormat.JSON, outcome.label(), null));
             setStatus("Showing the result of a REST request.");
         });
+    }
+
+    /** Opens the scripting console, sharing the application's FHIR services. */
+    private void openScriptingConsole() {
+        ScriptingConsoleDialog dialog = new ScriptingConsoleDialog(themeManager, fhirService,
+                serverService, serverManager);
+        dialog.initOwner(stage);
+        dialog.showAndWait();
     }
 
 // ------------------------------------------------------------------
