@@ -19,8 +19,8 @@ public final class UserGuideContent {
     /** The SMART on FHIR launch guide on the class path. */
     public static final String RESOURCE_SMART = "/help/SMART-on-FHIR-Guide.md";
 
-    /** The Phase 6 Scripting API Documentation guide on the class path. */
-    public static final String RESOURCE_PHASE6 = "/help/PHASE-6-SCRIPTING-API-DOCUMENTATION.md";
+    /** The Scripting Guide on the class path. */
+    public static final String RESOURCE_PHASE6 = "/help/Scripting-Guide.md";
 
     private UserGuideContent() {
         // static entry point
@@ -50,7 +50,7 @@ public final class UserGuideContent {
         }
     }
 
-    /** The Phase 6 Scripting API Documentation text, or a fallback message. */
+    /** The Scripting Guide text, or a fallback message. */
     public static String loadPhase6Guide() {
         try (InputStream in = UserGuideContent.class.getResourceAsStream(RESOURCE_PHASE6)) {
             if (in == null) {

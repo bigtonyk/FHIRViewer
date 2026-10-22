@@ -57,7 +57,7 @@ public final class TestReportExporter {
             t.put("startedAt", r.startedAt().toString());
         }
         try {
-            return JSON.writerWithDefaultPrettyPrinter().writeValueAsString(root);
+            return JSON.writeValueAsString(root);
         } catch (Exception e) {
             throw new IllegalStateException("failed to serialize report", e);
         }
