@@ -55,6 +55,23 @@ Never use Linux/macOS-only commands such as tail, head, grep, cat, which, or exp
 When capturing Maven test output, use PowerShell-compatible commands, for example:
 .\mvnw.cmd test 2>&1 | Select-Object -Last 80
 
+Assume Windows PowerShell 5.1 unless the active terminal has been verified to use PowerShell 7 or later.
+
+Do not use && or || to chain commands. Use separate commands or PowerShell if/else statements.
+
+Do not use CMD-specific redirection such as 2>nul. Use PowerShell-compatible error handling, such as -ErrorAction SilentlyContinue, or redirect to $null where appropriate.
+
+Do not use CMD-specific conditional syntax such as if exist.
+
+Use Test-Path to check whether a file or directory exists.
+
+Use Write-Output to display messages.
+
+Use Get-Content to read text files; do not rely on type behaving like the CMD command.
+
+Before running a command, ensure its syntax is compatible with the active terminal shell.
+
+When a terminal command fails because of shell incompatibility, correct the command and retry rather than treating it as an application or build failure.
 Inspect the existing Cline rules and project configuration before editing. Add this as a focused rule without overwriting unrelated rules.
 
 Verify that the rule is stored in the location supported by the installed Cline version.
