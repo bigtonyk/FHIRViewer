@@ -161,6 +161,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
         }
         if (current != null) {
             current.stop();
+            running.set(false);
         }
     }
 
