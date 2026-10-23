@@ -1,6 +1,9 @@
 package com.spiraleyes.fhirviewer.service.scripting.api;
 
 import java.util.List;
+import java.util.Optional;
+import com.spiraleyes.fhirviewer.service.scripting.BatchProcessor;
+import com.spiraleyes.fhirviewer.service.scripting.ScriptingPlugin;
 
 import com.spiraleyes.fhirviewer.service.scripting.BatchProcessor;
 
@@ -97,6 +100,9 @@ public final class ScriptBindings {
     public final SmartApi smart;
     public final BatchProcessor batch;
 
+    /** A plugin-provided API object, or {@code null} when no plugin has registered one. */
+    public final Optional<ScriptingPlugin> plugin;
+
     public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
             ServerApi server, LogApi log) {
         this(fhir, viewer, validation, server, log, new TestApi(), null, new BatchProcessor());
@@ -114,6 +120,12 @@ public final class ScriptBindings {
 
     public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
             ServerApi server, LogApi log, TestApi test, SmartApi smart, BatchProcessor batch) {
+        this(fhir, viewer, validation, server, log, test, smart, batch, Optional.empty());
+    }
+
+    public ScriptBindings(FhirApi fhir, ViewerApi viewer, ValidationApi validation,
+            ServerApi server, LogApi log, TestApi test, SmartApi smart, BatchProcessor batch,
+            Optional<ScriptingPlugin> plugin) {
         this.fhir = fhir;
         this.viewer = viewer;
         this.validation = validation;
@@ -122,6 +134,7 @@ public final class ScriptBindings {
         this.test = test == null ? new TestApi() : test;
         this.smart = smart == null ? new SmartApi() : smart;
         this.batch = batch == null ? new BatchProcessor() : batch;
+        this.plugin = plugin;
     }
 
     /**
@@ -153,5 +166,30 @@ public final class ScriptBindings {
                 "final " + testApi + " test = " + bindings + ".current().test;",
                 "final " + smartApi + " smart = " + bindings + ".current().smart;",
                 "final " + batchApi + " batch = " + bindings + ".current().batch;");
+    }
+/** Returns the plugin responsible for this bindings instance, or {@code Optional.empty()}. */
+    public Optional<ScriptingPlugin> getPlugin() {
+        return plugin;
+    }
+
+    /** Returns whether a plugin-provided API is available. */
+    public boolean hasPlugin() {
+        return plugin.isPresent();
+    }
+
+    /** Returns the plugin-provided scripting API object, or {@code null} if none. */
+    @SuppressWarnings("unchecked")
+    public <T> T getPluginApi(String bindingName) {
+        if (plugin.isPresent()) {
+            ScriptingPlugin p = plugin.get();
+            ScriptBindings pluginApis = p.scriptingApiObjects();
+            if (pluginApis != null) {
+                try {
+                    return (T) pluginApis.getClass().getField(bindingName).get(pluginApis);
+                } catch (Exception e) {
+                }
+            }
+        }
+        return null;
     }
 }

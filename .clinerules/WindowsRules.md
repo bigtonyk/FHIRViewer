@@ -1,0 +1,79 @@
+When searching a large codebase or processing many candidate files/results,
+consider using the classifier MCP tool to identify relevant items before
+reading their full contents into context. Prefer classification when it can
+reduce unnecessary context, but do not use it for small searches where the
+overhead is greater than the likely savings.
+
+## Large File Editing
+
+When creating or substantially rewriting a file:
+
+- If the resulting content is likely to exceed 5,000 characters, DO NOT attempt to write the entire file in one editor operation.
+- Create/write the file in multiple smaller chunks.
+- Keep each individual edit comfortably below 5,000 characters.
+- Prefer logical boundaries such as classes, methods, interfaces, or sections.
+- After all chunks are written, read the complete file and verify that:
+  - no content is missing
+  - imports are correct
+  - braces/tags are balanced
+  - the file compiles
+- For very large existing files, modify only the necessary sections rather than replacing the entire file.
+
+## Prefer Small Source Files
+
+Avoid creating unnecessarily large source files.
+
+When implementing new functionality:
+- Prefer multiple focused classes over one large class.
+- Keep UI, validation, FHIR processing, plugin interfaces, and utilities separated.
+- Create interfaces and implementations in separate files where appropriate.
+- Do not combine unrelated functionality into a single file merely to reduce file count.
+
+# powershell commands:
+My development environment is Windows, and commands must work in PowerShell.
+
+Requirements:
+
+Never use Linux/macOS-only commands such as tail, head, grep, cat, which, or export in PowerShell terminal commands.
+
+- Use Select-Object -Last N instead of tail -N.
+
+- Use Select-Object -First N instead of head -N.
+
+- Use Select-String instead of grep.
+
+- Use Get-Content instead of cat.
+
+- Use Get-Command instead of which.
+
+- Use $env:VARIABLE = "value" instead of export VARIABLE=value.
+
+- Use .\mvnw.cmd for Maven wrapper commands on Windows.
+
+- Use PowerShell-compatible command chaining and quoting.
+
+When capturing Maven test output, use PowerShell-compatible commands, for example:
+.\mvnw.cmd test 2>&1 | Select-Object -Last 80
+
+Assume Windows PowerShell 5.1 unless the active terminal has been verified to use PowerShell 7 or later.
+
+Do not use && or || to chain commands. Use separate commands or PowerShell if/else statements.
+
+Do not use CMD-specific redirection such as 2>nul. Use PowerShell-compatible error handling, such as -ErrorAction SilentlyContinue, or redirect to $null where appropriate.
+
+Do not use CMD-specific conditional syntax such as if exist.
+
+Use Test-Path to check whether a file or directory exists.
+
+Use Write-Output to display messages.
+
+Use Get-Content to read text files; do not rely on type behaving like the CMD command.
+
+Before running a command, ensure its syntax is compatible with the active terminal shell.
+
+When a terminal command fails because of shell incompatibility, correct the command and retry rather than treating it as an application or build failure.
+Inspect the existing Cline rules and project configuration before editing. Add this as a focused rule without overwriting unrelated rules.
+
+Verify that the rule is stored in the location supported by the installed Cline version.
+
+Apply this rule to future terminal commands for this project.

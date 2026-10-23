@@ -1,6 +1,7 @@
 package com.spiraleyes.fhirviewer.ui;
 
 import java.io.File;
+import java.net.URL;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -313,7 +314,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         chooser.getExtensionFilters().addAll(
                 new FileChooser.ExtensionFilter("JShell scripts", "*.jsh"),
                 new FileChooser.ExtensionFilter("All files", "*.*"));
-        File file = chooser.showOpenDialog(getOwner());
+        File file = chooser.showOpenDialog(getOwner() != null ? getOwner() : getDialogPane().getScene().getWindow());
         if (file == null) {
             return;
         }
@@ -373,6 +374,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private void onLoadExample() {
         String example = loadExampleScript();
         if (example == null || example.isBlank()) {
+            System.out.println("EXAMPLE RESOURCE: " + (ScriptingConsoleDialog.class.getResource(EXAMPLE_RESOURCE) != null ? "found" : "NOT FOUND"));
             setStatus("The bundled example script could not be read.");
             return;
         }

@@ -17,7 +17,7 @@ import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
  * <p>The JavaFX Application Thread never runs a snippet: {@link #run} hands the
  * work to a single daemon worker, so a script that sleeps for thirty seconds
  * freezes nothing but the workbench's own Run button, and two Runs can never
- * interleave in one session — a second press while one is in flight is refused
+ * interleave in one session â€” a second press while one is in flight is refused
  * immediately rather than queued behind it, because "run this now" and "queue
  * this for later" are different promises and the button means the first.</p>
  *
@@ -26,7 +26,7 @@ import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
  * {@code Platform.runLater}, exactly as {@code BackgroundTasks} does for the
  * rest of the application.</p>
  *
- * <p>{@link #stop} reaches the session from any thread — that is how the Stop
+ * <p>{@link #stop} reaches the session from any thread â€” that is how the Stop
  * button interrupts a snippet already running. {@link #close} stops the
  * session, drains the worker, closes the engine and unregisters the JVM
  * shutdown hook that otherwise closes it if the application exits first, so no
@@ -73,7 +73,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
         }
         if (!running.compareAndSet(false, true)) {
             onDone.accept(ScriptRunResult.failed(
-                    "A script is already running — wait for it to finish, or press Stop."));
+                    "A script is already running â€” wait for it to finish, or press Stop."));
             return;
         }
         try {
@@ -148,9 +148,9 @@ public final class ScriptingCoordinator implements AutoCloseable {
         }
         // Wait for the worker to publish the session for the in-flight run; this is
         // what makes a stop racing the worker's startup still reach the snippet.
-        long deadline = System.nanoTime() + 5_000_000_000L;
+        
         ScriptingSession current = session;
-        while (current == null && running.get() && System.nanoTime() < deadline) {
+        while (current == null && running.get()) {
             try {
                 Thread.sleep(1);
             } catch (InterruptedException interrupted) {
@@ -161,12 +161,12 @@ public final class ScriptingCoordinator implements AutoCloseable {
         }
         if (current != null) {
             current.stop();
-            running.set(false);
         }
+        running.set(false);
     }
 
     /**
-     * Resets the session on the worker thread, after any run already queued —
+     * Resets the session on the worker thread, after any run already queued â€”
      * the single worker makes that ordering automatic.
      *
      * @param onDone invoked on the worker thread once the reset has happened

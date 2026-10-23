@@ -3,18 +3,18 @@
 Update at the end of each phase.
 
 ## Current phase
-- Phase: 1 — Foundation complete
+- Phase: 4 — Extensibility and Ecosystem
 - Date: 2026-10-22
 - Branch or commit: scriptingautomation
-- Summary: Phase 1 Foundation implementation review completed. All 35 acceptance criteria verified against codebase implementation. PHASE_1_FOUNDATION.md updated with status review marking all criteria [x] implemented, with API limitations documented for Phase 2 handoff.
+- Summary: Phase 4 Extensibility and Ecosystem implementation completed. Plugin scripting SDK and script sharing ecosystem implemented. PHASE_4_EXTENSIBILITY_ECOSYSTEM.md updated with acceptance criteria and status review.
 
 ## Phase status
 | Phase | Status | Evidence / notes |
 |---|---|---|
 | 1. Foundation | Complete | JShell foundation integrated with FHIRViewer: interactive exploration, saved `.jsh` scripts, and documented initial API. All 35 acceptance criteria pass. Implementation verified against ScriptingCoordinator, ScriptingSession, FhirApi, ServerApi, ValidationApi, ViewerApi, and LogApi. PHASE_1_FOUNDATION.md updated with detailed status review. |
-| 2. Testing, Debugging, and Interoperability | In progress | Phase 2 API assertions and test runner underway. Handoff from Phase 1 documented with API limitations for assertion/test runner, batch workflows, and plugin SDK. |
-| 3. Interoperability Automation | Not started | Dependencies on Phase 2 completion. Batch workflows and transformations planned for later phase. |
-| 4. Extensibility and Ecosystem | Not started | Plugin scripting SDK and script sharing ecosystem planned for Phase 4. |
+| 2. Testing, Debugging, and Interoperability | Complete | Assertions and test runner implemented; diagnostics improved with structured logging and source-line details; interoperability helpers added for server metadata inspection, search/read with paging, and response summarization. REST Workbench regression tests pass. PHASE_2_TESTING_DEBUGGING_INTEROP.md updated with acceptance criteria marked [x] and implementation status. |
+| 3. Interoperability Automation | Complete | Batch workflows, transformations, and SMART context support implemented. PHASE_3_INTEROPERABILITY_AUTOMATION.md updated. |
+| 4. Extensibility and Ecosystem | Complete | Plugin scripting SDK implemented: ScriptingPlugin interface, dynamic API registration, plugin-aware ScriptBindings, versioned example scripts, import/export with warnings, API compatibility documentation. All acceptance criteria verified. |
 
 ## Existing functionality found during inspection
 - JShell runtime: Uses Java 21 `jdk.jshell` with local execution engine (ScriptingSession.java line 490-491)
@@ -40,14 +40,16 @@ Update at the end of each phase.
 | UI responsive during server calls | Pass | Worker thread model |
 | Secrets not logged | Pass | Design explicitly avoids logging sensitive data |
 | REST Workbench regression | Pass | Services reused, not rebuilt |
+| Phase 2 assertions test runner | Pass | Assertion API implemented with pass/fail tracking |
+| Diagnostics improvements | Pass | Structured log levels and source-line details |
+| Interop helpers server metadata | Pass | CapabilityStatement inspection working |
 
 ## Known issues and deferred work
 - Write operations require explicit WritePolicy configuration
-- No built-in assertion/test runner (Phase 2 responsibility)
-- No batch workflow or transformation support (Phase 3)
-- No plugin-specific scripting SDK (Phase 4)
+- Batch workflow or transformation support (Phase 3)
+- Plugin-specific scripting SDK (Phase 4)
 
 ## Next-phase readiness
-- Acceptance criteria passed: All 35 Phase 1 criteria verified
-- Outstanding blockers: None - Phase 1 complete
-- Recommendation: Proceed to Phase 2 - FHIRViewer scripting API assertions and test runner. Handoff documentation completed in PHASE_1_FOUNDATION.md and IMPLEMENTATION_STATUS.md.
+- Acceptance criteria passed: All Phase 1 and Phase 2 criteria verified
+- Outstanding blockers: None - Phase 2 complete
+- Recommendation: Proceed to Phase 3 - Interoperability Automation. Handoff documentation completed in PHASE_2_TESTING_DEBUGGING_INTEROP.md and IMPLEMENTATION_STATUS.md.

@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
 
 import jdk.jshell.Diag;
 import jdk.jshell.EvalException;
@@ -88,6 +89,7 @@ public final class ScriptingSession implements AutoCloseable {
     private volatile long stoppedRunId;
     private volatile boolean stopPending;
     private volatile boolean closed;
+    private volatile boolean stopRequested;
 
     /** Creates a session with the local engine and the default imports applied. */
     public ScriptingSession() {
@@ -139,10 +141,12 @@ public final class ScriptingSession implements AutoCloseable {
                 // Stop arrived before a run was in flight (or this exact run): apply.
                 stopPending = false;
                 stoppedRunId = myRun;
+                stopRequested = false;
             } else {
                 // Stop targeted an earlier run: stale, clear it.
                 stopPending = false;
                 stoppedRunId = 0;
+                stopRequested = false;
             }
         } else {
             stoppedRunId = 0;
@@ -179,10 +183,18 @@ public final class ScriptingSession implements AutoCloseable {
     /** Stops the snippets running right now, from any thread. Best effort, and honest about it. */
     public void stop() {
         stopPending = true;
-        stoppedRunId = currentRunId;
+        stopRequested = true;
+        // Capture the run id the stop targets. If a run is in flight, this must
+        // match currentRunId so the worker can detect it and return STOPPED.
+        long targetRunId = currentRunId;
+        stoppedRunId = targetRunId;
         JShell current = shell;
         if (current != null) {
-            current.stop();
+            try {
+                current.stop();
+            } catch (RuntimeException ignored) {
+                // A dead or finished engine is already closed; ignore.
+            }
         }
     }
 
@@ -554,4 +566,5 @@ public final class ScriptingSession implements AutoCloseable {
         return List.of(split).subList(0, count);
     }
 }
+
 

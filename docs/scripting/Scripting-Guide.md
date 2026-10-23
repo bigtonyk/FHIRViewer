@@ -160,3 +160,68 @@ synthetic identifiers and read-only operations by default.
 - `String baseUrl()`
 - `String fhirVersion()`
 - `String pluginId()`
+## Interoperability Automation
+
+Support for repeatable multi-step FHIR workflows, parameterized server checks, batch processing, transformations, and quality reports.
+
+### Parameters and target selection
+- Support named parameters, defaults, and required-value validation.
+- Allow explicit target-server selection from configured servers.
+- Show target and parameters before execution; never silently redirect a write workflow.
+
+### FHIR workflows and writes
+- Support multi-step search/read and processing through existing services.
+- Add create/update where supported by the server and authorization.
+- Centralize confirmation for DELETE, broad/destructive batch work, write transaction bundles, and mutating plugin operations.
+- Show target, operation, resource type/ID, and scope/count where known.
+- Respect FHIR version, capabilities, authorization, and SMART scopes.
+
+### Batch processing and transformations
+- Process paginated results with progress and cancellation where feasible.
+- Transform FHIR resources using existing parsers/models.
+- Make failure policy explicit: stop, skip item, or continue and collect errors.
+- Avoid unbounded memory use where chunked processing is practical.
+- Preserve source resources unless the workflow explicitly writes changes; add dry-run/preview for write workflows where feasible.
+
+### Validation and quality reports
+- Validate collections and summarize findings by resource type, profile, and severity.
+- Export JSON/CSV reports if consistent with existing export patterns.
+- Include resource identifiers and issue locations while avoiding unnecessary patient data.
+- Report validation failures without automatically blocking local inspection/saving.
+
+### SMART on FHIR and run management
+- Reuse existing SMART launch context and authorization; clearly identify patient/user/encounter context when available.
+- Never expose raw access/refresh tokens by default.
+- Handle missing/expired authorization and insufficient scopes clearly; do not silently reuse context from another launch/server.
+- Track timestamp, script, target server alias, duration, outcome, and summary.
+- Support cancellation where safe; defer background scheduling unless separately approved.
+
+## Extensibility and Plugin SDK
+
+Allows core features and supported server plugins to provide documented script capabilities without coupling scripts to vendor internals.
+
+### Plugin script API
+- Define how plugins advertise capabilities and register typed API objects/operations.
+- Include descriptions, argument/return types, mutability, compatibility, and prerequisites.
+- Keep core APIs independent of vendor-specific implementation classes.
+- Make capabilities discoverable through console help/UI.
+- Handle absent, disabled, incompatible, or failed plugins cleanly.
+
+### Vendor-specific operations
+- Expose operations only when provided by the installed plugin.
+- Reuse plugin authentication/configuration/server selection/error handling.
+- For custom REST operations, declare method, parameters, supported versions, and read-only versus mutating behavior.
+- Apply centralized write confirmation and existing authorization rules.
+- Never claim an operation exists unless the plugin explicitly advertises it.
+
+### Script library and sharing
+- Provide versioned examples for search/read, validation, repeatable tests, paginated quality checks, dry-run transformations, safe updates, authorized SMART context, and capability-guarded vendor features.
+- Support import/export of `.jsh` scripts and non-secret workflow metadata, with validation and overwrite warnings.
+- Treat imported scripts as executable trusted code requiring review; do not imply sandboxing.
+- Keep credentials/tokens out of exported files. Prefer a local library before considering online marketplaces or remote repositories.
+
+### API compatibility and docs
+- Version the public scripting API or define a compatibility/deprecation policy.
+- Test supported Java 21 and plugin combinations.
+- Document behavior when a script uses an API absent from the installed version.
+- Document API reference, plugin-author guide, compatibility guidance, security assumptions, and migration notes.
