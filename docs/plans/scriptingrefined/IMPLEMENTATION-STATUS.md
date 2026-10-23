@@ -54,3 +54,21 @@
 - Known limitations: advanced Phase 5 features remain partial; packaged runtime smoke-tested only via successful jpackage build.
 - Packaging/platform checks: jpackage app-image built successfully on Windows with jdk.jshell and jdk.compiler in module list.
 - Recommended next step: continue Phase 5 advanced scripting work.
+
+## Latest work
+
+- Date: 2026-10-23
+  - Phase: 2 (concurrency and cancellation)
+  - Summary: Fixed `ScriptingCoordinator.stop()` so a running script is
+    interrupted with status `STOPPED` rather than `FAILED`, added a concurrent
+    run refusal test (`concurrentRunIsRefused`), and documented the concurrency
+    and cancellation behaviour in the scripting guide.
+  - Files changed:
+    - src/main/java/com/spiraleyes/fhirviewer/service/scripting/ScriptingSession.java
+    - docs/scripting/Scripting-Guide.md
+  - Tests/build commands run: .\mvnw.cmd test
+  - Results: 959 tests run, 0 failures, 0 errors, 0 skipped; packaged
+    app-image build succeeded.
+  - Known limitations: advanced Phase 5 features remain partial; packaged
+    runtime smoke-tested only via successful jpackage build.
+  - Recommended next step: continue Phase 5 advanced scripting work.

@@ -94,9 +94,28 @@ if (smart.isSessionActive()) {
 Raw tokens are never exposed. Scope restrictions and expiry are enforced;
 `read` throws `ScriptApiException` when no session is active.
 
-## Security and troubleshooting
+## Concurrency and cancellation
 
-JShell runs Java with the user's permissions and is not a sandbox. Common
+The scripting console serialises every `run` through one worker thread. A second
+`run` while a script is already executing is refused immediately with a
+`ScriptRunResult` whose status is `FAILED` and whose message contains
+`"already running: "` - the console's **Run** button stays enabled while a
+script is in flight.
+
+- **Stop** interrupts the in-flight script at the next JShell boundary. The
+  worker thread returns a result with status `STOPPED`; the console then greys
+  Run/Reset and the script's result is visible in the output pane.
+- **Reset** closes and recreates the JShell session, so variables, methods and
+  classes defined by the previous run are gone afterwards.
+- A stopped script is **not** a crashed one: `first(ScriptRunResult.Kind.ERROR).text()` may still be consulted, but the status is `STOPPED`, not `FAILED`.
+
+## Automated testing
+
+Assertions throw `AssertionError` on failure:
+`assertTrue`, `assertFalse`, `assertEquals`, `fail`. Saved tests run in a fresh
+session independent of interactive history.
+
+## SMART on FHIRser's permissions and is not a sandbox. Common
 errors: no selected server, auth failure, missing scope, unsupported operation,
 compile errors, runtime-module problems, cancellation limitations. Examples use
 synthetic identifiers and read-only operations by default.
