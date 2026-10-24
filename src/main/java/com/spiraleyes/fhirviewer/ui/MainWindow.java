@@ -520,13 +520,25 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                 close,
                 exit);
         
+        Menu workspaceMenu = new Menu("Workspace");
+        MenuItem wsNew = new MenuItem("New Workspace...");
+        wsNew.setOnAction(e -> newWorkspace());
+        MenuItem wsOpen = new MenuItem("Open Workspace...");
+        wsOpen.setOnAction(e -> openWorkspace());
+        MenuItem wsSave = new MenuItem("Save Workspace");
+        wsSave.setOnAction(e -> saveWorkspace());
+        MenuItem wsSaveAs = new MenuItem("Save Workspace As...");
+        wsSaveAs.setOnAction(e -> saveWorkspaceAs());
+        workspaceMenu.getItems().addAll(wsNew, wsOpen, new SeparatorMenuItem(), wsSave, wsSaveAs);
+
         Menu igMenu = buildIgMenu();
-        return new MenuBar(fileMenu, buildEditMenu(), buildViewMenu(), 
-                buildToolsMenu(), buildHelpMenu(), igMenu);
+        return new MenuBar(fileMenu, buildEditMenu(), buildViewMenu(),
+                buildToolsMenu(), buildHelpMenu(), igMenu, workspaceMenu);
     }
 
     private Menu buildEditMenu() {
         undoMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Z"));
+
         undoMenuItem.setOnAction(event -> undoEdit());
 
         addChildMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Shift+A"));
@@ -1453,7 +1465,46 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         return true;
     }
 
-    /** Closes the window, after giving unsaved changes a chance to be saved. */
+    private void newWorkspace() {
+        new com.spiraleyes.fhirviewer.workspace.WorkspaceService().newWorkspace("Untitled");
+        setStatus("New workspace created.");
+    }
+
+    private void openWorkspace() {
+        javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
+        fc.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("FHIR Workspace", "*.fhirworkspace"));
+        java.io.File f = fc.showOpenDialog(stage);
+        if (f == null) return;
+        try {
+            new com.spiraleyes.fhirviewer.workspace.WorkspaceService().open(f.toPath());
+            setStatus("Opened workspace: " + f.getName());
+        } catch (Exception ex) {
+            setStatus("Failed to open workspace: " + ex.getMessage());
+        }
+    }
+
+    private void saveWorkspace() {
+        try {
+            new com.spiraleyes.fhirviewer.workspace.WorkspaceService().save();
+            setStatus("Workspace saved.");
+        } catch (Exception ex) {
+            setStatus("Failed to save workspace: " + ex.getMessage());
+        }
+    }
+
+    private void saveWorkspaceAs() {
+        javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
+        fc.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("FHIR Workspace", "*.fhirworkspace"));
+        java.io.File f = fc.showSaveDialog(stage);
+        if (f == null) return;
+        try {
+            new com.spiraleyes.fhirviewer.workspace.WorkspaceService().saveAs(f.toPath());
+            setStatus("Workspace saved: " + f.getName());
+        } catch (Exception ex) {
+            setStatus("Failed to save workspace: " + ex.getMessage());
+        }
+    }
+
     private void closeWindow() {
         if (!confirmUnsavedChanges("exiting")) {
             return;
