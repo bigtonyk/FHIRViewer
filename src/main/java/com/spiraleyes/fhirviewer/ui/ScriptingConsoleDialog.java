@@ -134,7 +134,15 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 new Separator(Orientation.VERTICAL), openButton, saveButton, saveAsButton, 
                 new Separator(Orientation.VERTICAL), exampleButton, 
                 new Separator(Orientation.VERTICAL), clearButton);
-        toolbar.setPadding(new Insets(0, 0, 4, 0));
+        openButton.setOnAction(event -> onOpen());
+        saveButton.setOnAction(event -> onSave(false));
+        saveAsButton.setOnAction(event -> onSave(true));
+        exampleButton.setOnAction(event -> onLoadExample());
+        runButton.setOnAction(event -> onRun());
+        stopButton.setOnAction(event -> onStop());
+        resetButton.setOnAction(event -> onReset());
+        clearButton.setOnAction(event -> output.clear());
+
         SplitPane split = new SplitPane(editor, output);
         split.setOrientation(javafx.geometry.Orientation.VERTICAL);
         split.setDividerPositions(0.55);
