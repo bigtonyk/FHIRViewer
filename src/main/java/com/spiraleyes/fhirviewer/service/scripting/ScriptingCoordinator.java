@@ -40,6 +40,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
         return thread;
     });
 
+    private volatile Thread workerThread;
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     /** Created lazily on the worker; read by {@link #stop()} from other threads. */
@@ -78,6 +79,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
         }
         try {
             worker.execute(() -> {
+                workerThread = Thread.currentThread();
                 ScriptRunResult result;
                 try {
                     result = session().run(source);
@@ -88,6 +90,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
                                             : ": " + problem.getMessage()));
                 } finally {
                     running.set(false);
+                    workerThread = null;
                 }
                 onDone.accept(result);
             });
@@ -162,6 +165,10 @@ public final class ScriptingCoordinator implements AutoCloseable {
         if (current != null) {
             current.stop();
             running.set(false);
+            Thread t = workerThread;
+            if (t != null) {
+                t.interrupt();
+            }
         }
     }
 
