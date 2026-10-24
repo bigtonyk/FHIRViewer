@@ -34,6 +34,8 @@ import com.spiraleyes.fhirviewer.service.SourceEditorService;
 import com.spiraleyes.fhirviewer.service.ValidationService;
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
+import com.spiraleyes.fhirviewer.service.IgPackageManager;
+import com.spiraleyes.fhirviewer.workspace.WorkspaceService;
 import com.spiraleyes.fhirviewer.server.FhirServerPlugin;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
@@ -147,6 +149,16 @@ public class MainWindow {
             ServerCredentials.from(new PluginSettingsStore(pluginSettingsFile()), serverPassphrase));
     /** The servers configured in this session and the active one. */
     private final FhirServerManager serverManager = new FhirServerManager();
+
+    /**
+     * Captures and restores workspace state across sessions, wired to the live
+     * subsystem instances so connections, validation packages and other feature
+     * state survive save/open.
+     */
+    private final WorkspaceService workspaceService = new WorkspaceService(
+            serverManager,
+            serverService.registry(),
+            fhirService.validationService().getPackageManager());
 
     /**
      * The last search, so both search screens reopen showing it. A search that had to be
@@ -1466,7 +1478,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     private void newWorkspace() {
-        new com.spiraleyes.fhirviewer.workspace.WorkspaceService().newWorkspace("Untitled");
+        workspaceService.newWorkspace("Untitled");
         setStatus("New workspace created.");
     }
 
@@ -1476,7 +1488,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         java.io.File f = fc.showOpenDialog(stage);
         if (f == null) return;
         try {
-            new com.spiraleyes.fhirviewer.workspace.WorkspaceService().open(f.toPath());
+            workspaceService.open(f.toPath());
             setStatus("Opened workspace: " + f.getName());
         } catch (Exception ex) {
             setStatus("Failed to open workspace: " + ex.getMessage());
@@ -1485,7 +1497,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
 
     private void saveWorkspace() {
         try {
-            new com.spiraleyes.fhirviewer.workspace.WorkspaceService().save();
+            workspaceService.save();
             setStatus("Workspace saved.");
         } catch (Exception ex) {
             setStatus("Failed to save workspace: " + ex.getMessage());
@@ -1498,7 +1510,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         java.io.File f = fc.showSaveDialog(stage);
         if (f == null) return;
         try {
-            new com.spiraleyes.fhirviewer.workspace.WorkspaceService().saveAs(f.toPath());
+            workspaceService.saveAs(f.toPath());
             setStatus("Workspace saved: " + f.getName());
         } catch (Exception ex) {
             setStatus("Failed to save workspace: " + ex.getMessage());
