@@ -89,7 +89,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private final ScriptingCoordinator coordinator = new ScriptingCoordinator();
     private final List<String> stylesheets;
 
+    private static File lastDirectory;
     private Path currentFile;
+
     private String savedContent = "";
     private boolean trustAcknowledged;
 
@@ -317,14 +319,16 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     /** Opens a `.jsh` file into the editor; the trust acknowledgement resets with the file. */
     private void onOpen() {
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Open script");
+        chooser.setInitialDirectory(lastDirectory);
+
         chooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter("JShell scripts", "*.jsh"),
+                new FileChooser.ExtensionFilter("Java / JShell scripts", "*.java", "*.jsh"),
                 new FileChooser.ExtensionFilter("All files", "*.*"));
         File file = chooser.showOpenDialog(getOwner());
         if (file == null) {
             return;
         }
+        lastDirectory = file.getParentFile();
         String content;
         try {
             content = Files.readString(file.toPath(), StandardCharsets.UTF_8);
@@ -371,9 +375,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         chooser.setInitialFileName(currentFile == null ? "untitled.jsh"
                 : currentFile.getFileName().toString());
         chooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter("JShell scripts", "*.jsh"),
+                new FileChooser.ExtensionFilter("Java / JShell scripts", "*.java", "*.jsh"),
                 new FileChooser.ExtensionFilter("All files", "*.*"));
         File file = chooser.showSaveDialog(getOwner());
+        if (file != null) lastDirectory = file.getParentFile();
         return file == null ? null : file.toPath();
     }
 
