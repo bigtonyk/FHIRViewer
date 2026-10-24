@@ -669,7 +669,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         UserGuideDialog dialog = new UserGuideDialog(themeManager,
                 UserGuideContent.loadSmartGuide());
         dialog.initOwner(stage);
-        dialog.showAndWait();
+        dialog.show();
     }
 
     /** Opens the Scripting Guide. */
@@ -677,7 +677,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         UserGuideDialog dialog = new UserGuideDialog(themeManager,
                 UserGuideContent.loadPhase6Guide());
         dialog.initOwner(stage);
-        dialog.showAndWait();
+        dialog.show();
     }
 
     private ToolBar buildToolBar() {
@@ -2324,7 +2324,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     private void showUserGuide() {
         UserGuideDialog dialog = new UserGuideDialog(themeManager);
         dialog.initOwner(stage);
-        dialog.showAndWait();
+        dialog.show();
     }
 
     private void showAbout() {

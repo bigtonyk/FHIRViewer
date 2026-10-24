@@ -1,5 +1,6 @@
 package com.spiraleyes.fhirviewer.ui;
 
+import javafx.stage.Modality;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.layout.Priority;
@@ -34,6 +35,7 @@ public class UserGuideDialog extends Dialog<Void> {
         setTitle("User Guide");
         setHeaderText("FHIR Resource Viewer — User Guide");
         setResizable(true);
+        initModality(Modality.NONE);
 
         guideView.show(UserGuideDocument.parse(guideText));
         guideView.setLinkOpener(target -> guideView.scrollToAnchor(target));

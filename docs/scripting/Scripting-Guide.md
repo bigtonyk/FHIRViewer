@@ -101,6 +101,12 @@ errors: no selected server, auth failure, missing scope, unsupported operation,
 compile errors, runtime-module problems, cancellation limitations. Examples use
 synthetic identifiers and read-only operations by default.
 
+## Scripting automation
+
+Saved scripts and test suites run in a fresh JShell session independent of
+interactive history. Use `test` assertions; results are reported as passed/failed
+with a summary. Destructive tests must be clearly marked and use synthetic data.
+
 ## API reference details
 
 ### FhirApi (`fhir`)
