@@ -27,7 +27,6 @@ public class WorkspaceService {
 
     /** Backward-compatible constructor: providers run without real subsystem wiring. */
     public WorkspaceService() {
-        this.prefs = Preferences.userRoot().node(PREFS_NODE);
         this(null, null, null);
     }
 
@@ -41,6 +40,7 @@ public class WorkspaceService {
     public WorkspaceService(FhirServerManager serverManager,
                             FhirServerPluginRegistry pluginRegistry,
                             IgPackageManager packageManager) {
+        this.prefs = Preferences.userRoot().node(PREFS_NODE);
         providers.add(new ConnectionsWorkspaceStateProvider(serverManager, pluginRegistry));
         providers.add(new RestWorkbenchWorkspaceStateProvider());
         providers.add(new TreeTabsWorkspaceStateProvider());
