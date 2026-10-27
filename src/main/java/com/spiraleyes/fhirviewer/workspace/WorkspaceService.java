@@ -1,23 +1,33 @@
 package com.spiraleyes.fhirviewer.workspace;
 
+import java.util.prefs.Preferences;
+
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
 import com.spiraleyes.fhirviewer.service.IgPackageManager;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 public class WorkspaceService {
+    private static final String PREFS_NODE = "workspace";
+    private static final String KEY_LAST_ID = "lastId";
+    private static final String KEY_LAST_NAME = "lastName";
+    private static final String KEY_LAST_PATH = "lastPath";
+
     private Path currentPath;
     private WorkspaceMetadata current;
     private boolean dirty;
     private final List<WorkspaceStateProvider> providers = new ArrayList<>();
+    private Preferences prefs;
 
     /** Backward-compatible constructor: providers run without real subsystem wiring. */
     public WorkspaceService() {
+        this.prefs = Preferences.userRoot().node(PREFS_NODE);
         this(null, null, null);
     }
 
@@ -43,6 +53,9 @@ public class WorkspaceService {
         current = meta;
         currentPath = null;
         dirty = true;
+        // Persist that a new workspace was created (no path yet)
+        prefs.put(KEY_LAST_ID, meta.workspaceId().toString());
+        prefs.put(KEY_LAST_NAME, name);
         return meta;
     }
 
@@ -52,7 +65,47 @@ public class WorkspaceService {
         currentPath = path;
         dirty = false;
         restoreAll(meta);
+        // Persist this as the last used workspace
+        prefs.put(KEY_LAST_PATH, path.toString());
+        prefs.put(KEY_LAST_ID, meta.workspaceId().toString());
+        prefs.put(KEY_LAST_NAME, meta.name());
         return meta;
+    }
+
+    /** Open the last saved workspace from preferences if no path is given. */
+    public WorkspaceMetadata openLastFromPreferences() {
+        String savedPath = prefs.get(KEY_LAST_PATH, null);
+        String savedId = prefs.get(KEY_LAST_ID, null);
+        String savedName = prefs.get(KEY_LAST_NAME, null);
+
+        if (savedPath == null || savedId == null) {
+            // No prior workspace; start fresh
+            return newWorkspace("(new)");
+        }
+
+        Path path = Path.of(savedPath);
+        if (!Files.isRegularFile(path)) {
+            // Archive missing/moved – start fresh and clear preference
+            prefs.remove(KEY_LAST_PATH);
+            prefs.remove(KEY_LAST_ID);
+            prefs.remove(KEY_LAST_NAME);
+            return newWorkspace("(recovered)");
+        }
+
+        try {
+            WorkspaceMetadata meta = open(path);
+            // Update preferences with the just-opened workspace identity
+            prefs.put(KEY_LAST_PATH, path.toString());
+            prefs.put(KEY_LAST_ID, meta.workspaceId().toString());
+            prefs.put(KEY_LAST_NAME, meta.name());
+            return meta;
+        } catch (IOException e) {
+            // Corrupt/archive incompatible – start fresh and clear preference
+            prefs.remove(KEY_LAST_PATH);
+            prefs.remove(KEY_LAST_ID);
+            prefs.remove(KEY_LAST_NAME);
+            return newWorkspace("(recovered)");
+        }
     }
 
     public void save() throws IOException {
@@ -62,6 +115,10 @@ public class WorkspaceService {
         WorkspaceArchiveWriter.write(currentPath, meta);
         current = meta;
         dirty = false;
+        // Persist this as the last used workspace
+        prefs.put(KEY_LAST_PATH, currentPath.toString());
+        prefs.put(KEY_LAST_ID, meta.workspaceId().toString());
+        prefs.put(KEY_LAST_NAME, meta.name());
     }
 
     public void saveAs(Path path) throws IOException {
@@ -71,10 +128,18 @@ public class WorkspaceService {
         current = meta;
         currentPath = path;
         dirty = false;
+        // Persist this as the last used workspace
+        prefs.put(KEY_LAST_PATH, path.toString());
+        prefs.put(KEY_LAST_ID, meta.workspaceId().toString());
+        prefs.put(KEY_LAST_NAME, meta.name());
     }
 
     public void captureAll() {
         if (current != null) current = captureAll(current);
+    }
+
+    public WorkspaceMetadata captureAllCurrent() {
+        return captureAll(current);
     }
 
     private WorkspaceMetadata captureAll(WorkspaceMetadata base) {
@@ -92,7 +157,7 @@ public class WorkspaceService {
         return new WorkspaceMetadata(base.schemaVersion(), base.workspaceId(), base.name(), connections, rest, tree, fp, val);
     }
 
-    private void restoreAll(WorkspaceMetadata meta) {
+    public void restoreAll(WorkspaceMetadata meta) {
         for (WorkspaceStateProvider p : providers) {
             Object snap = switch (p.providerId()) {
                 case "connections" -> meta.connections();

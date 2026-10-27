@@ -4,6 +4,8 @@ import java.util.List;
 
 import com.spiraleyes.fhirviewer.ui.MainWindow;
 import com.spiraleyes.fhirviewer.ui.ThemeManager;
+import com.spiraleyes.fhirviewer.workspace.WorkspaceService;
+import com.spiraleyes.fhirviewer.workspace.WorkspaceMetadata;
 
 import javafx.application.Application;
 import javafx.scene.Scene;
@@ -28,6 +30,15 @@ public class Main extends Application {
 
     @Override
     public void start(Stage stage) {
+        // Initialize workspace service with null adapters (standalone mode)
+        WorkspaceService ws = new WorkspaceService();
+
+        // Automatically reopen the last workspace from preferences
+        WorkspaceMetadata last = ws.openLastFromPreferences();
+        if (last != null && !"(new)".equals(last.name()) && !"(recovered)".equals(last.name())) {
+            // Last workspace was successfully opened; it's already set in ws.current
+        }
+
         MainWindow mainWindow = new MainWindow(stage, getHostServices());
 
         Scene scene = new Scene(mainWindow.getRoot(), INITIAL_WIDTH, INITIAL_HEIGHT);

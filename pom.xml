@@ -39,7 +39,9 @@
       Source/target level. Java 21 bytecode runs on the JDK 21 runtime used to
       build and launch the application.
     -->
-    <maven.compiler.release>21</maven.compiler.release>
+    <maven.compiler.release>25</maven.compiler.release>
+    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
 
     <!--
       JavaFX 21.0.8: the newest 21.x line, which runs on the JDK 21 build.
