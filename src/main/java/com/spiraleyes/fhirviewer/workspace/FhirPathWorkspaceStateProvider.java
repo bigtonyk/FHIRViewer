@@ -1,12 +1,13 @@
 package com.spiraleyes.fhirviewer.workspace;
 
+import java.util.List;
 import java.util.Map;
 
 /**
  * Capture/restore boundary for FHIRPath state.
  *
  * <p>Serialises saved expressions and associated resource context/reference. Restore does
- * not auto-evaluate if remote or expensive — expressions are stored for later use, not
+ * not auto-evaluate if remote or expensive - expressions are stored for later use, not
  * re-run on workspace open.</p>
  */
 public class FhirPathWorkspaceStateProvider implements WorkspaceStateProvider {
@@ -14,13 +15,13 @@ public class FhirPathWorkspaceStateProvider implements WorkspaceStateProvider {
     /** Callback supplying saved FHIRPath expressions for capture. */
     @FunctionalInterface
     public interface ExpressionSnapshot {
-        Map<String, Object> capture();
+        List<String> capture();
     }
 
     /** Callback applying restored FHIRPath expressions. */
     @FunctionalInterface
     public interface ExpressionApplier {
-        void apply(Map<String, Object> snapshot);
+        void apply(List<String> expressions, String contextRef);
     }
 
     private final ExpressionSnapshot snapshot;
@@ -45,7 +46,10 @@ public class FhirPathWorkspaceStateProvider implements WorkspaceStateProvider {
     @Override
     public Object capture() {
         if (snapshot == null) return Map.of();
-        return snapshot.capture();
+        List<String> expressions = snapshot.capture();
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("expressions", expressions == null ? List.of() : expressions);
+        return out;
     }
 
     @Override
@@ -53,7 +57,9 @@ public class FhirPathWorkspaceStateProvider implements WorkspaceStateProvider {
         if (!(state instanceof Map) || applier == null) return;
         @SuppressWarnings("unchecked")
         Map<String, Object> snapshot = (Map<String, Object>) state;
-        applier.apply(snapshot);
+        @SuppressWarnings("unchecked")
+        List<String> expressions = (List<String>) snapshot.get("expressions");
+        if (expressions == null) expressions = List.of();
+        applier.apply(expressions, null);
     }
 }
-

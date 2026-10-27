@@ -57,6 +57,20 @@ When capturing Maven test output, use PowerShell-compatible commands, for exampl
 
 Inspect the existing Cline rules and project configuration before editing. Add this as a focused rule without overwriting unrelated rules.
 
+
+# FHIRViewer workspace task rules
+
+This repo: Java 21, Maven, JavaFX 21.0.8, HAPI FHIR 8.12.0, JUnit 5. Build: .\.mvnw.cmd.
+Entry: com.spiraleyes.fhirviewer.Launcher -> com.spiraleyes.fhirviewer.Main.
+UI: plain JavaFX (no FXML), no @FXML controllers; UI only coordinates, services own FHIR logic.
+Plugin boundary: server.FhirServerPlugin (UI-neutral). Existing layers: ui/, service/, fhir/, model/, server/, workspace/.
+Workspace package already exists: WorkspaceService, WorkspaceStateProvider/impl, WorkspaceArchiveReader/Writer, WorkspaceMetadata.
+Docs plan folder: docs/workspace/ (REPOSITORY-ASSESSMENT.md etc.). Build logs: build.log, build2.log.
+
+Build/test: .\.mvnw.cmd test ; .\.mvnw.cmd javafx:run ; .\.mvnw.cmd -Pdist package.
+Do NOT log credentials/tokens; reuse existing auth (Adhoc/Basic/Bearer/Anonymous/SMART).
+Never re-implement existing async/concurrency; extend the existing patterns.
+
 Verify that the rule is stored in the location supported by the installed Cline version.
 
 Apply this rule to future terminal commands for this project.

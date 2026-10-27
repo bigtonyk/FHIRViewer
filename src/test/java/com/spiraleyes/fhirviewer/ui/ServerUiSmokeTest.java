@@ -1541,7 +1541,7 @@ class ServerUiSmokeTest {
                     List.of(new RestParameterList.Parameter("name", "Smith"),
                             new RestParameterList.Parameter("_include", "Patient:organization")),
                     List.of(new RestParameterList.Parameter("Prefer", "return=representation")),
-                    "application/fhir+json", ServerAuthKind.BASIC, "alice", 1400, 820, 0.5);
+                    "application/fhir+json", ServerAuthKind.BASIC, "alice", 1400, 820, 0.5, "");
             remembered.save();
 
             AtomicReference<RestRequestPane> pane = new AtomicReference<>();
@@ -1838,3 +1838,4 @@ class ServerUiSmokeTest {
         }
     }
 }
+

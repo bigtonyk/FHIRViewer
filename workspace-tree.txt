@@ -1,0 +1,1578 @@
+Folder PATH listing for volume DataDisk
+Volume serial number is 2C84-550F
+D:.
+|   .clinerules
+|   .gitignore
+|   build.log
+|   build2.log
+|   ci-check-window.ps1
+|   ci-launch-console.ps1
+|   facts.txt
+|   facts01.txt
+|   facts02.txt
+|   facts03.txt
+|   facts1.txt
+|   FHIRViewer FHIR Server Plugin Architecture - AI Agent Implementation Plan.md
+|   FHIRViewer - Two-Layer Smile CDR Plugin Implementation Plan.md
+|   inv.txt
+|   launch-app.cmd
+|   launch-app.ps1
+|   LICENSE
+|   mvnw
+|   mvnw.cmd
+|   out.txt
+|   pom.xml
+|   probe.txt
+|   README.md
+|   RELEASE_NOTES.md
+|   script-test-output.txt
+|   test-log.txt
+|   test-out.txt
+|   test-output.txt
+|   test.log
+|   test2.log
+|   test3.log
+|   test4.log
+|   workspace-tree.txt
+|   
++---.github
+|   \---workflows
+|           ci.yml
+|           release.yml
+|           
++---.mvn
+|   \---wrapper
+|           maven-wrapper.properties
+|           
++---.vscode
+|       settings.json
+|       
++---docs
+|   |   building-a-launchable-build.md
+|   |   
+|   +---architecture
+|   |       Current-Plugin-Architecture.md
+|   |       
+|   +---notes
+|   |       FHIR_Updates.txt
+|   |       FHIR_Viewer_Modernize.txt
+|   |       FHIR_Viewer_Pretty_View_Cline_Plan.txt
+|   |       FHIR_Viewer_Project_Plan.txt
+|   |       IGPackages.txt
+|   |       
+|   +---plans
+|   |   |   FHIRViewer_Feature_Roadmap_and_Planning_Backlog.md
+|   |   |   
+|   |   +---archived
+|   |   |       00_MASTER_INSTRUCTIONS.md
+|   |   |       01_INSPECT_CURRENT_ARCHITECTURE.md
+|   |   |       02_REST_CORE_API.md
+|   |   |       03_AUTHENTICATION_AND_HTTP.md
+|   |   |       04_STANDARD_FHIR_OPERATIONS.md
+|   |   |       05_PLUGIN_CUSTOM_OPERATIONS.md
+|   |   |       06_VIEWER_UI_INTEGRATION.md
+|   |   |       07_SMILE_AND_FIRELY_PLUGINS.md
+|   |   |       08_TESTING_DOCUMENTATION_AND_HARDENING.md
+|   |   |       09_SECOND_BASE_URL_FOR_ADMIN_APIS.md
+|   |   |       10_STANDARD_OPERATIONS_AND_INPUT_UI.md
+|   |   |       11_REST_CONSOLE_UI.md
+|   |   |       FHIRViewer_Phase_3_Implementation_Guide_Verification.md
+|   |   |       FHIRViewer_Phase_3_Incremental_IG_Validation_Updates.md
+|   |   |       FHIR_Server_REST_Integration_Plan.md
+|   |   |       Phase-1-Add-Delete-Nodes-and-FHIRPath.md
+|   |   |       Phase-2-Edit-JSON-XML-In-Place.md
+|   |   |       Phase-29-Backward-Compatibility.md
+|   |   |       Phase-3-Implementation-Guide-Verification.md
+|   |   |       Phase-30-Security-Review.md
+|   |   |       Phase-4-Firely-Server-Plugin.md
+|   |   |       Phase-5-Standard-FHIR-Server-Plugin.md
+|   |   |       Phase-6-Plugin-Developer-Documentation.md
+|   |   |       Phase-7-Open-Save-from-FHIR-Server.md
+|   |   |       REST-Integration-Progress.md
+|   |   |       
+|   |   +---scripting
+|   |   |       IMPLEMENTATION-STATUS-TEMPLATE.md
+|   |   |       IMPLEMENTATION-STATUS.md
+|   |   |       MASTER-CONSIDERATIONS.md
+|   |   |       PHASE-1-BASIC-SCRIPTING-CONSOLE.md
+|   |   |       PHASE-2-FHIRVIEWER-SCRIPTING-API.md
+|   |   |       PHASE-3-AUTOMATED-TESTING.md
+|   |   |       PHASE-4-SMART-ON-FHIR-INTEGRATION.md
+|   |   |       PHASE-5-ADVANCED-SCRIPTING.md
+|   |   |       PHASE-6-SCRIPTING-API-DOCUMENTATION.md
+|   |   |       README.md
+|   |   |       
+|   |   +---scriptingautomation
+|   |   |   |   IMPLEMENTATION_STATUS.md
+|   |   |   |   MASTER_CONSIDERATIONS.md
+|   |   |   |   README.md
+|   |   |   |   
+|   |   |   \---phases
+|   |   |           PHASE_1_FOUNDATION.md
+|   |   |           PHASE_2_TESTING_DEBUGGING_INTEROP.md
+|   |   |           PHASE_3_INTEROPERABILITY_AUTOMATION.md
+|   |   |           PHASE_4_EXTENSIBILITY_ECOSYSTEM.md
+|   |   |           
+|   |   +---scriptingrefined
+|   |   |       IMPLEMENTATION-STATUS-TEMPLATE.md
+|   |   |       IMPLEMENTATION-STATUS.md
+|   |   |       MASTER-CONSIDERATIONS.md
+|   |   |       PHASE-1-BASIC-SCRIPTING-CONSOLE.md
+|   |   |       PHASE-2-FHIRVIEWER-SCRIPTING-API.md
+|   |   |       PHASE-3-AUTOMATED-TESTING.md
+|   |   |       PHASE-4-SMART-ON-FHIR-INTEGRATION.md
+|   |   |       PHASE-5-ADVANCED-SCRIPTING.md
+|   |   |       PHASE-6-SCRIPTING-API-DOCUMENTATION.md
+|   |   |       README.md
+|   |   |       
+|   |   \---workspace
+|   |           00-MASTER-CONSIDERATIONS.md
+|   |           01-PHASE-0-REPOSITORY-ASSESSMENT.md
+|   |           02-PHASE-1-WORKSPACE-FOUNDATION.md
+|   |           03-PHASE-2-CORE-WORKFLOW-INTEGRATION.md
+|   |           04-PHASE-3-LOCAL-CONTENT-AND-RECOVERY.md
+|   |           05-PHASE-4-STARTUP-RESTORATION-AND-ROBUSTNESS.md
+|   |           06-PHASE-5-PORTABILITY-AND-EXTENSIBILITY.md
+|   |           phase2-connections.md
+|   |           phase2-fhirpath.md
+|   |           phase2-rest-workbench.md
+|   |           phase2-subsystem-exposure.md
+|   |           phase2-tree-tabs.md
+|   |           phase2-validation.md
+|   |           PHASE2_REMAINING.md
+|   |           
+|   +---scripting
+|   |       PHASE-5-ADVANCED-SCRIPTING.md
+|   |       PHASE-6-SCRIPTING-API-DOCUMENTATION.md
+|   |       Scripting-Guide.md
+|   |       
+|   +---smartonfhir
+|   |       IMPLEMENTATION-STATUS.md
+|   |       MANUAL-TEST-CHECKLIST.md
+|   |       PHASE-00-REPOSITORY-ASSESSMENT.md
+|   |       PHASE-01-WORKBENCH-UI.md
+|   |       PHASE-02-SMART-DISCOVERY.md
+|   |       PHASE-03-OAUTH-PKCE.md
+|   |       PHASE-04-AUTHORIZED-FHIR-ACCESS.md
+|   |       PHASE-05-EHR-LAUNCH.md
+|   |       PHASE-06-DIAGNOSTICS-AND-TESTING.md
+|   |       README.md
+|   |       USER-GUIDE-SMART.md
+|   |       
+|   +---user-guide
+|   |       FHIR-Server-Functions.md
+|   |       User-Guide.md
+|   |       
+|   \---workspace
+|           REPOSITORY-ASSESSMENT.md
+|           
++---scripts
+|   \---examples
+|           01-read-patient.java
+|           02-search-patients.java
+|           03-validate.java
+|           04-server-info.java
+|           05-assertions.java
+|           06-smart.java
+|           
++---spike
+|       Spike.java
+|       Spike2.java
+|       Spike3.java
+|       Spike4.java
+|       Spike5.java
+|       Spike6.java
+|       
++---src
+|   +---main
+|   |   +---dist
+|   |   |       clear-previous-image.java
+|   |   |       
+|   |   +---java
+|   |   |   \---com
+|   |   |       \---spiraleyes
+|   |   |           \---fhirviewer
+|   |   |               |   Launcher.java
+|   |   |               |   Main.java
+|   |   |               |   
+|   |   |               +---fhir
+|   |   |               |       ElementProperty.java
+|   |   |               |       FhirContextFactory.java
+|   |   |               |       FhirModelAdapter.java
+|   |   |               |       FhirParseException.java
+|   |   |               |       R4ModelAdapter.java
+|   |   |               |       ResourceParser.java
+|   |   |               |       ResourceSerializer.java
+|   |   |               |       ResourceTreeBuilder.java
+|   |   |               |       
+|   |   |               +---model
+|   |   |               |       BundleEntryInfo.java
+|   |   |               |       ElementInfo.java
+|   |   |               |       IgPackageInfo.java
+|   |   |               |       LoadedResource.java
+|   |   |               |       ResourceFormat.java
+|   |   |               |       ResourceNode.java
+|   |   |               |       ValidationIssue.java
+|   |   |               |       ValidationLevel.java
+|   |   |               |       ValidationProfile.java
+|   |   |               |       ValidationReport.java
+|   |   |               |       
+|   |   |               +---pretty
+|   |   |               |       DataTypeFormatter.java
+|   |   |               |       PrettyBlock.java
+|   |   |               |       PrettyDocument.java
+|   |   |               |       PrettyModelBuilder.java
+|   |   |               |       PrettyRow.java
+|   |   |               |       
+|   |   |               +---server
+|   |   |               |   |   AdhocAuthentication.java
+|   |   |               |   |   AdhocServer.java
+|   |   |               |   |   AnonymousServerAuthentication.java
+|   |   |               |   |   BasicServerAuthentication.java
+|   |   |               |   |   BearerServerAuthentication.java
+|   |   |               |   |   ConnectionResult.java
+|   |   |               |   |   FhirOperationRequest.java
+|   |   |               |   |   FhirServerConfiguration.java
+|   |   |               |   |   FhirServerManager.java
+|   |   |               |   |   FhirServerPlugin.java
+|   |   |               |   |   FhirServerPluginRegistry.java
+|   |   |               |   |   FhirServerService.java
+|   |   |               |   |   FirelyConfiguration.java
+|   |   |               |   |   FirelyPlugin.java
+|   |   |               |   |   OperationPathTemplate.java
+|   |   |               |   |   PatchFormat.java
+|   |   |               |   |   PluginConfig.java
+|   |   |               |   |   PluginJarScanner.java
+|   |   |               |   |   PluginLoader.java
+|   |   |               |   |   PluginOperationClient.java
+|   |   |               |   |   PluginSettings.java
+|   |   |               |   |   PluginSettingsStore.java
+|   |   |               |   |   RequestHeaders.java
+|   |   |               |   |   SearchCriterion.java
+|   |   |               |   |   SearchPageLinks.java
+|   |   |               |   |   SearchRequest.java
+|   |   |               |   |   SearchResultPage.java
+|   |   |               |   |   SecretBox.java
+|   |   |               |   |   SecretBoxException.java
+|   |   |               |   |   ServerAuthentication.java
+|   |   |               |   |   ServerAuthKind.java
+|   |   |               |   |   ServerCapabilities.java
+|   |   |               |   |   ServerCapabilityReader.java
+|   |   |               |   |   ServerCredentials.java
+|   |   |               |   |   ServerCredentialSaver.java
+|   |   |               |   |   ServerDefinition.java
+|   |   |               |   |   ServerDefinitionStore.java
+|   |   |               |   |   ServerInteraction.java
+|   |   |               |   |   ServerOperation.java
+|   |   |               |   |   ServerOperationException.java
+|   |   |               |   |   ServerOperationInvocation.java
+|   |   |               |   |   ServerOperationParameter.java
+|   |   |               |   |   ServerOperationResult.java
+|   |   |               |   |   ServerOrigin.java
+|   |   |               |   |   ServerPassphrase.java
+|   |   |               |   |   ServerResourceCapabilities.java
+|   |   |               |   |   ServerSearchBundleReader.java
+|   |   |               |   |   ServerSession.java
+|   |   |               |   |   ServerVendorAction.java
+|   |   |               |   |   ServerWriteResult.java
+|   |   |               |   |   SmileCdrConfiguration.java
+|   |   |               |   |   SmileCdrPlugin.java
+|   |   |               |   |   StandardFhirRestPlugin.java
+|   |   |               |   |   StartupServers.java
+|   |   |               |   |   TokenEndpointClient.java
+|   |   |               |   |   TokenFetchResult.java
+|   |   |               |   |   TransportSecurity.java
+|   |   |               |   |   
+|   |   |               |   +---rest
+|   |   |               |   |       CurlCommand.java
+|   |   |               |   |       FhirOperationClient.java
+|   |   |               |   |       JdkHttpRestClient.java
+|   |   |               |   |       RestAnswer.java
+|   |   |               |   |       RestAnswers.java
+|   |   |               |   |       RestClient.java
+|   |   |               |   |       RestFailures.java
+|   |   |               |   |       RestHeaders.java
+|   |   |               |   |       RestMethod.java
+|   |   |               |   |       RestOperationOutcome.java
+|   |   |               |   |       RestOutcomeParser.java
+|   |   |               |   |       RestRequest.java
+|   |   |               |   |       RestResponse.java
+|   |   |               |   |       RestUrls.java
+|   |   |               |   |       
+|   |   |               |   \---smart
+|   |   |               |           BrowserLauncher.java
+|   |   |               |           DesktopBrowserLauncher.java
+|   |   |               |           LoopbackCallbackServer.java
+|   |   |               |           Pkce.java
+|   |   |               |           SmartAuthorizationException.java
+|   |   |               |           SmartAuthorizationFlow.java
+|   |   |               |           SmartAuthorizationRequest.java
+|   |   |               |           SmartAuthorizationSession.java
+|   |   |               |           SmartAuthState.java
+|   |   |               |           SmartBearerAuthorization.java
+|   |   |               |           SmartConfiguration.java
+|   |   |               |           SmartDiagnostics.java
+|   |   |               |           SmartDiagnosticsEvent.java
+|   |   |               |           SmartDiscoveryException.java
+|   |   |               |           SmartDiscoveryService.java
+|   |   |               |           SmartFhirAccess.java
+|   |   |               |           SmartIdTokenValidator.java
+|   |   |               |           SmartJwksFetcher.java
+|   |   |               |           SmartLaunchConfig.java
+|   |   |               |           SmartLaunchMode.java
+|   |   |               |           SmartLaunchStore.java
+|   |   |               |           SmartTokenExchangeService.java
+|   |   |               |           SmartTokenResponse.java
+|   |   |               |           SmartUrls.java
+|   |   |               |           
+|   |   |               +---service
+|   |   |               |   |   FHIRPathService.java
+|   |   |               |   |   FhirService.java
+|   |   |               |   |   IgPackageException.java
+|   |   |               |   |   IgPackageManager.java
+|   |   |               |   |   KnownPackages.java
+|   |   |               |   |   NpmPackageReader.java
+|   |   |               |   |   PackageInstaller.java
+|   |   |               |   |   PackageRegistryService.java
+|   |   |               |   |   PackageResourceIndex.java
+|   |   |               |   |   PackageStorage.java
+|   |   |               |   |   ResourceEditorService.java
+|   |   |               |   |   ResourceLoader.java
+|   |   |               |   |   ResourceLoadException.java
+|   |   |               |   |   ResourceTemplateFactory.java
+|   |   |               |   |   SourceEditorService.java
+|   |   |               |   |   ValidationIssueAnalyzer.java
+|   |   |               |   |   ValidationService.java
+|   |   |               |   |   
+|   |   |               |   \---scripting
+|   |   |               |       |   BatchErrorPolicy.java
+|   |   |               |       |   BatchItemOutcome.java
+|   |   |               |       |   BatchItemResult.java
+|   |   |               |       |   BatchProcessor.java
+|   |   |               |       |   BatchResult.java
+|   |   |               |       |   ScriptingCoordinator.java
+|   |   |               |       |   ScriptingSession.java
+|   |   |               |       |   ScriptParameter.java
+|   |   |               |       |   ScriptRunResult.java
+|   |   |               |       |   
+|   |   |               |       +---api
+|   |   |               |       |       FhirApi.java
+|   |   |               |       |       LogApi.java
+|   |   |               |       |       ScriptApiException.java
+|   |   |               |       |       ScriptBindings.java
+|   |   |               |       |       SearchResults.java
+|   |   |               |       |       ServerApi.java
+|   |   |               |       |       ServerInfo.java
+|   |   |               |       |       SmartApi.java
+|   |   |               |       |       TestApi.java
+|   |   |               |       |       ValidationApi.java
+|   |   |               |       |       ViewerApi.java
+|   |   |               |       |       WriteDeniedException.java
+|   |   |               |       |       WritePolicy.java
+|   |   |               |       |       
+|   |   |               |       \---testing
+|   |   |               |               ConfirmationHandler.java
+|   |   |               |               ScriptTestRunner.java
+|   |   |               |               TestCase.java
+|   |   |               |               TestCaseResult.java
+|   |   |               |               TestOutcome.java
+|   |   |               |               TestProgressListener.java
+|   |   |               |               TestReportExporter.java
+|   |   |               |               TestRunResult.java
+|   |   |               |               TestSuite.java
+|   |   |               |               TestSuiteResult.java
+|   |   |               |               TestSuiteRunner.java
+|   |   |               |               
+|   |   |               +---ui
+|   |   |               |       AboutInfo.java
+|   |   |               |       AddChildDialog.java
+|   |   |               |       BackgroundTasks.java
+|   |   |               |       BundleView.java
+|   |   |               |       DetailsView.java
+|   |   |               |       ElementNavigationTarget.java
+|   |   |               |       FhirPathView.java
+|   |   |               |       IgPackageDialog.java
+|   |   |               |       JsonView.java
+|   |   |               |       MainWindow.java
+|   |   |               |       OpenFromServerDialog.java
+|   |   |               |       PatchResourceDialog.java
+|   |   |               |       PluginManagerDialog.java
+|   |   |               |       PrettyView.java
+|   |   |               |       ResourceTreeView.java
+|   |   |               |       RestConsoleDialog.java
+|   |   |               |       RestConsoleForm.java
+|   |   |               |       RestConsoleState.java
+|   |   |               |       RestHeaderList.java
+|   |   |               |       RestParameterList.java
+|   |   |               |       RestRequestPane.java
+|   |   |               |       RestResponsePane.java
+|   |   |               |       SaveToServerDialog.java
+|   |   |               |       ScriptingConsoleDialog.java
+|   |   |               |       SearchCriteriaBuilder.java
+|   |   |               |       SearchCriteriaEditor.java
+|   |   |               |       SearchMemory.java
+|   |   |               |       ServerCapabilitiesCache.java
+|   |   |               |       ServerErrors.java
+|   |   |               |       ServerFormPanel.java
+|   |   |               |       ServerManagerDialog.java
+|   |   |               |       ServerOperationDialog.java
+|   |   |               |       ServerOperationForm.java
+|   |   |               |       ServerOperationResults.java
+|   |   |               |       ServerResourceCoordinator.java
+|   |   |               |       ServerSearchDialog.java
+|   |   |               |       ServerStatusDialog.java
+|   |   |               |       SmartCapabilitiesPane.java
+|   |   |               |       SmartDiagnosticsPane.java
+|   |   |               |       SmartLaunchDialog.java
+|   |   |               |       SmartLaunchFormPanel.java
+|   |   |               |       SmartResourcePane.java
+|   |   |               |       SmartSessionPane.java
+|   |   |               |       StatusView.java
+|   |   |               |       ThemeManager.java
+|   |   |               |       TokenFetchDialog.java
+|   |   |               |       UserGuideContent.java
+|   |   |               |       UserGuideDialog.java
+|   |   |               |       UserGuideDocument.java
+|   |   |               |       UserGuideView.java
+|   |   |               |       XmlView.java
+|   |   |               |       
+|   |   |               +---util
+|   |   |               |       FileSupport.java
+|   |   |               |       
+|   |   |               \---workspace
+|   |   |                       ConnectionsWorkspaceStateProvider.java
+|   |   |                       FhirPathWorkspaceStateProvider.java
+|   |   |                       RestWorkbenchWorkspaceStateProvider.java
+|   |   |                       TreeTabsWorkspaceStateProvider.java
+|   |   |                       ValidationWorkspaceStateProvider.java
+|   |   |                       WorkspaceArchiveReader.java
+|   |   |                       WorkspaceArchiveWriter.java
+|   |   |                       WorkspaceMetadata.java
+|   |   |                       WorkspaceService.java
+|   |   |                       WorkspaceStateProvider.java
+|   |   |                       
+|   |   \---resources
+|   |       |   FHIRViewer-icon-64.png
+|   |       |   fhirviewer-plugins.properties
+|   |       |   FHIRViewer.ico
+|   |       |   Spiral Eye Emblem App Icon.png
+|   |       |   SpiralEyesLogo.jpg
+|   |       |   
+|   |       +---css
+|   |       |       app.css
+|   |       |       dark.css
+|   |       |       light.css
+|   |       |       
+|   |       +---help
+|   |       |       FHIR-Server-Functions.md
+|   |       |       Scripting-Guide.md
+|   |       |       SMART-on-FHIR-Guide.md
+|   |       |       User-Guide.md
+|   |       |       
+|   |       +---META-INF
+|   |       |   \---services
+|   |       |           com.spiraleyes.fhirviewer.server.FhirServerPlugin
+|   |       |           
+|   |       +---samples
+|   |       |       bundle-example.json
+|   |       |       patient-example.json
+|   |       |       
+|   |       \---scripts
+|   |               scripting-example.jsh
+|   |               
+|   \---test
+|       +---java
+|       |   \---com
+|       |       \---spiraleyes
+|       |           \---fhirviewer
+|       |               |   TreeAssert.java
+|       |               |   
+|       |               +---fhir
+|       |               |       ResourceParserTest.java
+|       |               |       ResourceSerializerTest.java
+|       |               |       ResourceTreeBuilderTest.java
+|       |               |       
+|       |               +---model
+|       |               |       LoadedResourceTest.java
+|       |               |       ResourceFormatTest.java
+|       |               |       
+|       |               +---pretty
+|       |               |       DataTypeFormatterTest.java
+|       |               |       PrettyModelBuilderTest.java
+|       |               |       
+|       |               +---server
+|       |               |   |   AdhocAuthenticationTest.java
+|       |               |   |   AdhocServerTest.java
+|       |               |   |   AdministrationBaseUrlTest.java
+|       |               |   |   BackwardCompatibilityTest.java
+|       |               |   |   FirelyPluginTest.java
+|       |               |   |   LegacyPlugin.java
+|       |               |   |   MockVendorPlugin.java
+|       |               |   |   OperationPathTemplateTest.java
+|       |               |   |   PluginCustomOperationsTest.java
+|       |               |   |   PluginLoaderTest.java
+|       |               |   |   PluginSettingsStoreTest.java
+|       |               |   |   RawSearchTest.java
+|       |               |   |   ServerAuthenticationTest.java
+|       |               |   |   ServerCapabilitiesTest.java
+|       |               |   |   ServerCredentialSaverTest.java
+|       |               |   |   ServerCredentialsTest.java
+|       |               |   |   ServerDefinitionPersistenceTest.java
+|       |               |   |   ServerModelTest.java
+|       |               |   |   ServerOperationModelTest.java
+|       |               |   |   ServerOriginTest.java
+|       |               |   |   ServerRequestModelTest.java
+|       |               |   |   ServerWriteTest.java
+|       |               |   |   SmileCdrPluginOperationsTest.java
+|       |               |   |   SmileCdrPluginTest.java.hold
+|       |               |   |   StandardFhirOperationsTest.java
+|       |               |   |   StandardFhirRestPluginTest.java
+|       |               |   |   TokenEndpointClientTest.java
+|       |               |   |   TokenFetchResultTest.java
+|       |               |   |   TransportSecurityTest.java
+|       |               |   |   
+|       |               |   +---rest
+|       |               |   |       CurlCommandTest.java
+|       |               |   |       JdkHttpRestClientAuthTest.java
+|       |               |   |       JdkHttpRestClientTest.java
+|       |               |   |       RestAnswersTest.java
+|       |               |   |       RestFailuresTest.java
+|       |               |   |       RestHeadersTest.java
+|       |               |   |       RestOutcomeParserTest.java
+|       |               |   |       RestRequestTest.java
+|       |               |   |       RestResponseTest.java
+|       |               |   |       RestUrlsTest.java
+|       |               |   |       
+|       |               |   \---smart
+|       |               |           LoopbackCallbackServerTest.java
+|       |               |           PkceTest.java
+|       |               |           SmartAuthorizationFlowTest.java
+|       |               |           SmartAuthorizationRequestTest.java
+|       |               |           SmartConfigurationTest.java
+|       |               |           SmartDiagnosticsTest.java
+|       |               |           SmartDiscoveryServiceTest.java
+|       |               |           SmartFhirAccessTest.java
+|       |               |           SmartIdTokenValidatorTest.java
+|       |               |           SmartLaunchConfigTest.java
+|       |               |           SmartSessionTest.java
+|       |               |           SmartStubServer.java
+|       |               |           SmartTokenExchangeTest.java
+|       |               |           SmartUrlsTest.java
+|       |               |           
+|       |               +---service
+|       |               |   |   FHIRPathServiceTest.java
+|       |               |   |   FhirServiceTest.java
+|       |               |   |   IgPackageManagerLoadAllTest.java
+|       |               |   |   IgPackageManagerTest.java
+|       |               |   |   PackageInstallerTest.java
+|       |               |   |   PackageRegistryServiceTest.java
+|       |               |   |   ResourceEditorServiceTest.java
+|       |               |   |   ResourceLoaderTest.java
+|       |               |   |   ResourceTemplateFactoryTest.java
+|       |               |   |   SourceEditorServiceTest.java
+|       |               |   |   TestPackages.java
+|       |               |   |   TgzFixtures.java
+|       |               |   |   ValidationServiceIgTest.java
+|       |               |   |   ValidationServiceTerminologyTest.java
+|       |               |   |   ValidationServiceTest.java
+|       |               |   |   
+|       |               |   \---scripting
+|       |               |       |   BatchProcessorTest.java
+|       |               |       |   ScriptingCoordinatorTest.java
+|       |               |       |   ScriptingSessionTest.java
+|       |               |       |   
+|       |               |       +---api
+|       |               |       |       FhirApiTest.java
+|       |               |       |       LogApiTest.java
+|       |               |       |       ScriptBindingsInjectionTest.java
+|       |               |       |       ScriptTestRunnerTest.java
+|       |               |       |       ServerApiTest.java
+|       |               |       |       SmartApiTest.java
+|       |               |       |       TestFhirServerService.java
+|       |               |       |       TestSuiteRunnerTest.java
+|       |               |       |       ValidationApiTest.java
+|       |               |       |       ViewerApiTest.java
+|       |               |       |       WritePolicyTest.java
+|       |               |       |       
+|       |               |       \---testing
+|       |               |               TestReportExporterTest.java
+|       |               |               
+|       |               +---ui
+|       |               |       AboutInfoTest.java
+|       |               |       RestConsoleFormTest.java
+|       |               |       RestConsoleIntegrationTest.java
+|       |               |       RestConsoleStateTest.java
+|       |               |       RestParameterListTest.java
+|       |               |       SearchCriteriaBuilderTest.java
+|       |               |       ServerErrorsTest.java
+|       |               |       ServerOperationFormTest.java
+|       |               |       ServerOperationResultsTest.java
+|       |               |       ServerResourceCoordinatorTest.java
+|       |               |       ServerUiSmokeTest.java
+|       |               |       ShapePlugin.java
+|       |               |       SmartLaunchWorkbenchUiTest.java
+|       |               |       StubServer.java
+|       |               |       UserGuideContentTest.java
+|       |               |       
+|       |               \---workspace
+|       |                       ConnectionsWorkspaceStateProviderTest.java
+|       |                       FhirPathWorkspaceStateProviderTest.java
+|       |                       RestWorkbenchWorkspaceStateProviderTest.java
+|       |                       TreeTabsWorkspaceStateProviderTest.java
+|       |                       ValidationWorkspaceStateProviderTest.java
+|       |                       WorkspaceArchiveRoundTripTest.java
+|       |                       WorkspaceServiceIntegrationTest.java
+|       |                       
+|       \---resources
+|           \---fhir
+|                   bundle.json
+|                   encounter.json
+|                   malformed.json
+|                   not-a-resource.json
+|                   observation-missing-required.json
+|                   observation.json
+|                   organization.json
+|                   patient-contained.json
+|                   patient-minimal.json
+|                   patient.json
+|                   patient.xml
+|                   
++---target
+|   |   fhir-viewer-1.0.0.jar
+|   |   
+|   +---classes
+|   |   |   FHIRViewer-icon-64.png
+|   |   |   fhirviewer-plugins.properties
+|   |   |   FHIRViewer.ico
+|   |   |   Spiral Eye Emblem App Icon.png
+|   |   |   SpiralEyesLogo.jpg
+|   |   |   
+|   |   +---com
+|   |   |   \---spiraleyes
+|   |   |       \---fhirviewer
+|   |   |           |   Launcher.class
+|   |   |           |   Main.class
+|   |   |           |   
+|   |   |           +---fhir
+|   |   |           |       ElementProperty.class
+|   |   |           |       FhirContextFactory.class
+|   |   |           |       FhirModelAdapter.class
+|   |   |           |       FhirParseException.class
+|   |   |           |       R4ModelAdapter.class
+|   |   |           |       ResourceParser$1.class
+|   |   |           |       ResourceParser.class
+|   |   |           |       ResourceSerializer$1.class
+|   |   |           |       ResourceSerializer.class
+|   |   |           |       ResourceTreeBuilder.class
+|   |   |           |       
+|   |   |           +---model
+|   |   |           |       BundleEntryInfo.class
+|   |   |           |       ElementInfo$Builder.class
+|   |   |           |       ElementInfo$Kind.class
+|   |   |           |       ElementInfo.class
+|   |   |           |       IgPackageInfo.class
+|   |   |           |       LoadedResource.class
+|   |   |           |       ResourceFormat.class
+|   |   |           |       ResourceNode.class
+|   |   |           |       ValidationIssue$Severity.class
+|   |   |           |       ValidationIssue.class
+|   |   |           |       ValidationLevel.class
+|   |   |           |       ValidationProfile.class
+|   |   |           |       ValidationReport.class
+|   |   |           |       
+|   |   |           +---pretty
+|   |   |           |       DataTypeFormatter.class
+|   |   |           |       PrettyBlock$Builder.class
+|   |   |           |       PrettyBlock.class
+|   |   |           |       PrettyDocument.class
+|   |   |           |       PrettyModelBuilder.class
+|   |   |           |       PrettyRow.class
+|   |   |           |       
+|   |   |           +---server
+|   |   |           |   |   AdhocAuthentication$1.class
+|   |   |           |   |   AdhocAuthentication.class
+|   |   |           |   |   AdhocServer.class
+|   |   |           |   |   AnonymousServerAuthentication.class
+|   |   |           |   |   BasicServerAuthentication.class
+|   |   |           |   |   BearerServerAuthentication.class
+|   |   |           |   |   ConnectionResult.class
+|   |   |           |   |   FhirOperationRequest$Scope.class
+|   |   |           |   |   FhirOperationRequest.class
+|   |   |           |   |   FhirServerConfiguration.class
+|   |   |           |   |   FhirServerManager.class
+|   |   |           |   |   FhirServerPlugin.class
+|   |   |           |   |   FhirServerPluginRegistry.class
+|   |   |           |   |   FhirServerService.class
+|   |   |           |   |   FirelyConfiguration.class
+|   |   |           |   |   FirelyPlugin$FirelyServerCapabilities.class
+|   |   |           |   |   FirelyPlugin.class
+|   |   |           |   |   OperationPathTemplate.class
+|   |   |           |   |   PatchFormat.class
+|   |   |           |   |   PluginConfig.class
+|   |   |           |   |   PluginJarScanner$ScannedJar.class
+|   |   |           |   |   PluginJarScanner.class
+|   |   |           |   |   PluginLoader.class
+|   |   |           |   |   PluginOperationClient$1.class
+|   |   |           |   |   PluginOperationClient.class
+|   |   |           |   |   PluginSettings.class
+|   |   |           |   |   PluginSettingsStore.class
+|   |   |           |   |   RequestHeaders$Builder.class
+|   |   |           |   |   RequestHeaders.class
+|   |   |           |   |   SearchCriterion$Kind.class
+|   |   |           |   |   SearchCriterion.class
+|   |   |           |   |   SearchPageLinks.class
+|   |   |           |   |   SearchRequest.class
+|   |   |           |   |   SearchResultPage.class
+|   |   |           |   |   SecretBox.class
+|   |   |           |   |   SecretBoxException.class
+|   |   |           |   |   ServerAuthentication.class
+|   |   |           |   |   ServerAuthKind.class
+|   |   |           |   |   ServerCapabilities.class
+|   |   |           |   |   ServerCapabilityReader.class
+|   |   |           |   |   ServerCredentials.class
+|   |   |           |   |   ServerCredentialSaver$Outcome.class
+|   |   |           |   |   ServerCredentialSaver.class
+|   |   |           |   |   ServerDefinition$Builder.class
+|   |   |           |   |   ServerDefinition.class
+|   |   |           |   |   ServerDefinitionStore.class
+|   |   |           |   |   ServerInteraction.class
+|   |   |           |   |   ServerOperation$BodyRequirement.class
+|   |   |           |   |   ServerOperation$Builder.class
+|   |   |           |   |   ServerOperation$Category.class
+|   |   |           |   |   ServerOperation$ResultKind.class
+|   |   |           |   |   ServerOperation.class
+|   |   |           |   |   ServerOperationException$Kind.class
+|   |   |           |   |   ServerOperationException.class
+|   |   |           |   |   ServerOperationInvocation$Builder.class
+|   |   |           |   |   ServerOperationInvocation.class
+|   |   |           |   |   ServerOperationParameter$Location.class
+|   |   |           |   |   ServerOperationParameter.class
+|   |   |           |   |   ServerOperationResult.class
+|   |   |           |   |   ServerOrigin.class
+|   |   |           |   |   ServerPassphrase.class
+|   |   |           |   |   ServerResourceCapabilities.class
+|   |   |           |   |   ServerSearchBundleReader.class
+|   |   |           |   |   ServerSession.class
+|   |   |           |   |   ServerVendorAction.class
+|   |   |           |   |   ServerWriteResult.class
+|   |   |           |   |   SmileCdrConfiguration.class
+|   |   |           |   |   SmileCdrPlugin$SmileServerCapabilities.class
+|   |   |           |   |   SmileCdrPlugin.class
+|   |   |           |   |   StandardFhirRestPlugin$1.class
+|   |   |           |   |   StandardFhirRestPlugin$StaticHeaderInterceptor.class
+|   |   |           |   |   StandardFhirRestPlugin.class
+|   |   |           |   |   StartupServers.class
+|   |   |           |   |   TokenEndpointClient.class
+|   |   |           |   |   TokenFetchResult.class
+|   |   |           |   |   TransportSecurity.class
+|   |   |           |   |   
+|   |   |           |   +---rest
+|   |   |           |   |       CurlCommand$CurlHeader.class
+|   |   |           |   |       CurlCommand$CurlRequest.class
+|   |   |           |   |       CurlCommand.class
+|   |   |           |   |       FhirOperationClient.class
+|   |   |           |   |       JdkHttpRestClient.class
+|   |   |           |   |       RestAnswer$Kind.class
+|   |   |           |   |       RestAnswer.class
+|   |   |           |   |       RestAnswers.class
+|   |   |           |   |       RestClient.class
+|   |   |           |   |       RestFailures$RestFailure.class
+|   |   |           |   |       RestFailures.class
+|   |   |           |   |       RestHeaders$Builder.class
+|   |   |           |   |       RestHeaders.class
+|   |   |           |   |       RestMethod.class
+|   |   |           |   |       RestOperationOutcome.class
+|   |   |           |   |       RestOutcomeParser.class
+|   |   |           |   |       RestRequest$Builder.class
+|   |   |           |   |       RestRequest.class
+|   |   |           |   |       RestResponse.class
+|   |   |           |   |       RestUrls.class
+|   |   |           |   |       
+|   |   |           |   \---smart
+|   |   |           |           BrowserLauncher$LaunchResult$Opened.class
+|   |   |           |           BrowserLauncher$LaunchResult$Unavailable.class
+|   |   |           |           BrowserLauncher$LaunchResult.class
+|   |   |           |           BrowserLauncher.class
+|   |   |           |           DesktopBrowserLauncher.class
+|   |   |           |           LoopbackCallbackServer$CallbackOutcome$Cancelled.class
+|   |   |           |           LoopbackCallbackServer$CallbackOutcome$Error.class
+|   |   |           |           LoopbackCallbackServer$CallbackOutcome$Invalid.class
+|   |   |           |           LoopbackCallbackServer$CallbackOutcome$Success.class
+|   |   |           |           LoopbackCallbackServer$CallbackOutcome.class
+|   |   |           |           LoopbackCallbackServer.class
+|   |   |           |           Pkce.class
+|   |   |           |           SmartAuthorizationException$Kind.class
+|   |   |           |           SmartAuthorizationException.class
+|   |   |           |           SmartAuthorizationFlow.class
+|   |   |           |           SmartAuthorizationRequest$Builder.class
+|   |   |           |           SmartAuthorizationRequest.class
+|   |   |           |           SmartAuthorizationSession.class
+|   |   |           |           SmartAuthState.class
+|   |   |           |           SmartBearerAuthorization.class
+|   |   |           |           SmartConfiguration$Builder.class
+|   |   |           |           SmartConfiguration.class
+|   |   |           |           SmartDiagnostics.class
+|   |   |           |           SmartDiagnosticsEvent$Kind.class
+|   |   |           |           SmartDiagnosticsEvent$Phase.class
+|   |   |           |           SmartDiagnosticsEvent.class
+|   |   |           |           SmartDiscoveryException$Kind.class
+|   |   |           |           SmartDiscoveryException.class
+|   |   |           |           SmartDiscoveryService.class
+|   |   |           |           SmartFhirAccess.class
+|   |   |           |           SmartIdTokenValidator.class
+|   |   |           |           SmartJwksFetcher.class
+|   |   |           |           SmartLaunchConfig$Builder.class
+|   |   |           |           SmartLaunchConfig.class
+|   |   |           |           SmartLaunchMode.class
+|   |   |           |           SmartLaunchStore.class
+|   |   |           |           SmartTokenExchangeService.class
+|   |   |           |           SmartTokenResponse.class
+|   |   |           |           SmartUrls.class
+|   |   |           |           
+|   |   |           +---service
+|   |   |           |   |   FHIRPathService$Result.class
+|   |   |           |   |   FHIRPathService$Status.class
+|   |   |           |   |   FHIRPathService.class
+|   |   |           |   |   FhirService.class
+|   |   |           |   |   IgPackageException$Kind.class
+|   |   |           |   |   IgPackageException.class
+|   |   |           |   |   IgPackageManager$BinaryFile.class
+|   |   |           |   |   IgPackageManager$PackageContent.class
+|   |   |           |   |   IgPackageManager.class
+|   |   |           |   |   KnownPackages$Entry.class
+|   |   |           |   |   KnownPackages.class
+|   |   |           |   |   NpmPackageReader$PackageMetadata.class
+|   |   |           |   |   NpmPackageReader.class
+|   |   |           |   |   PackageInstaller$1.class
+|   |   |           |   |   PackageInstaller$InstallPlan.class
+|   |   |           |   |   PackageInstaller$InstallResult.class
+|   |   |           |   |   PackageInstaller$PackageSource.class
+|   |   |           |   |   PackageInstaller$PlannedPackage.class
+|   |   |           |   |   PackageInstaller$Status.class
+|   |   |           |   |   PackageInstaller.class
+|   |   |           |   |   PackageRegistryService$PackageInfo.class
+|   |   |           |   |   PackageRegistryService$PackageRegistryException.class
+|   |   |           |   |   PackageRegistryService.class
+|   |   |           |   |   PackageResourceIndex$IndexedResource.class
+|   |   |           |   |   PackageResourceIndex.class
+|   |   |           |   |   PackageStorage$StoredPackage.class
+|   |   |           |   |   PackageStorage.class
+|   |   |           |   |   ResourceEditorService$PathParts.class
+|   |   |           |   |   ResourceEditorService.class
+|   |   |           |   |   ResourceLoader.class
+|   |   |           |   |   ResourceLoadException.class
+|   |   |           |   |   ResourceTemplateFactory.class
+|   |   |           |   |   SourceEditorService$AppliedSource.class
+|   |   |           |   |   SourceEditorService$ApplyException.class
+|   |   |           |   |   SourceEditorService$FailureKind.class
+|   |   |           |   |   SourceEditorService.class
+|   |   |           |   |   ValidationIssueAnalyzer$1.class
+|   |   |           |   |   ValidationIssueAnalyzer.class
+|   |   |           |   |   ValidationService.class
+|   |   |           |   |   
+|   |   |           |   \---scripting
+|   |   |           |       |   BatchErrorPolicy.class
+|   |   |           |       |   BatchItemOutcome.class
+|   |   |           |       |   BatchItemResult.class
+|   |   |           |       |   BatchProcessor$BatchAction.class
+|   |   |           |       |   BatchProcessor$ProgressListener.class
+|   |   |           |       |   BatchProcessor.class
+|   |   |           |       |   BatchResult.class
+|   |   |           |       |   ScriptingCoordinator.class
+|   |   |           |       |   ScriptingSession$Evaluation.class
+|   |   |           |       |   ScriptingSession$Split.class
+|   |   |           |       |   ScriptingSession.class
+|   |   |           |       |   ScriptParameter.class
+|   |   |           |       |   ScriptRunResult$Entry.class
+|   |   |           |       |   ScriptRunResult$Kind.class
+|   |   |           |       |   ScriptRunResult$Status.class
+|   |   |           |       |   ScriptRunResult.class
+|   |   |           |       |   
+|   |   |           |       +---api
+|   |   |           |       |       FhirApi.class
+|   |   |           |       |       LogApi.class
+|   |   |           |       |       ScriptApiException.class
+|   |   |           |       |       ScriptBindings.class
+|   |   |           |       |       SearchResults.class
+|   |   |           |       |       ServerApi.class
+|   |   |           |       |       ServerInfo.class
+|   |   |           |       |       SmartApi.class
+|   |   |           |       |       TestApi$Executable.class
+|   |   |           |       |       TestApi.class
+|   |   |           |       |       ValidationApi.class
+|   |   |           |       |       ViewerApi.class
+|   |   |           |       |       WriteDeniedException.class
+|   |   |           |       |       WritePolicy$Confirmation.class
+|   |   |           |       |       WritePolicy.class
+|   |   |           |       |       
+|   |   |           |       \---testing
+|   |   |           |               ConfirmationHandler.class
+|   |   |           |               ScriptTestRunner.class
+|   |   |           |               TestCase.class
+|   |   |           |               TestCaseResult.class
+|   |   |           |               TestOutcome.class
+|   |   |           |               TestProgressListener.class
+|   |   |           |               TestReportExporter.class
+|   |   |           |               TestRunResult.class
+|   |   |           |               TestSuite.class
+|   |   |           |               TestSuiteResult.class
+|   |   |           |               TestSuiteRunner.class
+|   |   |           |               
+|   |   |           +---ui
+|   |   |           |       AboutInfo$Kind.class
+|   |   |           |       AboutInfo$Line.class
+|   |   |           |       AboutInfo.class
+|   |   |           |       AddChildDialog$ChildCell.class
+|   |   |           |       AddChildDialog.class
+|   |   |           |       BackgroundTasks$1.class
+|   |   |           |       BackgroundTasks$2.class
+|   |   |           |       BackgroundTasks$3.class
+|   |   |           |       BackgroundTasks$Attempt.class
+|   |   |           |       BackgroundTasks$Running.class
+|   |   |           |       BackgroundTasks.class
+|   |   |           |       BundleView$EntryCell.class
+|   |   |           |       BundleView.class
+|   |   |           |       DetailsView$1.class
+|   |   |           |       DetailsView.class
+|   |   |           |       ElementNavigationTarget.class
+|   |   |           |       FhirPathView$1.class
+|   |   |           |       FhirPathView$ResultCell.class
+|   |   |           |       FhirPathView.class
+|   |   |           |       IgPackageDialog$1.class
+|   |   |           |       IgPackageDialog$2.class
+|   |   |           |       IgPackageDialog$LoadedPackageListCell.class
+|   |   |           |       IgPackageDialog$PackageListCell.class
+|   |   |           |       IgPackageDialog.class
+|   |   |           |       JsonView.class
+|   |   |           |       MainWindow$1.class
+|   |   |           |       MainWindow$ProfileChoice.class
+|   |   |           |       MainWindow.class
+|   |   |           |       OpenFromServerDialog$1.class
+|   |   |           |       OpenFromServerDialog$Attempt.class
+|   |   |           |       OpenFromServerDialog$Outcome.class
+|   |   |           |       OpenFromServerDialog.class
+|   |   |           |       PatchResourceDialog$Patch.class
+|   |   |           |       PatchResourceDialog.class
+|   |   |           |       PluginManagerDialog$1.class
+|   |   |           |       PluginManagerDialog$2.class
+|   |   |           |       PluginManagerDialog.class
+|   |   |           |       PrettyView.class
+|   |   |           |       ResourceTreeView$ResourceNodeCell.class
+|   |   |           |       ResourceTreeView.class
+|   |   |           |       RestConsoleDialog$Completed.class
+|   |   |           |       RestConsoleDialog$Outcome.class
+|   |   |           |       RestConsoleDialog$VBoxWithPadding.class
+|   |   |           |       RestConsoleDialog.class
+|   |   |           |       RestConsoleForm.class
+|   |   |           |       RestConsoleState.class
+|   |   |           |       RestHeaderList.class
+|   |   |           |       RestParameterList$Parameter.class
+|   |   |           |       RestParameterList.class
+|   |   |           |       RestRequestPane$1.class
+|   |   |           |       RestRequestPane$ParameterField.class
+|   |   |           |       RestRequestPane$ServerChoice.class
+|   |   |           |       RestRequestPane.class
+|   |   |           |       RestResponsePane$1.class
+|   |   |           |       RestResponsePane.class
+|   |   |           |       SaveToServerDialog$1.class
+|   |   |           |       SaveToServerDialog$Plan.class
+|   |   |           |       SaveToServerDialog.class
+|   |   |           |       ScriptingConsoleDialog$1.class
+|   |   |           |       ScriptingConsoleDialog.class
+|   |   |           |       SearchCriteriaBuilder.class
+|   |   |           |       SearchCriteriaEditor$Row.class
+|   |   |           |       SearchCriteriaEditor.class
+|   |   |           |       SearchMemory$Search.class
+|   |   |           |       SearchMemory.class
+|   |   |           |       ServerCapabilitiesCache.class
+|   |   |           |       ServerErrors$1.class
+|   |   |           |       ServerErrors.class
+|   |   |           |       ServerFormPanel$1.class
+|   |   |           |       ServerFormPanel$2.class
+|   |   |           |       ServerFormPanel.class
+|   |   |           |       ServerManagerDialog$Result.class
+|   |   |           |       ServerManagerDialog.class
+|   |   |           |       ServerOperationDialog$1.class
+|   |   |           |       ServerOperationDialog$2.class
+|   |   |           |       ServerOperationDialog$Outcome.class
+|   |   |           |       ServerOperationDialog.class
+|   |   |           |       ServerOperationForm$1.class
+|   |   |           |       ServerOperationForm.class
+|   |   |           |       ServerOperationResults$Kind.class
+|   |   |           |       ServerOperationResults$Presentation.class
+|   |   |           |       ServerOperationResults.class
+|   |   |           |       ServerResourceCoordinator$Outcome.class
+|   |   |           |       ServerResourceCoordinator$PushResult.class
+|   |   |           |       ServerResourceCoordinator$Validator.class
+|   |   |           |       ServerResourceCoordinator.class
+|   |   |           |       ServerSearchDialog$1.class
+|   |   |           |       ServerSearchDialog$2.class
+|   |   |           |       ServerSearchDialog$3.class
+|   |   |           |       ServerSearchDialog$Attempt.class
+|   |   |           |       ServerSearchDialog.class
+|   |   |           |       ServerStatusDialog$1.class
+|   |   |           |       ServerStatusDialog.class
+|   |   |           |       SmartCapabilitiesPane$Row.class
+|   |   |           |       SmartCapabilitiesPane.class
+|   |   |           |       SmartDiagnosticsPane$EventCell.class
+|   |   |           |       SmartDiagnosticsPane.class
+|   |   |           |       SmartLaunchDialog$Result.class
+|   |   |           |       SmartLaunchDialog.class
+|   |   |           |       SmartLaunchFormPanel.class
+|   |   |           |       SmartResourcePane.class
+|   |   |           |       SmartSessionPane$Row.class
+|   |   |           |       SmartSessionPane.class
+|   |   |           |       StatusView$1.class
+|   |   |           |       StatusView$IssueCell.class
+|   |   |           |       StatusView.class
+|   |   |           |       ThemeManager$Theme.class
+|   |   |           |       ThemeManager.class
+|   |   |           |       TokenFetchDialog.class
+|   |   |           |       UserGuideContent.class
+|   |   |           |       UserGuideDialog.class
+|   |   |           |       UserGuideDocument$Block.class
+|   |   |           |       UserGuideDocument$BulletList.class
+|   |   |           |       UserGuideDocument$Code.class
+|   |   |           |       UserGuideDocument$Emphasis.class
+|   |   |           |       UserGuideDocument$Heading.class
+|   |   |           |       UserGuideDocument$Link.class
+|   |   |           |       UserGuideDocument$ListItem.class
+|   |   |           |       UserGuideDocument$OrderedList.class
+|   |   |           |       UserGuideDocument$Paragraph.class
+|   |   |           |       UserGuideDocument$Quote.class
+|   |   |           |       UserGuideDocument$Rule.class
+|   |   |           |       UserGuideDocument$Span.class
+|   |   |           |       UserGuideDocument$Strong.class
+|   |   |           |       UserGuideDocument$Table.class
+|   |   |           |       UserGuideDocument$Text.class
+|   |   |           |       UserGuideDocument.class
+|   |   |           |       UserGuideView.class
+|   |   |           |       XmlView.class
+|   |   |           |       
+|   |   |           +---util
+|   |   |           |       FileSupport.class
+|   |   |           |       
+|   |   |           \---workspace
+|   |   |                   ConnectionsWorkspaceStateProvider.class
+|   |   |                   FhirPathWorkspaceStateProvider$ExpressionApplier.class
+|   |   |                   FhirPathWorkspaceStateProvider$ExpressionSnapshot.class
+|   |   |                   FhirPathWorkspaceStateProvider.class
+|   |   |                   RestWorkbenchWorkspaceStateProvider.class
+|   |   |                   TreeTabsWorkspaceStateProvider$StateApplier.class
+|   |   |                   TreeTabsWorkspaceStateProvider$StateSnapshot.class
+|   |   |                   TreeTabsWorkspaceStateProvider.class
+|   |   |                   ValidationWorkspaceStateProvider.class
+|   |   |                   WorkspaceArchiveReader$Manifest.class
+|   |   |                   WorkspaceArchiveReader.class
+|   |   |                   WorkspaceArchiveWriter$Manifest.class
+|   |   |                   WorkspaceArchiveWriter.class
+|   |   |                   WorkspaceMetadata.class
+|   |   |                   WorkspaceService.class
+|   |   |                   WorkspaceStateProvider.class
+|   |   |                   
+|   |   +---css
+|   |   |       app.css
+|   |   |       dark.css
+|   |   |       light.css
+|   |   |       
+|   |   +---help
+|   |   |       FHIR-Server-Functions.md
+|   |   |       Scripting-Guide.md
+|   |   |       SMART-on-FHIR-Guide.md
+|   |   |       User-Guide.md
+|   |   |       
+|   |   +---META-INF
+|   |   |   \---services
+|   |   |           com.spiraleyes.fhirviewer.server.FhirServerPlugin
+|   |   |           
+|   |   +---samples
+|   |   |       bundle-example.json
+|   |   |       patient-example.json
+|   |   |       
+|   |   \---scripts
+|   |           scripting-example.jsh
+|   |           
+|   +---generated-sources
+|   |   \---annotations
+|   +---generated-test-sources
+|   |   \---test-annotations
+|   +---lib
+|   |       atlantafx-base-2.1.0.jar
+|   |       attoparser-2.0.7.RELEASE.jar
+|   |       caffeine-3.1.8.jar
+|   |       checker-qual-3.42.0.jar
+|   |       commonmark-0.21.0.jar
+|   |       commonmark-ext-gfm-tables-0.21.0.jar
+|   |       commons-codec-1.15.jar
+|   |       commons-compress-1.27.1.jar
+|   |       commons-io-2.17.0.jar
+|   |       commons-lang3-3.18.0.jar
+|   |       commons-text-1.10.0.jar
+|   |       error_prone_annotations-2.26.1.jar
+|   |       failureaccess-1.0.2.jar
+|   |       gson-2.12.0.jar
+|   |       guava-33.2.1-jre.jar
+|   |       hapi-fhir-base-8.12.0.jar
+|   |       hapi-fhir-caching-api-8.12.0.jar
+|   |       hapi-fhir-caching-caffeine-8.12.0.jar
+|   |       hapi-fhir-client-8.12.0.jar
+|   |       hapi-fhir-converter-8.12.0.jar
+|   |       hapi-fhir-structures-r4-8.12.0.jar
+|   |       hapi-fhir-structures-r5-8.12.0.jar
+|   |       hapi-fhir-validation-8.12.0.jar
+|   |       hapi-fhir-validation-resources-r4-8.12.0.jar
+|   |       httpclient-4.5.14.jar
+|   |       httpcore-4.4.16.jar
+|   |       icu4j-78.1.jar
+|   |       j2objc-annotations-3.0.0.jar
+|   |       jackson-annotations-2.21.jar
+|   |       jackson-core-2.21.6.jar
+|   |       jackson-databind-2.21.6.jar
+|   |       jackson-datatype-jsr310-2.21.6.jar
+|   |       jakarta-regexp-1.4.jar
+|   |       jakarta.annotation-api-2.1.1.jar
+|   |       JavaEWAH-1.2.3.jar
+|   |       javafx-base-21.0.8-win.jar
+|   |       javafx-base-21.0.8.jar
+|   |       javafx-controls-21.0.8-win.jar
+|   |       javafx-controls-21.0.8.jar
+|   |       javafx-graphics-21.0.8-win.jar
+|   |       javafx-graphics-21.0.8.jar
+|   |       javassist-3.29.0-GA.jar
+|   |       jcl-over-slf4j-2.0.16.jar
+|   |       jsr305-3.0.2.jar
+|   |       kotlin-stdlib-2.2.21.jar
+|   |       listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar
+|   |       nimbus-jose-jwt-10.0.2.jar
+|   |       ognl-3.3.4.jar
+|   |       okhttp-jvm-5.3.2.jar
+|   |       okio-3.16.4.jar
+|   |       okio-jvm-3.16.4.jar
+|   |       opentelemetry-api-1.62.0.jar
+|   |       opentelemetry-common-1.62.0.jar
+|   |       opentelemetry-context-1.62.0.jar
+|   |       opentelemetry-instrumentation-annotations-2.28.0.jar
+|   |       org.eclipse.jgit-7.4.0.202509020913-r.jar
+|   |       org.hl7.fhir.convertors-6.9.12.jar
+|   |       org.hl7.fhir.dstu2-6.9.12.jar
+|   |       org.hl7.fhir.dstu2016may-6.9.12.jar
+|   |       org.hl7.fhir.dstu3-6.9.12.jar
+|   |       org.hl7.fhir.dstu3.support-6.9.12.jar
+|   |       org.hl7.fhir.model-6.9.12.jar
+|   |       org.hl7.fhir.r4-6.9.12.jar
+|   |       org.hl7.fhir.r4b-6.9.12.jar
+|   |       org.hl7.fhir.r5-6.9.12.jar
+|   |       org.hl7.fhir.support-6.9.12.jar
+|   |       org.hl7.fhir.utilities-6.9.12.jar
+|   |       org.hl7.fhir.validation-6.9.12.jar
+|   |       plantuml-mit-1.2026.1.jar
+|   |       Saxon-HE-13.0.jar
+|   |       slf4j-api-2.0.16.jar
+|   |       slf4j-simple-2.0.19.jar
+|   |       sqlite-jdbc-3.53.2.0.jar
+|   |       stax2-api-4.2.2.jar
+|   |       thymeleaf-3.1.5.RELEASE.jar
+|   |       ucum-1.0.9.jar
+|   |       unbescape-1.1.6.RELEASE.jar
+|   |       woodstox-core-7.1.0.jar
+|   |       xmlresolver-6.0.23-data.jar
+|   |       xmlresolver-6.0.23.jar
+|   |       xmlsec-4.0.4.jar
+|   |       xpp3-1.1.6.jar
+|   |       
+|   +---maven-archiver
+|   |       pom.properties
+|   |       
+|   +---maven-status
+|   |   \---maven-compiler-plugin
+|   |       +---compile
+|   |       |   \---default-compile
+|   |       |           createdFiles.lst
+|   |       |           inputFiles.lst
+|   |       |           
+|   |       \---testCompile
+|   |           \---default-testCompile
+|   |                   createdFiles.lst
+|   |                   inputFiles.lst
+|   |                   
+|   +---surefire-reports
+|   |       2026-10-26T09-51-41_370.dumpstream
+|   |       com.spiraleyes.fhirviewer.fhir.ResourceParserTest.txt
+|   |       com.spiraleyes.fhirviewer.fhir.ResourceSerializerTest.txt
+|   |       com.spiraleyes.fhirviewer.fhir.ResourceTreeBuilderTest.txt
+|   |       com.spiraleyes.fhirviewer.model.LoadedResourceTest.txt
+|   |       com.spiraleyes.fhirviewer.model.ResourceFormatTest.txt
+|   |       com.spiraleyes.fhirviewer.pretty.DataTypeFormatterTest.txt
+|   |       com.spiraleyes.fhirviewer.pretty.PrettyModelBuilderTest.txt
+|   |       com.spiraleyes.fhirviewer.server.AdhocAuthenticationTest.txt
+|   |       com.spiraleyes.fhirviewer.server.AdhocServerTest.txt
+|   |       com.spiraleyes.fhirviewer.server.AdministrationBaseUrlTest.txt
+|   |       com.spiraleyes.fhirviewer.server.BackwardCompatibilityTest.txt
+|   |       com.spiraleyes.fhirviewer.server.FirelyPluginTest.txt
+|   |       com.spiraleyes.fhirviewer.server.OperationPathTemplateTest.txt
+|   |       com.spiraleyes.fhirviewer.server.PluginCustomOperationsTest.txt
+|   |       com.spiraleyes.fhirviewer.server.PluginLoaderTest.txt
+|   |       com.spiraleyes.fhirviewer.server.PluginSettingsStoreTest.txt
+|   |       com.spiraleyes.fhirviewer.server.RawSearchTest.txt
+|   |       com.spiraleyes.fhirviewer.server.rest.CurlCommandTest.txt
+|   |       com.spiraleyes.fhirviewer.server.rest.JdkHttpRestClientAuthTest.txt
+|   |       com.spiraleyes.fhirviewer.server.rest.JdkHttpRestClientTest.txt
+|   |       com.spiraleyes.fhirviewer.server.rest.RestAnswersTest.txt
+|   |       com.spiraleyes.fhirviewer.server.rest.RestFailuresTest.txt
+|   |       com.spiraleyes.fhirviewer.server.rest.RestHeadersTest.txt
+|   |       com.spiraleyes.fhirviewer.server.rest.RestOutcomeParserTest.txt
+|   |       com.spiraleyes.fhirviewer.server.rest.RestRequestTest.txt
+|   |       com.spiraleyes.fhirviewer.server.rest.RestResponseTest.txt
+|   |       com.spiraleyes.fhirviewer.server.rest.RestUrlsTest.txt
+|   |       com.spiraleyes.fhirviewer.server.ServerAuthenticationTest.txt
+|   |       com.spiraleyes.fhirviewer.server.ServerCapabilitiesTest.txt
+|   |       com.spiraleyes.fhirviewer.server.ServerCredentialSaverTest.txt
+|   |       com.spiraleyes.fhirviewer.server.ServerCredentialsTest.txt
+|   |       com.spiraleyes.fhirviewer.server.ServerDefinitionPersistenceTest.txt
+|   |       com.spiraleyes.fhirviewer.server.ServerModelTest.txt
+|   |       com.spiraleyes.fhirviewer.server.ServerOperationModelTest.txt
+|   |       com.spiraleyes.fhirviewer.server.ServerOriginTest.txt
+|   |       com.spiraleyes.fhirviewer.server.ServerRequestModelTest.txt
+|   |       com.spiraleyes.fhirviewer.server.ServerWriteTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.LoopbackCallbackServerTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.PkceTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationFlowTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationRequestTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.SmartConfigurationTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.SmartDiagnosticsTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryServiceTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.SmartFhirAccessTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.SmartIdTokenValidatorTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.SmartLaunchConfigTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.SmartSessionTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.SmartTokenExchangeTest.txt
+|   |       com.spiraleyes.fhirviewer.server.smart.SmartUrlsTest.txt
+|   |       com.spiraleyes.fhirviewer.server.SmileCdrPluginOperationsTest.txt
+|   |       com.spiraleyes.fhirviewer.server.StandardFhirOperationsTest.txt
+|   |       com.spiraleyes.fhirviewer.server.StandardFhirRestPluginTest.txt
+|   |       com.spiraleyes.fhirviewer.server.TokenEndpointClientTest.txt
+|   |       com.spiraleyes.fhirviewer.server.TokenFetchResultTest.txt
+|   |       com.spiraleyes.fhirviewer.server.TransportSecurityTest.txt
+|   |       com.spiraleyes.fhirviewer.service.FHIRPathServiceTest.txt
+|   |       com.spiraleyes.fhirviewer.service.FhirServiceTest.txt
+|   |       com.spiraleyes.fhirviewer.service.IgPackageManagerLoadAllTest.txt
+|   |       com.spiraleyes.fhirviewer.service.IgPackageManagerTest.txt
+|   |       com.spiraleyes.fhirviewer.service.PackageInstallerTest.txt
+|   |       com.spiraleyes.fhirviewer.service.PackageRegistryServiceTest.txt
+|   |       com.spiraleyes.fhirviewer.service.ResourceEditorServiceTest.txt
+|   |       com.spiraleyes.fhirviewer.service.ResourceLoaderTest.txt
+|   |       com.spiraleyes.fhirviewer.service.ResourceTemplateFactoryTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.api.FhirApiTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.api.LogApiTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindingsInjectionTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.api.ScriptTestRunnerTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.api.ServerApiTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.api.SmartApiTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.api.TestSuiteRunnerTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.api.ValidationApiTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.api.ViewerApiTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.api.WritePolicyTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.BatchProcessorTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinatorTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.ScriptingSessionTest.txt
+|   |       com.spiraleyes.fhirviewer.service.scripting.testing.TestReportExporterTest.txt
+|   |       com.spiraleyes.fhirviewer.service.SourceEditorServiceTest.txt
+|   |       com.spiraleyes.fhirviewer.service.ValidationServiceIgTest.txt
+|   |       com.spiraleyes.fhirviewer.service.ValidationServiceTerminologyTest.txt
+|   |       com.spiraleyes.fhirviewer.service.ValidationServiceTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.AboutInfoTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.RestConsoleFormTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.RestConsoleIntegrationTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.RestConsoleStateTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.RestParameterListTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.SearchCriteriaBuilderTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.ServerErrorsTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.ServerOperationFormTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.ServerOperationResultsTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.ServerResourceCoordinatorTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.ServerUiSmokeTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.SmartLaunchWorkbenchUiTest.txt
+|   |       com.spiraleyes.fhirviewer.ui.UserGuideContentTest.txt
+|   |       com.spiraleyes.fhirviewer.workspace.ConnectionsWorkspaceStateProviderTest.txt
+|   |       com.spiraleyes.fhirviewer.workspace.FhirPathWorkspaceStateProviderTest.txt
+|   |       com.spiraleyes.fhirviewer.workspace.RestWorkbenchWorkspaceStateProviderTest.txt
+|   |       com.spiraleyes.fhirviewer.workspace.TreeTabsWorkspaceStateProviderTest.txt
+|   |       com.spiraleyes.fhirviewer.workspace.ValidationWorkspaceStateProviderTest.txt
+|   |       com.spiraleyes.fhirviewer.workspace.WorkspaceArchiveRoundTripTest.txt
+|   |       com.spiraleyes.fhirviewer.workspace.WorkspaceServiceIntegrationTest.txt
+|   |       TEST-com.spiraleyes.fhirviewer.fhir.ResourceParserTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.fhir.ResourceSerializerTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.fhir.ResourceTreeBuilderTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.model.LoadedResourceTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.model.ResourceFormatTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.pretty.DataTypeFormatterTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.pretty.PrettyModelBuilderTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.AdhocAuthenticationTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.AdhocServerTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.AdministrationBaseUrlTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.BackwardCompatibilityTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.FirelyPluginTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.OperationPathTemplateTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.PluginCustomOperationsTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.PluginLoaderTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.PluginSettingsStoreTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.RawSearchTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.rest.CurlCommandTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.rest.JdkHttpRestClientAuthTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.rest.JdkHttpRestClientTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.rest.RestAnswersTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.rest.RestFailuresTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.rest.RestHeadersTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.rest.RestOutcomeParserTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.rest.RestRequestTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.rest.RestResponseTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.rest.RestUrlsTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.ServerAuthenticationTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.ServerCapabilitiesTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.ServerCredentialSaverTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.ServerCredentialsTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.ServerDefinitionPersistenceTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.ServerModelTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.ServerOperationModelTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.ServerOriginTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.ServerRequestModelTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.ServerWriteTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.LoopbackCallbackServerTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.PkceTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationFlowTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationRequestTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.SmartConfigurationTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.SmartDiagnosticsTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryServiceTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.SmartFhirAccessTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.SmartIdTokenValidatorTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.SmartLaunchConfigTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.SmartSessionTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.SmartTokenExchangeTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.smart.SmartUrlsTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.SmileCdrPluginOperationsTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.StandardFhirOperationsTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.StandardFhirRestPluginTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.TokenEndpointClientTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.TokenFetchResultTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.server.TransportSecurityTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.FHIRPathServiceTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.FhirServiceTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.IgPackageManagerLoadAllTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.IgPackageManagerTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.PackageInstallerTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.PackageRegistryServiceTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.ResourceEditorServiceTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.ResourceLoaderTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.ResourceTemplateFactoryTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.api.FhirApiTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.api.LogApiTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindingsInjectionTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.api.ScriptTestRunnerTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.api.ServerApiTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.api.SmartApiTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.api.TestSuiteRunnerTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.api.ValidationApiTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.api.ViewerApiTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.api.WritePolicyTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.BatchProcessorTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinatorTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.ScriptingSessionTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.scripting.testing.TestReportExporterTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.SourceEditorServiceTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.ValidationServiceIgTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.ValidationServiceTerminologyTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.service.ValidationServiceTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.AboutInfoTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.RestConsoleFormTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.RestConsoleIntegrationTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.RestConsoleStateTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.RestParameterListTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.SearchCriteriaBuilderTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.ServerErrorsTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.ServerOperationFormTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.ServerOperationResultsTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.ServerResourceCoordinatorTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.ServerUiSmokeTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.SmartLaunchWorkbenchUiTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.ui.UserGuideContentTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.workspace.ConnectionsWorkspaceStateProviderTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.workspace.FhirPathWorkspaceStateProviderTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.workspace.RestWorkbenchWorkspaceStateProviderTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.workspace.TreeTabsWorkspaceStateProviderTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.workspace.ValidationWorkspaceStateProviderTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.workspace.WorkspaceArchiveRoundTripTest.xml
+|   |       TEST-com.spiraleyes.fhirviewer.workspace.WorkspaceServiceIntegrationTest.xml
+|   |       
+|   \---test-classes
+|       +---com
+|       |   \---spiraleyes
+|       |       \---fhirviewer
+|       |           |   TreeAssert.class
+|       |           |   
+|       |           +---fhir
+|       |           |       ResourceParserTest.class
+|       |           |       ResourceSerializerTest.class
+|       |           |       ResourceTreeBuilderTest.class
+|       |           |       
+|       |           +---model
+|       |           |       LoadedResourceTest.class
+|       |           |       ResourceFormatTest.class
+|       |           |       
+|       |           +---pretty
+|       |           |       DataTypeFormatterTest.class
+|       |           |       PrettyModelBuilderTest.class
+|       |           |       
+|       |           +---server
+|       |           |   |   AdhocAuthenticationTest.class
+|       |           |   |   AdhocServerTest.class
+|       |           |   |   AdministrationBaseUrlTest$OriginStub.class
+|       |           |   |   AdministrationBaseUrlTest.class
+|       |           |   |   BackwardCompatibilityTest$1.class
+|       |           |   |   BackwardCompatibilityTest.class
+|       |           |   |   FirelyPluginTest$1.class
+|       |           |   |   FirelyPluginTest.class
+|       |           |   |   LegacyPlugin.class
+|       |           |   |   MockVendorPlugin.class
+|       |           |   |   OperationPathTemplateTest.class
+|       |           |   |   PluginCustomOperationsTest$HttpServerStub.class
+|       |           |   |   PluginCustomOperationsTest.class
+|       |           |   |   PluginLoaderTest.class
+|       |           |   |   PluginSettingsStoreTest.class
+|       |           |   |   RawSearchTest.class
+|       |           |   |   ServerAuthenticationTest$1.class
+|       |           |   |   ServerAuthenticationTest$2.class
+|       |           |   |   ServerAuthenticationTest.class
+|       |           |   |   ServerCapabilitiesTest.class
+|       |           |   |   ServerCredentialSaverTest.class
+|       |           |   |   ServerCredentialsTest.class
+|       |           |   |   ServerDefinitionPersistenceTest.class
+|       |           |   |   ServerModelTest.class
+|       |           |   |   ServerOperationModelTest.class
+|       |           |   |   ServerOriginTest.class
+|       |           |   |   ServerRequestModelTest.class
+|       |           |   |   ServerWriteTest$ReadOnlyPlugin.class
+|       |           |   |   ServerWriteTest.class
+|       |           |   |   SmileCdrPluginOperationsTest.class
+|       |           |   |   StandardFhirOperationsTest.class
+|       |           |   |   StandardFhirRestPluginTest$1.class
+|       |           |   |   StandardFhirRestPluginTest.class
+|       |           |   |   TokenEndpointClientTest.class
+|       |           |   |   TokenFetchResultTest.class
+|       |           |   |   TransportSecurityTest.class
+|       |           |   |   
+|       |           |   +---rest
+|       |           |   |       CurlCommandTest.class
+|       |           |   |       JdkHttpRestClientAuthTest$1.class
+|       |           |   |       JdkHttpRestClientAuthTest.class
+|       |           |   |       JdkHttpRestClientTest.class
+|       |           |   |       RestAnswersTest.class
+|       |           |   |       RestFailuresTest.class
+|       |           |   |       RestHeadersTest.class
+|       |           |   |       RestOutcomeParserTest.class
+|       |           |   |       RestRequestTest.class
+|       |           |   |       RestResponseTest.class
+|       |           |   |       RestUrlsTest.class
+|       |           |   |       
+|       |           |   \---smart
+|       |           |           LoopbackCallbackServerTest.class
+|       |           |           PkceTest.class
+|       |           |           SmartAuthorizationFlowTest.class
+|       |           |           SmartAuthorizationRequestTest.class
+|       |           |           SmartConfigurationTest.class
+|       |           |           SmartDiagnosticsTest.class
+|       |           |           SmartDiscoveryServiceTest.class
+|       |           |           SmartFhirAccessTest.class
+|       |           |           SmartIdTokenValidatorTest.class
+|       |           |           SmartLaunchConfigTest.class
+|       |           |           SmartSessionTest.class
+|       |           |           SmartStubServer.class
+|       |           |           SmartTokenExchangeTest.class
+|       |           |           SmartUrlsTest.class
+|       |           |           
+|       |           +---service
+|       |           |   |   FHIRPathServiceTest.class
+|       |           |   |   FhirServiceTest.class
+|       |           |   |   IgPackageManagerLoadAllTest.class
+|       |           |   |   IgPackageManagerTest.class
+|       |           |   |   PackageInstallerTest$FakeSource.class
+|       |           |   |   PackageInstallerTest$Fixture.class
+|       |           |   |   PackageInstallerTest.class
+|       |           |   |   PackageRegistryServiceTest.class
+|       |           |   |   ResourceEditorServiceTest.class
+|       |           |   |   ResourceLoaderTest.class
+|       |           |   |   ResourceTemplateFactoryTest.class
+|       |           |   |   SourceEditorServiceTest.class
+|       |           |   |   TestPackages.class
+|       |           |   |   TgzFixtures.class
+|       |           |   |   ValidationServiceIgTest.class
+|       |           |   |   ValidationServiceTerminologyTest.class
+|       |           |   |   ValidationServiceTest.class
+|       |           |   |   
+|       |           |   \---scripting
+|       |           |       |   BatchProcessorTest.class
+|       |           |       |   ScriptingCoordinatorTest.class
+|       |           |       |   ScriptingSessionTest.class
+|       |           |       |   
+|       |           |       +---api
+|       |           |       |       FhirApiTest.class
+|       |           |       |       LogApiTest.class
+|       |           |       |       ScriptBindingsInjectionTest.class
+|       |           |       |       ScriptTestRunnerTest.class
+|       |           |       |       ServerApiTest.class
+|       |           |       |       SmartApiTest.class
+|       |           |       |       TestFhirServerService.class
+|       |           |       |       TestSuiteRunnerTest$1.class
+|       |           |       |       TestSuiteRunnerTest$2.class
+|       |           |       |       TestSuiteRunnerTest.class
+|       |           |       |       ValidationApiTest.class
+|       |           |       |       ViewerApiTest.class
+|       |           |       |       WritePolicyTest.class
+|       |           |       |       
+|       |           |       \---testing
+|       |           |               TestReportExporterTest.class
+|       |           |               
+|       |           +---ui
+|       |           |       AboutInfoTest.class
+|       |           |       RestConsoleFormTest.class
+|       |           |       RestConsoleIntegrationTest.class
+|       |           |       RestConsoleStateTest.class
+|       |           |       RestParameterListTest.class
+|       |           |       SearchCriteriaBuilderTest.class
+|       |           |       ServerErrorsTest.class
+|       |           |       ServerOperationFormTest.class
+|       |           |       ServerOperationResultsTest$Shapes.class
+|       |           |       ServerOperationResultsTest.class
+|       |           |       ServerResourceCoordinatorTest$RecordingPlugin.class
+|       |           |       ServerResourceCoordinatorTest.class
+|       |           |       ServerUiSmokeTest.class
+|       |           |       ShapePlugin.class
+|       |           |       SmartLaunchWorkbenchUiTest.class
+|       |           |       StubServer.class
+|       |           |       UserGuideContentTest.class
+|       |           |       
+|       |           \---workspace
+|       |                   ConnectionsWorkspaceStateProviderTest.class
+|       |                   FhirPathWorkspaceStateProviderTest.class
+|       |                   RestWorkbenchWorkspaceStateProviderTest.class
+|       |                   TreeTabsWorkspaceStateProviderTest.class
+|       |                   ValidationWorkspaceStateProviderTest.class
+|       |                   WorkspaceArchiveRoundTripTest.class
+|       |                   WorkspaceServiceIntegrationTest.class
+|       |                   
+|       \---fhir
+|               bundle.json
+|               encounter.json
+|               malformed.json
+|               not-a-resource.json
+|               observation-missing-required.json
+|               observation.json
+|               organization.json
+|               patient-contained.json
+|               patient-minimal.json
+|               patient.json
+|               patient.xml
+|               
+\---testscripts
+        untitled.jsh
+        

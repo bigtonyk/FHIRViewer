@@ -27,7 +27,7 @@ class RestWorkbenchWorkspaceStateProviderTest {
     }
 
     @Test
-    void captureExcludesPasswordTokenAndBody() {
+    void captureExcludesSecretsButIncludesBody() {
         RestWorkbenchWorkspaceStateProvider p = new RestWorkbenchWorkspaceStateProvider();
         Object snap = p.capture();
         @SuppressWarnings("unchecked")
@@ -35,8 +35,10 @@ class RestWorkbenchWorkspaceStateProviderTest {
         // Secrets must never be captured
         assertFalse(out.containsKey("password"));
         assertFalse(out.containsKey("token"));
-        assertFalse(out.containsKey("body"));
+        assertFalse(out.containsKey("secret"));
         assertFalse(out.containsKey("requestBody"));
+        // The request body IS captured (it is not a credential)
+        assertTrue(out.containsKey("body"));
     }
 
     @Test

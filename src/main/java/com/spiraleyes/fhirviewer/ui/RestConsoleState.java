@@ -59,7 +59,8 @@ public record RestConsoleState(
         String userName,
         double windowWidth,
         double windowHeight,
-        double dividerPosition) {
+        double dividerPosition,
+        String body) {
 
     private static final Logger log = Logger.getLogger(RestConsoleState.class.getName());
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -73,16 +74,18 @@ public record RestConsoleState(
      */
     private static final int MAX_VALUE_LENGTH = 6000;
 
+
     public RestConsoleState {
         parameters = parameters == null ? List.of() : List.copyOf(parameters);
         headers = headers == null ? List.of() : List.copyOf(headers);
+        body = body == null ? "" : body;
     }
 
     /** An empty state: a fresh console starts here. */
     public static RestConsoleState defaults() {
         return new RestConsoleState("", RestMethod.GET, "", "", List.of(), List.of(),
                 RestRequest.DEFAULT_CONTENT_TYPE, ServerAuthKind.ANONYMOUS, "",
-                1400, 820, 0.52);
+                1400, 820, 0.52, "");
     }
 
 /**
@@ -108,7 +111,8 @@ public record RestConsoleState(
                     node.get("userName", ""),
                     node.getDouble("windowWidth", 1400),
                     node.getDouble("windowHeight", 820),
-                    node.getDouble("divider", 0.52));
+                    node.getDouble("divider", 0.52),
+                    node.get("body", ""));
         } catch (RuntimeException | BackingStoreException e) {
             log.log(Level.FINE, "could not read the remembered console settings", e);
             return defaults();
@@ -144,6 +148,7 @@ public record RestConsoleState(
             node.putDouble("windowWidth", windowWidth);
             node.putDouble("windowHeight", windowHeight);
             node.putDouble("divider", dividerPosition);
+            node.put("body", body);
             node.flush();
         } catch (RuntimeException | BackingStoreException e) {
             log.log(Level.FINE, "could not remember the console settings", e);
@@ -213,7 +218,7 @@ public record RestConsoleState(
         return value == null ? "" : value;
     }
 
-    /** Never carries a credential, because the record cannot hold one. */
+    /** The remembered request body, or the empty string. */
     @Override
     public String toString() {
         return "RestConsoleState[" + method + " " + baseUrl + path + ", "
@@ -221,3 +226,5 @@ public record RestConsoleState(
                 + authKind + "]";
     }
 }
+
+

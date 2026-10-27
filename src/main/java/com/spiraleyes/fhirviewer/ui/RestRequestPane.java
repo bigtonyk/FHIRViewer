@@ -650,7 +650,7 @@ private void configureControls() {
                 contentTypeField.getText(),
                 authBox.getValue(),
                 userNameField.getText(),
-                windowWidth, windowHeight, dividerPosition);
+                windowWidth, windowHeight, dividerPosition, "");
     }
 
     /**

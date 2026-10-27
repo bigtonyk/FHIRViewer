@@ -1,5 +1,6 @@
 package com.spiraleyes.fhirviewer.workspace;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -31,7 +32,8 @@ public class TreeTabsWorkspaceStateProvider implements WorkspaceStateProvider {
         this(null, null);
     }
 
-    public TreeTabsWorkspaceStateProvider(StateSnapshot snapshot, StateApplier applier) {
+    public TreeTabsWorkspaceStateProvider(StateSnapshot snapshot,
+                                          StateApplier applier) {
         this.snapshot = snapshot;
         this.applier = applier;
     }
@@ -44,7 +46,12 @@ public class TreeTabsWorkspaceStateProvider implements WorkspaceStateProvider {
     @Override
     public Object capture() {
         if (snapshot == null) return Map.of();
-        return snapshot.capture();
+        Map<String, Object> raw = snapshot.capture();
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        if (raw != null) {
+            raw.forEach((k, v) -> { if (v != null) out.put(k, v); });
+        }
+        return out;
     }
 
     @Override

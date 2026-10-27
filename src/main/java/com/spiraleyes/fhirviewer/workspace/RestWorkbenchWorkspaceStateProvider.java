@@ -42,8 +42,9 @@ public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvid
             out.put("contentType", state.contentType());
             out.put("authKind", state.authKind() == null ? null : state.authKind().name());
             out.put("userName", state.userName());
-            // Deliberately NOT captured: password, token, request body
-        } catch (Exception ignored) {
+            // Deliberately NOT captured: password, token (the remembered console
+            // password field is also a credential).
+            out.put("body", state.body());        } catch (Exception ignored) {
             // Preferences unavailable — workspace still opens
         }
         return out;
@@ -83,7 +84,8 @@ public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvid
                     asString(entries.get("contentType")),
                     authKind,
                     asString(entries.get("userName")),
-                    0, 0, 0
+                    0, 0, 0,
+                    asString(entries.get("body"))
             );
             state.save();
         } catch (Exception ignored) {

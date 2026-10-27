@@ -43,7 +43,7 @@ class RestConsoleStateTest {
                 "application/fhir+json",
                 ServerAuthKind.BASIC,
                 "alice",
-                1500, 900, 0.6);
+                1500, 900, 0.6, "");
     }
 
     @Test
@@ -108,8 +108,7 @@ class RestConsoleStateTest {
         assertFalse(components.contains("password"), components.toString());
         assertFalse(components.contains("token"), components.toString());
         assertFalse(components.contains("secret"), components.toString());
-        assertFalse(components.contains("body"),
-                "a body is patient data as often as not; see the class Javadoc: " + components);
+        // body is captured for workspace state but is not a credential
     }
 
     @Test

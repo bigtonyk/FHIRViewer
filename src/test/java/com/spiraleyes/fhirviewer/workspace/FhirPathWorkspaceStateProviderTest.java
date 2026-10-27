@@ -3,6 +3,7 @@ package com.spiraleyes.fhirviewer.workspace;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -26,62 +27,64 @@ class FhirPathWorkspaceStateProviderTest {
     @Test
     void noArgConstructorRestoreIsNoOp() {
         FhirPathWorkspaceStateProvider p = new FhirPathWorkspaceStateProvider();
-        p.restore(Map.of("expr", "Patient.name")); // should not throw
+        p.restore(Map.of("expressions", List.of("Patient.name"))); // should not throw
     }
 
     @Test
     void captureDelegatesToSnapshotCallback() {
-        Map<String, Object> expected = new LinkedHashMap<>();
-        expected.put("expressions", java.util.List.of("Patient.name", "Observation.value"));
+        List<String> expected = List.of("Patient.name", "Observation.value");
 
         FhirPathWorkspaceStateProvider p = new FhirPathWorkspaceStateProvider(
                 () -> expected,
-                snap -> { /* no-op */ }
+                (expressions, contextRef) -> { /* no-op */ }
         );
         Object snap = p.capture();
         assertTrue(snap instanceof Map);
-        assertEquals(expected, snap);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> out = (Map<String, Object>) snap;
+        assertEquals(expected, out.get("expressions"));
     }
 
     @Test
     void restoreDelegatesToApplierCallback() {
-        AtomicReference<Map<String, Object>> applied = new AtomicReference<>();
+        AtomicReference<List<String>> applied = new AtomicReference<>();
+        AtomicReference<String> contextRef = new AtomicReference<>();
         FhirPathWorkspaceStateProvider p = new FhirPathWorkspaceStateProvider(
-                () -> Map.of(),
-                snap -> applied.set(snap)
+                () -> List.of(),
+                (exprs, ctx) -> { applied.set(exprs); contextRef.set(ctx); }
         );
 
         Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("expressions", java.util.List.of("Patient.name"));
+        snapshot.put("expressions", List.of("Patient.name"));
         p.restore(snapshot);
 
-        assertEquals(snapshot, applied.get());
+        assertEquals(List.of("Patient.name"), applied.get());
+        assertNull(contextRef.get());
     }
 
     @Test
     void restoreDoesNotAutoEvaluate() {
         boolean[] evaluated = {false};
         FhirPathWorkspaceStateProvider p = new FhirPathWorkspaceStateProvider(
-                () -> Map.of(),
-                snap -> { evaluated[0] = true; }
+                () -> List.of(),
+                (expressions, contextRef) -> { evaluated[0] = true; }
         );
-        p.restore(Map.of("expressions", java.util.List.of("Patient.name")));
-        // The applier is called (state applied), but no auto-evaluation happens here
-        // — that's the UI's responsibility. This test just confirms restore is a plain apply.
+        p.restore(Map.of("expressions", List.of("Patient.name")));
+        // The applier is called (state applied), but no auto-evaluation happens here — that the UI's responsibility. This test just confirms restore is a plain apply.
         assertTrue(evaluated[0]);
     }
 
     @Test
     void restoreWithNullApplierIsNoOp() {
-        FhirPathWorkspaceStateProvider p = new FhirPathWorkspaceStateProvider(() -> Map.of(), null);
+        FhirPathWorkspaceStateProvider p = new FhirPathWorkspaceStateProvider(() -> List.of(), null);
         p.restore(Map.of("expr", "Patient.name")); // should not throw
     }
 
     @Test
     void restoreWithNonMapIsNoOp() {
         FhirPathWorkspaceStateProvider p = new FhirPathWorkspaceStateProvider(
-                () -> Map.of(),
-                snap -> { throw new AssertionError("should not be called"); }
+                () -> List.of(),
+                (expressions, contextRef) -> { throw new AssertionError("should not be called"); }
         );
         p.restore("not a map"); // should not throw
         p.restore(null); // should not throw
