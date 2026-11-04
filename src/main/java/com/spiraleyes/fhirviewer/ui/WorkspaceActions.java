@@ -1,0 +1,179 @@
+package com.spiraleyes.fhirviewer.ui;
+
+import java.nio.file.Path;
+import java.util.Optional;
+import java.util.function.Consumer;
+
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.DialogPane;
+import javafx.stage.FileChooser;
+import javafx.stage.Stage;
+
+import com.spiraleyes.fhirviewer.workspace.WorkspaceRecoveryService;
+import com.spiraleyes.fhirviewer.workspace.WorkspaceService;
+
+/**
+ * The workspace file actions — New, Open, Save, Save As — and the questions asked before a
+ * workspace is replaced or the window closes.
+ *
+ * <p>These lived inside {@code MainWindow}, which also builds the layout, the menus, the
+ * document tabs and the server screens. Moved out unchanged: the same dialogs, the same
+ * status lines, the same rule that a cancelled save keeps the window open.</p>
+ *
+ * <p>The recovery service belongs here rather than to the window because every one of its
+ * decisions is a workspace-file decision, and it asks through this class's prompt.</p>
+ */
+final class WorkspaceActions {
+
+    /** Shown in the title bar of this class's dialogs, matching the application's own. */
+    private static final String APPLICATION_TITLE = "FHIR Resource Viewer";
+
+    private final Stage owner;
+    private final WorkspaceService workspaceService;
+    private final ThemeManager themeManager;
+    private final Consumer<String> status;
+    private final WorkspaceRecoveryService recovery;
+
+    /**
+     * @param owner            the window the dialogs are modal to
+     * @param workspaceService the workspace these actions read and write
+     * @param themeManager     source of the dialog stylesheets
+     * @param status           where the "Opened workspace: …" style messages go
+     */
+    WorkspaceActions(Stage owner, WorkspaceService workspaceService, ThemeManager themeManager,
+            Consumer<String> status) {
+        this.owner = owner;
+        this.workspaceService = workspaceService;
+        this.themeManager = themeManager;
+        this.status = status;
+        this.recovery = new WorkspaceRecoveryService(workspaceService,
+                Path.of(System.getProperty("user.home", ".")),
+                () -> { },
+                this::confirmClose);
+    }
+
+    /**
+     * Whether a dirty workspace may be closed or replaced.
+     *
+     * @return {@code true} when there is nothing to lose or the user chose to proceed
+     */
+    boolean closeDecision() {
+        return recovery.handleCloseDecision();
+    }
+
+    /** Replaces the workspace with a new, empty one, asking first when work would be lost. */
+    void newWorkspace() {
+        if (!recovery.handleCloseDecision()) {
+            return;
+        }
+        workspaceService.newWorkspace("Untitled");
+        status.accept("New workspace created.");
+    }
+
+    /** Opens a workspace file, asking first when work would be lost. */
+    void openWorkspace() {
+        if (!recovery.handleCloseDecision()) {
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("FHIR Workspace", "*.fhirworkspace"));
+        java.io.File file = chooser.showOpenDialog(owner);
+        if (file == null) {
+            return;
+        }
+        try {
+            workspaceService.open(file.toPath());
+            status.accept("Opened workspace: " + file.getName());
+        } catch (Exception ex) {
+            status.accept("Failed to open workspace: " + ex.getMessage());
+        }
+    }
+
+    /** Saves over the workspace's own file, asking where when it has never been saved. */
+    void save() {
+        save(false);
+    }
+
+    /** Always asks where to save. */
+    void saveAs() {
+        save(true);
+    }
+
+    /**
+     * Saves the workspace, asking for a file when it has never been saved or when
+     * {@code saveAs} is set.
+     *
+     * @return {@code true} only when the workspace reached disk, so the close prompt can
+     *         keep the window open when the save is cancelled or fails
+     */
+    private boolean save(boolean saveAs) {
+        if (!saveAs && workspaceService.getCurrentPath() == null) {
+            // Nothing to overwrite yet: the user still has to choose where it goes.
+            return save(true);
+        }
+        Path target = workspaceService.getCurrentPath();
+        if (saveAs) {
+            FileChooser chooser = new FileChooser();
+            chooser.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter("FHIR Workspace", "*.fhirworkspace"));
+            java.io.File file = chooser.showSaveDialog(owner);
+            if (file == null) {
+                return false;
+            }
+            target = file.toPath();
+        }
+        try {
+            if (saveAs) {
+                workspaceService.saveAs(target);
+            } else {
+                workspaceService.save();
+            }
+            status.accept("Workspace saved: " + target.getFileName());
+            return true;
+        } catch (Exception ex) {
+            status.accept("Failed to save workspace: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Asks what to do about a dirty workspace before it is closed or replaced.
+     *
+     * <p>Save writes the workspace first and asks where when it has never been saved; a
+     * cancelled save returns Cancel, so neither the window nor the workspace changes.
+     * Discard and Save both proceed, because both are the user answering the question.</p>
+     *
+     * @return the user's decision; never {@code null}
+     */
+    private WorkspaceRecoveryService.CloseDecision confirmClose() {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(owner);
+        alert.setTitle(APPLICATION_TITLE);
+        alert.setHeaderText("Unsaved workspace");
+        alert.setContentText("The workspace has changes that have not been saved to a workspace file.");
+        style(alert.getDialogPane());
+
+        ButtonType save = new ButtonType("Save Workspace", ButtonBar.ButtonData.YES);
+        ButtonType discard = new ButtonType("Discard", ButtonBar.ButtonData.NO);
+        ButtonType cancel = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(save, discard, cancel);
+
+        Optional<ButtonType> choice = alert.showAndWait();
+        if (choice.isEmpty() || choice.get() == cancel) {
+            return WorkspaceRecoveryService.CloseDecision.CANCEL;
+        }
+        if (choice.get() == save && !save(false)) {
+            return WorkspaceRecoveryService.CloseDecision.CANCEL;
+        }
+        return WorkspaceRecoveryService.CloseDecision.PROCEED;
+    }
+
+    /** Same stylesheets and width as the window's other dialogs, so it follows the theme. */
+    private void style(DialogPane pane) {
+        pane.getStylesheets().addAll(themeManager.stylesheets());
+        pane.setPrefWidth(620);
+    }
+}

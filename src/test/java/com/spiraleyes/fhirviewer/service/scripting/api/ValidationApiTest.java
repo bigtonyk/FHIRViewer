@@ -32,21 +32,6 @@ class ValidationApiTest {
     }
 
     @Test
-    void scratchShowIssues() {
-        Patient patient = new Patient();
-        patient.setId("1");
-        patient.addName().setFamily("Smith");
-        ValidationReport report = validation.validate(patient);
-        System.out.println("SCRATCH name=" + report.getResourceName() + " valid=" + report.isValid());
-        report.getIssues().forEach(i -> System.out.println("SCRATCH issue: " + i.getDisplayText()));
-        System.out.println("SCRATCH summary: " + report.getSummary());
-        ValidationReport missing = validation.validate(patient, "http://example.org/does-not-exist");
-        System.out.println("SCRATCH missing valid=" + missing.isValid());
-        missing.getIssues().forEach(i -> System.out.println("SCRATCH missing issue: " + i.getDisplayText()));
-        System.out.println("SCRATCH missing summary: " + missing.getSummary());
-    }
-
-    @Test
     void validateAgainstAMissingProfileReportsAnIssue() {
         Patient patient = new Patient();
         patient.setId("1");

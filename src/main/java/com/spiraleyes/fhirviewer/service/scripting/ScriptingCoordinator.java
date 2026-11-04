@@ -1,5 +1,7 @@
 package com.spiraleyes.fhirviewer.service.scripting;
 
+import java.time.Duration;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,10 +29,13 @@ import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
  * rest of the application.</p>
  *
  * <p>{@link #stop} reaches the session from any thread — that is how the Stop
- * button interrupts a snippet already running. {@link #close} stops the
- * session, drains the worker, closes the engine and unregisters the JVM
- * shutdown hook that otherwise closes it if the application exits first, so no
- * JShell outlives the dialog either way. Closing is idempotent.</p>
+ * button interrupts a snippet already running — and returns immediately, so
+ * pressing it on the JavaFX thread never waits for a script that may take
+ * minutes to unwind. The run stays in flight until the worker itself reports
+ * it finished; {@link #close} stops the session, drains the worker, closes the
+ * engine and unregisters the JVM shutdown hook that otherwise closes it if the
+ * application exits first, so no JShell outlives the dialog either way.
+ * Closing is idempotent.</p>
  */
 public final class ScriptingCoordinator implements AutoCloseable {
 
@@ -43,6 +48,12 @@ public final class ScriptingCoordinator implements AutoCloseable {
     private volatile Thread workerThread;
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
+    /** Set by {@link #stop()} and consumed by the worker it is aimed at. */
+    private final AtomicBoolean stopRequested = new AtomicBoolean();
+    /** True only while the session is executing a snippet, never between submission and start. */
+    private volatile boolean runStarted;
+    /** Closes the hand-off window between {@link #stop()} and the worker's start-up. */
+    private final Object runGate = new Object();
     /** Created lazily on the worker; read by {@link #stop()} from other threads. */
     private volatile ScriptingSession session;
     private final Thread shutdownHook;
@@ -65,40 +76,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
      *                thread when this coordinator is closed); never {@code null}
      */
     public void run(String source, Consumer<ScriptRunResult> onDone) {
-        Objects.requireNonNull(source, "source");
-        Objects.requireNonNull(onDone, "onDone");
-        if (closed.get()) {
-            onDone.accept(ScriptRunResult.failed(
-                    "The scripting session is closed. Close and reopen the console to run again."));
-            return;
-        }
-        if (!running.compareAndSet(false, true)) {
-            onDone.accept(ScriptRunResult.failed(
-                    "A script is already running — wait for it to finish, or press Stop."));
-            return;
-        }
-        try {
-            worker.execute(() -> {
-                workerThread = Thread.currentThread();
-                ScriptRunResult result;
-                try {
-                    result = session().run(source);
-                } catch (RuntimeException problem) {
-                    result = ScriptRunResult.failed(
-                            "The script could not be run: " + problem.getClass().getSimpleName()
-                                    + (problem.getMessage() == null ? ""
-                                            : ": " + problem.getMessage()));
-                } finally {
-                    running.set(false);
-                    workerThread = null;
-                }
-                onDone.accept(result);
-            });
-        } catch (RejectedExecutionException racedClose) {
-            running.set(false);
-            onDone.accept(ScriptRunResult.failed(
-                    "The scripting session was closed before the run could start."));
-        }
+        submit(source, null, onDone);
     }
 
     /**
@@ -111,6 +89,20 @@ public final class ScriptingCoordinator implements AutoCloseable {
      * @param onDone   receives the result on the worker thread; never {@code null}
      */
     public void run(String source, ScriptBindings bindings, Consumer<ScriptRunResult> onDone) {
+        submit(source, bindings, onDone);
+    }
+
+    /**
+     * The one submission path both {@code run} overloads use.
+     *
+     * <p>One copy, not two: the closed check, the single-run guard, the stop-before-start
+     * hand-off and the failure text all have to agree. When they were duplicated, a fix to
+     * one overload left the other with the old behaviour — which is how the two copies came
+     * to disagree about an em dash in the same user-facing message.</p>
+     *
+     * @param bindings the script API objects, or {@code null} for none
+     */
+    private void submit(String source, ScriptBindings bindings, Consumer<ScriptRunResult> onDone) {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(onDone, "onDone");
         if (closed.get()) {
@@ -125,16 +117,33 @@ public final class ScriptingCoordinator implements AutoCloseable {
         }
         try {
             worker.execute(() -> {
+                workerThread = Thread.currentThread();
                 ScriptRunResult result;
-                try {
-                    result = session().run(source, bindings);
-                } catch (RuntimeException problem) {
-                    result = ScriptRunResult.failed(
-                            "The script could not be run: " + problem.getClass().getSimpleName()
-                                    + (problem.getMessage() == null ? "" : ": " + problem.getMessage()));
-                } finally {
-                    running.set(false);
+                if (stoppedBeforeStart()) {
+                    // Stop raced the worker's start-up: nothing ran, and saying so is
+                    // more honest than calling the snippet and pretending it was cut short.
+                    result = new ScriptRunResult(ScriptRunResult.Status.STOPPED,
+                            List.of(), 0, Duration.ZERO);
+                } else {
+                    try {
+                        result = session().run(source, bindings);
+                    } catch (RuntimeException problem) {
+                        result = ScriptRunResult.failed(
+                                "The script could not be run: " + problem.getClass().getSimpleName()
+                                        + (problem.getMessage() == null ? ""
+                                                : ": " + problem.getMessage()));
+                    } finally {
+                        runStarted = false;
+                    }
                 }
+                // A Stop that arrived after the run ended must not colour the next one.
+                synchronized (runGate) {
+                    stopRequested.set(false);
+                }
+                // The guard is cleared here and nowhere else: from submission to this
+                // point the run really is in flight, whatever Stop may have asked for.
+                running.set(false);
+                workerThread = null;
                 onDone.accept(result);
             });
         } catch (RejectedExecutionException racedClose) {
@@ -144,31 +153,46 @@ public final class ScriptingCoordinator implements AutoCloseable {
         }
     }
 
-    /** Stops whatever the worker is executing right now. Callable from any thread. */
+    /**
+     * Marks the work as started, or reports that a Stop beat it there. Called once per
+     * submission, before the session is touched, so {@link #stop()} and the worker agree
+     * on whether there is anything to interrupt.
+     */
+    private boolean stoppedBeforeStart() {
+        synchronized (runGate) {
+            boolean stopped = stopRequested.getAndSet(false);
+            if (!stopped) {
+                runStarted = true;
+            }
+            return stopped;
+        }
+    }
+
+    /**
+     * Stops whatever the worker is executing right now. Callable from any thread, and
+     * returns without waiting for the snippet to unwind: the Stop button runs on the
+     * JavaFX thread, where a five-second wait freezes the whole window.
+     */
     public void stop() {
         if (!running.get()) {
             return;
         }
-        // Wait for the worker to publish the session for the in-flight run; this is
-        // what makes a stop racing the worker's startup still reach the snippet.
-        long deadline = System.nanoTime() + 5_000_000_000L;
-        ScriptingSession current = session;
-        while (current == null && running.get() && System.nanoTime() < deadline) {
-            try {
-                Thread.sleep(1);
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-            current = session;
+        boolean interruptRun;
+        synchronized (runGate) {
+            stopRequested.set(true);
+            interruptRun = runStarted;
         }
-        if (current != null) {
-            current.stop();
-            running.set(false);
-            Thread t = workerThread;
-            if (t != null) {
-                t.interrupt();
+        if (interruptRun) {
+            ScriptingSession current = session;
+            if (current != null) {
+                // Best effort, exactly as the console says: a snippet that swallows
+                // interruption can ignore it, and this returns when it does.
+                current.stop();
             }
+        }
+        Thread worker = workerThread;
+        if (worker != null) {
+            worker.interrupt();
         }
     }
 
@@ -245,4 +269,3 @@ public final class ScriptingCoordinator implements AutoCloseable {
         return current;
     }
 }
-

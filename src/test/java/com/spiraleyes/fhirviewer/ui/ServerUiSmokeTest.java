@@ -161,14 +161,17 @@ class ServerUiSmokeTest {
      */
     private void awaitOperations(int expected) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        int[] seen = {0};
         while (System.nanoTime() < deadline) {
-            int[] seen = {0};
             runOnFxThread(() -> seen[0] = built.operationCount());
             if (seen[0] >= expected) {
                 return;
             }
             Thread.sleep(50);
         }
+        // A timeout used to return quietly, so a screen that never filled let the test run
+        // on and fail somewhere unrelated - or pass without having checked anything.
+        assertEquals(expected, seen[0], "the operation list never reached " + expected);
     }
 
     @Test
@@ -752,8 +755,10 @@ class ServerUiSmokeTest {
             dialog.close();
         });
 
-        // The search runs on a worker; give it a moment before asking whether it landed.
-        Thread.sleep(1500);
+        // The search runs on a worker: wait for the memory to fill instead of sleeping a
+        // fixed 1.5 s and hoping, which is what made this either slow or flaky.
+        waitUntil("pressing Search recorded nothing within ten seconds",
+                () -> memory.last() != null);
 
         assertNotNull(memory.last(),
                 "pressing Search did not record anything, so the next opening cannot "
@@ -1027,7 +1032,12 @@ class ServerUiSmokeTest {
             fresh.close();
         });
 
-        Thread.sleep(1500);
+        // A request, if the screen wrongly made one, arrives on a worker. Watch for it and
+        // fail as soon as it appears, rather than sleeping a fixed 1.5 s and hoping.
+        long deadline = System.currentTimeMillis() + 500;
+        while (requests.get() == 0 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10);
+        }
         assertEquals(0, requests.get(),
                 "opening the screen with no search to restore should not talk to the server");
     }
@@ -1483,14 +1493,15 @@ class ServerUiSmokeTest {
 
     private void awaitCount(int expected, ServerOperationDialog dialog) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        int[] seen = {0};
         while (System.nanoTime() < deadline) {
-            int[] seen = {0};
             runOnFxThread(() -> seen[0] = dialog.operationCount());
             if (seen[0] >= expected) {
                 return;
             }
             Thread.sleep(50);
         }
+        assertEquals(expected, seen[0], "the operation list never reached " + expected);
     }
 
     @Test

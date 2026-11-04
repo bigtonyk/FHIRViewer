@@ -35,6 +35,7 @@ import com.spiraleyes.fhirviewer.service.ValidationService;
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.service.IgPackageManager;
+import com.spiraleyes.fhirviewer.workspace.WorkspaceRecoveryService;
 import com.spiraleyes.fhirviewer.workspace.WorkspaceService;
 import com.spiraleyes.fhirviewer.server.FhirServerPlugin;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
@@ -159,6 +160,13 @@ public class MainWindow {
             serverManager,
             serverService.registry(),
             fhirService.validationService().getPackageManager());
+
+    /**
+     * New, Open, Save and the questions asked before a workspace is replaced or the window
+     * closes. Created in the constructor rather than here, because the dialogs are modal to
+     * the {@link Stage} and that does not exist yet when field initializers run.
+     */
+    private final WorkspaceActions workspaceActions;
 
     /**
      * The last search, so both search screens reopen showing it. A search that had to be
@@ -319,6 +327,8 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         this.stage = stage;
         this.hostServices = hostServices;
         this.coordinator = new ServerResourceCoordinator(serverService, fhirService::validate);
+        this.workspaceActions = new WorkspaceActions(stage, workspaceService, themeManager,
+                this::setStatus);
         loadSavedServers();
         buildLayout();
         wireInteractions();
@@ -328,7 +338,8 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
             if (closingFromAction) {
                 return;
             }
-            if (!confirmUnsavedChanges("closing the window")) {
+            if (!confirmUnsavedChanges("closing the window")
+                    || !workspaceActions.closeDecision()) {
                 event.consume();
             }
         });
@@ -1478,47 +1489,23 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     private void newWorkspace() {
-        workspaceService.newWorkspace("Untitled");
-        setStatus("New workspace created.");
+        workspaceActions.newWorkspace();
     }
 
     private void openWorkspace() {
-        javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
-        fc.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("FHIR Workspace", "*.fhirworkspace"));
-        java.io.File f = fc.showOpenDialog(stage);
-        if (f == null) return;
-        try {
-            workspaceService.open(f.toPath());
-            setStatus("Opened workspace: " + f.getName());
-        } catch (Exception ex) {
-            setStatus("Failed to open workspace: " + ex.getMessage());
-        }
+        workspaceActions.openWorkspace();
     }
 
     private void saveWorkspace() {
-        try {
-            workspaceService.save();
-            setStatus("Workspace saved.");
-        } catch (Exception ex) {
-            setStatus("Failed to save workspace: " + ex.getMessage());
-        }
+        workspaceActions.save();
     }
 
     private void saveWorkspaceAs() {
-        javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
-        fc.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("FHIR Workspace", "*.fhirworkspace"));
-        java.io.File f = fc.showSaveDialog(stage);
-        if (f == null) return;
-        try {
-            workspaceService.saveAs(f.toPath());
-            setStatus("Workspace saved: " + f.getName());
-        } catch (Exception ex) {
-            setStatus("Failed to save workspace: " + ex.getMessage());
-        }
+        workspaceActions.saveAs();
     }
 
     private void closeWindow() {
-        if (!confirmUnsavedChanges("exiting")) {
+        if (!confirmUnsavedChanges("exiting") || !workspaceActions.closeDecision()) {
             return;
         }
         closingFromAction = true;

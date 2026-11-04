@@ -57,6 +57,17 @@ Use `com.spiraleyes.fhirviewer.Launcher`, not `Main`: `Main` extends
 JavaFX is on the class path instead of the module path (*"JavaFX runtime components are
 missing"*). `mvn javafx:run` uses the module path and therefore `Main`.
 
+### Helper scripts in the repository root
+
+None of these is needed to build, test or package the application, and CI uses none of
+them. They are conveniences for running a tree that has already been built:
+
+| Script | What it does |
+|--------|--------------|
+| `launch-app.cmd`, `launch-app.ps1` | Starts the viewer from `target/classes` plus `target/lib` with a JDK already on `PATH`, without Maven. Both expect `mvnw package` to have run first. |
+| `ci-launch-console.ps1` | The same launch, but builds the `--module-path` for the platform-specific JavaFX jars explicitly and keeps a console attached, so start-up errors are visible instead of vanishing with `javaw`. |
+| `ci-check-window.ps1` | Diagnostic for "it started but no window appeared": lists Java processes whose command line mentions the viewer and enumerates visible windows to find it. |
+
 ## What the application does
 
 - **Opens FHIR JSON and XML files.** The format is detected from the content first and
@@ -164,7 +175,11 @@ hard-coded**.
 
 ## Tests
 
-`mvn test` runs the JUnit 5 suite:
+`mvn test` runs the JUnit 5 suite, which holds 112 test classes. The table below names
+the ones covering the core path; the rest sit in the same tree, under `server/rest`,
+`server/smart`, `ui`, `service/scripting` and `workspace`. The two UI suites need a
+display and skip themselves when no graphics environment is available, which is why CI
+runs the Linux leg under Xvfb.
 
 | Test class | Covers |
 |------------|--------|
@@ -254,13 +269,13 @@ a native bundle - jpackage cannot cross-compile.
 
 ```bat
 :: Windows (app-image; add --type msi for an installer)
-jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-0.1.0-SNAPSHOT.jar ^
+jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-1.0.0.jar ^
   --main-class com.spiraleyes.fhirviewer.Launcher --type app-image
 ```
 
 ```bash
 # macOS / Linux
-jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-0.1.0-SNAPSHOT.jar \
+jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-1.0.0.jar \
   --main-class com.spiraleyes.fhirviewer.Launcher --type app-image
 ```
 
@@ -304,9 +319,8 @@ Nothing outside `docs/` is required to build, test or run the application.
 
 ## Roadmap (from the plan's future enhancements)
 
-Drag and drop, FHIR server connectivity, FHIRPath evaluation, resource comparison,
-search within a resource, StructureDefinition browsing,
-terminology lookup, multiple FHIR versions, themes and recent files.
+Drag and drop, resource comparison, search within a resource, StructureDefinition
+browsing, terminology lookup, multiple FHIR versions and recent files.
 
 ## License
 
