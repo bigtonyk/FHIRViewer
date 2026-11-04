@@ -72,40 +72,44 @@ public class WorkspaceService {
         return meta;
     }
 
-    /** Open the last saved workspace from preferences if no path is given. */
+    /**
+     * Opens the workspace recorded in preferences, if its archive is still on disk.
+     *
+     * <p>Returns {@code null} rather than inventing a workspace. At start-up there is
+     * nothing to save yet, and a fresh empty workspace would arrive already dirty, so
+     * closing the window would ask about work nobody did. An archive that has moved or
+     * cannot be read clears the recorded identity and reports the same "nothing open",
+     * which Save turns into a Save As.</p>
+     *
+     * @return the workspace that was opened, or {@code null} when there was none
+     */
     public WorkspaceMetadata openLastFromPreferences() {
         String savedPath = prefs.get(KEY_LAST_PATH, null);
-        String savedId = prefs.get(KEY_LAST_ID, null);
-        String savedName = prefs.get(KEY_LAST_NAME, null);
-
-        if (savedPath == null || savedId == null) {
-            // No prior workspace; start fresh
-            return newWorkspace("(new)");
+        if (savedPath == null) {
+            return null;
         }
 
         Path path = Path.of(savedPath);
         if (!Files.isRegularFile(path)) {
-            // Archive missing/moved – start fresh and clear preference
-            prefs.remove(KEY_LAST_PATH);
-            prefs.remove(KEY_LAST_ID);
-            prefs.remove(KEY_LAST_NAME);
-            return newWorkspace("(recovered)");
+            // Archive missing or moved: forget it, so the next Save asks where.
+            forgetLastWorkspace();
+            return null;
         }
 
         try {
-            WorkspaceMetadata meta = open(path);
-            // Update preferences with the just-opened workspace identity
-            prefs.put(KEY_LAST_PATH, path.toString());
-            prefs.put(KEY_LAST_ID, meta.workspaceId().toString());
-            prefs.put(KEY_LAST_NAME, meta.name());
-            return meta;
+            return open(path);
         } catch (IOException e) {
-            // Corrupt/archive incompatible – start fresh and clear preference
-            prefs.remove(KEY_LAST_PATH);
-            prefs.remove(KEY_LAST_ID);
-            prefs.remove(KEY_LAST_NAME);
-            return newWorkspace("(recovered)");
+            // Corrupt or incompatible archive: forget it rather than failing to start.
+            forgetLastWorkspace();
+            return null;
         }
+    }
+
+    /** Drops the recorded last-workspace identity: there is no archive to reopen. */
+    private void forgetLastWorkspace() {
+        prefs.remove(KEY_LAST_PATH);
+        prefs.remove(KEY_LAST_ID);
+        prefs.remove(KEY_LAST_NAME);
     }
 
     public void save() throws IOException {

@@ -35,7 +35,6 @@ import com.spiraleyes.fhirviewer.service.ValidationService;
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.service.IgPackageManager;
-import com.spiraleyes.fhirviewer.workspace.WorkspaceRecoveryService;
 import com.spiraleyes.fhirviewer.workspace.WorkspaceService;
 import com.spiraleyes.fhirviewer.server.FhirServerPlugin;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
@@ -331,6 +330,10 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                 this::setStatus);
         loadSavedServers();
         buildLayout();
+        // The workspace the previous session had open. Without this the window held a
+        // service that had never opened anything: Save could only fail with "No workspace
+        // open", and the close prompt had no changes of its own to ask about.
+        workspaceActions.openLastWorkspace();
         wireInteractions();
         startIgPackageAutoLoad();
         // Closing the window is the last chance to save an edited resource.
@@ -1626,6 +1629,9 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     private void persistServers() {
         try {
             serverManager.save(FhirServerManager.defaultStoreFile());
+            // The server list is part of what a workspace captures, so a workspace that
+            // gained or changed a server now has something worth saving.
+            workspaceActions.markWorkspaceChanged();
         } catch (IOException e) {
             logger.warning("Could not save the FHIR server list: " + e.getMessage());
             setStatus("The server was added for this session only: the list could not be saved ("
@@ -2630,12 +2636,18 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
      */
     private void openIgPackageManager() {
         try {
+            IgPackageManager packages = fhirService.validationService().getPackageManager();
+            int installedBefore = packages.getLoadedPackageCount();
             IgPackageDialog dialog = new IgPackageDialog(stage,
-                    fhirService.validationService().getPackageManager(),
+                    packages,
                     new com.spiraleyes.fhirviewer.service.PackageRegistryService());
             dialog.showAndWait();
             // Packages may have been installed or activated: update the profile picker.
             refreshProfileChoices();
+            // The installed set is part of what a workspace captures.
+            if (packages.getLoadedPackageCount() != installedBefore) {
+                workspaceActions.markWorkspaceChanged();
+            }
         } catch (Exception e) {
             showFailure("Failed to open IG Package Manager", e);
         }

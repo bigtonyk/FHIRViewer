@@ -1,7 +1,5 @@
 package com.spiraleyes.fhirviewer.workspace;
 
-import javafx.application.Platform;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,9 +17,10 @@ import org.slf4j.LoggerFactory;
  * Private application-managed recovery store that protects unsaved work independently
  * of the last explicitly saved workspace archive.
  * <p>
- * Features: periodic snapshots, debounced scheduling, atomic writes, bounded retention,
- * last-snapshot preservation on failure, thread-safe off-FX-thread I/O,
- * newer-snapshot detection, and Restore/Discard/Inspect decisions.
+ * Features: snapshots coalesced onto one background thread, atomic writes, bounded
+ * retention, and thread-safe I/O off the calling thread. Restore and Discard are offered
+ * through {@link #hasRecoverySnapshot()} and {@link #restoreFromLastSnapshot()}, which
+ * apply whatever the registered {@link WorkspaceStateProvider}s implement.
  */
 public class WorkspaceRecoveryService {
 
@@ -59,7 +58,6 @@ public class WorkspaceRecoveryService {
     private volatile boolean pendingSnapshot = false;
     private final Object snapshotLock = new Object();
 
-    private final Runnable onSnapshotTaken;
     /**
      * Asks the user about unsaved workspace state and returns what they chose. A supplier
      * rather than a {@code Runnable}, because a callback that cannot answer makes
@@ -68,9 +66,8 @@ public class WorkspaceRecoveryService {
     private final Supplier<CloseDecision> onCloseDecision;
 
     public WorkspaceRecoveryService(WorkspaceService workspaceService, Path userHome,
-                                    Runnable onSnapshotTaken, Supplier<CloseDecision> onCloseDecision) {
+                                    Supplier<CloseDecision> onCloseDecision) {
         this.workspaceService = workspaceService;
-        this.onSnapshotTaken = onSnapshotTaken;
         this.onCloseDecision = onCloseDecision;
         this.recoveryDir = userHome.resolve(".fhirviewer-recovery");
         try {
@@ -128,21 +125,30 @@ public class WorkspaceRecoveryService {
             }
             workspaceService.restoreAll(m);
             workspaceService.markDirty();
-            lastSnapshotPath = null; lastSnapshotTime = Instant.EPOCH;
+            forgetSnapshot();
             LOG.info("Restored the workspace from a recovery snapshot");
             return true;
         } catch (IOException e) {
             LOG.warn("Could not restore the recovery snapshot: {}", e.getMessage());
-            lastSnapshotPath = null; lastSnapshotTime = Instant.EPOCH;
+            forgetSnapshot();
             return false;
         }
+    }
+
+    /**
+     * Forgets the current snapshot, for a workspace that has just been replaced by another
+     * one or saved: a snapshot of the previous state is not this workspace's history.
+     */
+    public void forgetSnapshot() {
+        lastSnapshotPath = null;
+        lastSnapshotTime = Instant.EPOCH;
     }
 
     public void saveCurrentArchive() throws IOException {
         if (workspaceService.getCurrent() == null) throw new IllegalStateException("No workspace");
         takeSnapshotNow();
         workspaceService.save();
-        lastSnapshotPath = null; lastSnapshotTime = Instant.EPOCH;
+        forgetSnapshot();
         LOG.debug("Workspace archive saved; recovery baseline reset");
     }
 
@@ -150,6 +156,14 @@ public class WorkspaceRecoveryService {
 
     private void doSnapshot() {
         synchronized (snapshotLock) { if (!pendingSnapshot) return; pendingSnapshot = false; }
+        // Nothing to snapshot before a workspace exists: a session that has only ever had
+        // its servers configured has no workspace id to name the file after, and capture
+        // needs one. The change that asked for this snapshot is still marked dirty, so the
+        // first Save creates the workspace the next snapshot belongs to.
+        if (workspaceService.getCurrent() == null) {
+            LOG.debug("Skipped a recovery snapshot: no workspace is open");
+            return;
+        }
         WorkspaceMetadata sm;
         try { sm = workspaceService.captureAllCurrent(); } catch (Exception e) { LOG.warn("Could not capture the workspace state: {}", e.getMessage()); return; }
         Path p;
@@ -161,7 +175,6 @@ public class WorkspaceRecoveryService {
             Files.move(t, p, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             lastSnapshotPath = p; lastSnapshotTime = Instant.now();
             pruneOldSnapshots();
-            Platform.runLater(onSnapshotTaken);
             LOG.debug("Snapshot written: {}", p.getFileName());
         } catch (IOException e) { LOG.warn("Could not write a recovery snapshot: {}", e.getMessage()); }
     }

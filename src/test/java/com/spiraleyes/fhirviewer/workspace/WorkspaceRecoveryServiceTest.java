@@ -23,7 +23,7 @@ class WorkspaceRecoveryServiceTest {
 
     private WorkspaceRecoveryService recovery(WorkspaceService workspace,
             WorkspaceRecoveryService.CloseDecision answer, AtomicBoolean asked) {
-        return new WorkspaceRecoveryService(workspace, dir, () -> { }, () -> {
+        return new WorkspaceRecoveryService(workspace, dir, () -> {
             asked.set(true);
             return answer;
         });

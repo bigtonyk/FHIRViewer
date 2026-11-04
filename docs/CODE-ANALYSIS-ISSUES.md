@@ -302,3 +302,11 @@ Recorded because a defect list alone misrepresents the code:
 - Only the patterns in section 4 were searched exhaustively across the tree; the remaining
   findings come from reading the specific files named.
 - No dependency CVE audit, no profiling, no memory analysis.
+
+---
+
+**Re-analysis (2026-11-04):** a second pass over the same tree is in
+[`CODE-ANALYSIS-ISSUES-ROUND2.md`](CODE-ANALYSIS-ISSUES-ROUND2.md). It records which of the
+items below were fixed and verified, and adds H6, M7-M9 and L10-L14 - including the finding
+that the workspace and recovery features this list asks to fix are not wired into the
+application at all.

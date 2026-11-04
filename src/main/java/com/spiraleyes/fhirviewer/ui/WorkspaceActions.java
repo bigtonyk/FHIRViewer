@@ -11,24 +11,32 @@ import javafx.scene.control.DialogPane;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
+import com.spiraleyes.fhirviewer.workspace.WorkspaceMetadata;
 import com.spiraleyes.fhirviewer.workspace.WorkspaceRecoveryService;
 import com.spiraleyes.fhirviewer.workspace.WorkspaceService;
 
 /**
- * The workspace file actions — New, Open, Save, Save As — and the questions asked before a
- * workspace is replaced or the window closes.
+ * The workspace file actions — New, Open, Save, Save As — the questions asked before a
+ * workspace is replaced or the window closes, and the change signal the workspace needs to
+ * know it has something to save.
  *
  * <p>These lived inside {@code MainWindow}, which also builds the layout, the menus, the
  * document tabs and the server screens. Moved out unchanged: the same dialogs, the same
  * status lines, the same rule that a cancelled save keeps the window open.</p>
  *
  * <p>The recovery service belongs here rather than to the window because every one of its
- * decisions is a workspace-file decision, and it asks through this class's prompt.</p>
+ * decisions is a workspace-file decision, and it asks through this class's prompt. The
+ * window drives it through {@link #openLastWorkspace()} at start-up and
+ * {@link #markWorkspaceChanged()} wherever it changes state a workspace captures — a
+ * service nothing calls decides nothing.</p>
  */
 final class WorkspaceActions {
 
     /** Shown in the title bar of this class's dialogs, matching the application's own. */
     private static final String APPLICATION_TITLE = "FHIR Resource Viewer";
+
+    /** The extension a workspace archive carries, with the dot. */
+    private static final String WORKSPACE_EXTENSION = ".fhirworkspace";
 
     private final Stage owner;
     private final WorkspaceService workspaceService;
@@ -50,8 +58,34 @@ final class WorkspaceActions {
         this.status = status;
         this.recovery = new WorkspaceRecoveryService(workspaceService,
                 Path.of(System.getProperty("user.home", ".")),
-                () -> { },
                 this::confirmClose);
+    }
+
+    /**
+     * Opens the workspace the previous session had open, if its archive is still there.
+     *
+     * <p>Called once at start-up. It is what makes the rest of this class meaningful: with
+     * no workspace open, Save had nothing to write over and the close prompt had no
+     * changes of its own to ask about.</p>
+     */
+    void openLastWorkspace() {
+        WorkspaceMetadata opened = workspaceService.openLastFromPreferences();
+        if (opened != null) {
+            recovery.forgetSnapshot();
+            status.accept("Opened the last workspace: " + opened.name());
+        }
+    }
+
+    /**
+     * Records that something a workspace captures has changed — the server list, the
+     * installed IG packages — and asks the recovery service for a snapshot of it.
+     *
+     * <p>The snapshot is taken on the recovery service's own thread, so this is cheap
+     * enough to call from the JavaFX thread.</p>
+     */
+    void markWorkspaceChanged() {
+        workspaceService.markDirty();
+        recovery.onMeaningfulChange();
     }
 
     /**
@@ -69,6 +103,8 @@ final class WorkspaceActions {
             return;
         }
         workspaceService.newWorkspace("Untitled");
+        // The previous workspace's snapshot is not this workspace's history.
+        recovery.forgetSnapshot();
         status.accept("New workspace created.");
     }
 
@@ -79,13 +115,14 @@ final class WorkspaceActions {
         }
         FileChooser chooser = new FileChooser();
         chooser.getExtensionFilters().add(
-                new FileChooser.ExtensionFilter("FHIR Workspace", "*.fhirworkspace"));
+                new FileChooser.ExtensionFilter("FHIR Workspace", "*" + WORKSPACE_EXTENSION));
         java.io.File file = chooser.showOpenDialog(owner);
         if (file == null) {
             return;
         }
         try {
             workspaceService.open(file.toPath());
+            recovery.forgetSnapshot();
             status.accept("Opened workspace: " + file.getName());
         } catch (Exception ex) {
             status.accept("Failed to open workspace: " + ex.getMessage());
@@ -118,7 +155,7 @@ final class WorkspaceActions {
         if (saveAs) {
             FileChooser chooser = new FileChooser();
             chooser.getExtensionFilters().add(
-                    new FileChooser.ExtensionFilter("FHIR Workspace", "*.fhirworkspace"));
+                    new FileChooser.ExtensionFilter("FHIR Workspace", "*" + WORKSPACE_EXTENSION));
             java.io.File file = chooser.showSaveDialog(owner);
             if (file == null) {
                 return false;
@@ -126,6 +163,12 @@ final class WorkspaceActions {
             target = file.toPath();
         }
         try {
+            // The first Save of a session has no workspace yet — start-up deliberately does
+            // not invent one — so the file it is about to write becomes the workspace. The
+            // absence of this made Save fail with "No workspace open" instead of saving.
+            if (workspaceService.getCurrent() == null) {
+                workspaceService.newWorkspace(workspaceName(target));
+            }
             if (saveAs) {
                 workspaceService.saveAs(target);
             } else {
@@ -137,6 +180,14 @@ final class WorkspaceActions {
             status.accept("Failed to save workspace: " + ex.getMessage());
             return false;
         }
+    }
+
+    /** The workspace name for a file: its own name without the archive extension. */
+    private static String workspaceName(Path file) {
+        String name = file.getFileName().toString();
+        return name.endsWith(WORKSPACE_EXTENSION)
+                ? name.substring(0, name.length() - WORKSPACE_EXTENSION.length())
+                : name;
     }
 
     /**
