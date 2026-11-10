@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -18,8 +17,6 @@ import java.util.prefs.Preferences;
 public final class PackageStorage {
 
     private static final String PREF_KEY = "storageDirectory";
-    private static final String DEFAULT_DIR =
-            System.getProperty("user.home") + "/.fhirviewer/packages";
 
     /** One .tgz file in the storage directory. */
     public record StoredPackage(Path file, String packageId, String version) {
@@ -108,10 +105,15 @@ public final class PackageStorage {
             stored = Preferences.userRoot().node("/com/example/fhirviewer/ui")
                     .get(PREF_KEY, null);
         }
-        if (stored == null || stored.isBlank()) {
-            stored = DEFAULT_DIR;
-        }
-        return Paths.get(stored);
+        return stored == null || stored.isBlank() ? defaultDirectory() : Path.of(stored);
+    }
+
+    /**
+     * {@code ~/.fhirviewer/packages}, resolved on each call rather than at class load so the
+     * default follows the current {@code user.home} (and a test can redirect it).
+     */
+    private static Path defaultDirectory() {
+        return Path.of(System.getProperty("user.home"), ".fhirviewer", "packages");
     }
 
     /** Remembers the storage directory across application runs. */

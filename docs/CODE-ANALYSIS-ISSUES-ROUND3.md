@@ -54,7 +54,8 @@ resolve; `R3-*` are new here.
 
 Net effect: the High section of the first pass is closed, and the one acknowledged unfixed
 Medium (M3) turned out to be fixed in the tree already. M7 was then fixed on 2026-11-10
-(section 2.1), so no P1 is open: five P2 items and the usual P3 tail remain.
+(section 2.1), so no P1 is open, and the R3 findings are closed as well: M8 and M9 are the
+remaining P2 items, ahead of the P3 tail.
 
 ---
 
@@ -193,6 +194,16 @@ workspace, a server change marks it dirty, Save with nothing open creates a work
 the close path asks once. That is the cheapest insurance against the entire H6 class of
 defect.
 
+**Fixed 2026-11-10:** `WorkspaceWiringTest` builds `WorkspaceActions` against a real
+`WorkspaceService` and covers five cases: start-up opens the recorded archive, start-up with
+nothing recorded invents no workspace, a recorded archive that has moved is forgotten, a
+captured change marks the workspace dirty, and closing a clean workspace asks nothing. It
+snapshots and restores the application's `workspace` preference node around every test, so a
+run cannot decide what the developer's next session reopens. What it does not cover:
+constructing `MainWindow` itself, which needs a `Stage` and `HostServices` and would start
+the IG auto-load from the real package directory, and the two actions behind a
+`FileChooser`.
+
 ### R3-5. `PackageStorage` builds its default path by string concatenation
 
 **Issue — P3.** `service/PackageStorage.java:21-22`.
@@ -208,6 +219,14 @@ location uses `Path.of(...)` (`FhirServerManager:96`, `SmartDiagnosticsPane:81`,
 defect; it also means a test cannot redirect it without setting `user.home` before the class
 loads. `getStorageDirectory()` still reads the legacy `com/example/fhirviewer/ui` node
 (`:107`), the same placeholder-package problem as L12.
+
+**Fixed 2026-11-10:** the constant is gone. `getStorageDirectory()` now falls through to
+`defaultDirectory()`, which builds `Path.of(user.home, ".fhirviewer", "packages")` on every
+call, so the default follows the current property instead of the one present at class load,
+and no separator is hardcoded. `PackageStorageTest` pins both halves: the default is under
+the current home, and moving home moves it; a chosen directory still wins, and listing an
+archive still splits id from version. The legacy preference read is deliberately unchanged -
+it is the migration path for directories chosen by earlier builds.
 
 ### R3-6. Recovery-service lifecycle, now that the service is actually used
 
@@ -239,13 +258,13 @@ Every open item, highest priority first. Type is Bug / Issue / Enhancement.
 | ~~R3-1~~ | Bug | Fixed | "Loaded Packages" lists installed packages from the typed API with real line breaks and an inactive marker | `MainWindow` |
 | ~~R3-2~~ | Bug | Fixed | Registry search runs on a daemon thread, so a closed window no longer leaves the JVM waiting for the request | `IgPackageDialog` |
 | ~~R3-3~~ | Bug | Fixed | The request body is no longer persisted anywhere: the component is removed, old values are purged, and workspace archives no longer carry it | `RestConsoleState` |
-| R3-4 | Enhancement | **P2** | No test builds `MainWindow` or `WorkspaceActions` — the gap that hid H6 | `src/test` |
+| ~~R3-4~~ | Enhancement | Fixed | `WorkspaceWiringTest` covers start-up open, a moved archive, dirty marking and the clean close decision | `src/test/.../ui` |
 | M1 | Enhancement | **P3** | `MainWindow` is still 2,697 lines with 17 `catch (Exception)` blocks; one slice moved out | `MainWindow` |
 | L10 | Bug | **P3** | Diagnostics export writes with the platform charset, not UTF-8 | `SmartDiagnosticsPane:86` |
 | L11 | Issue | **P3** | Several `restore…` tests assert only "does not throw" while their names promise a populated state | `*WorkspaceStateProviderTest` |
 | L12 | Issue | **P3** | Recovery directory from `user.home` inside the class; `workspace` as a global preference node; `com/example/fhirviewer/...` node names in a `com.spiraleyes` project | `WorkspaceActions:60`, `WorkspaceService:17`, `RestConsoleState:66`, `PackageStorage:107` |
 | L9 | Issue | **P3** | `SecretBox` keeps the passphrase in an un-zeroable `String`; deliberate, documented | `SecretBox:108-115` |
-| R3-5 | Issue | **P3** | `PackageStorage` default path built by string concatenation and frozen at class load | `PackageStorage:21-22` |
+| ~~R3-5~~ | Issue | Fixed | Default package directory resolved per call from `user.home` via `Path.of`; covered by `PackageStorageTest` | `PackageStorage` |
 | R3-6 | Issue | **P3** | Recovery scheduler never shut down; `lastSnapshotTime` unused; `saveCurrentArchive` orders its snapshot wrong | `WorkspaceRecoveryService:49, 57, 147` |
 
 Closed since the second pass: H1–H6, M2, M3, M4, M5, M6, L1–L8, L14.
@@ -299,5 +318,4 @@ Closed since the second pass: H1–H6, M2, M3, M4, M5, M6, L1–L8, L14.
 3. **M8, M9** — two close-path and open-path correctness bugs, small and local.
 4. **R3-1, R3-3** — user-visible and privacy-relevant respectively; each is a small change.
 5. **R3-2** — one line, or a switch to `BackgroundTasks`.
-6. **R3-4** — the test that makes this class of defect visible next time.
-7. **P3 tail** — L10–L12, R3-5, M1 as opportunity allows.
+6. **P3 tail** — L10–L12, M1 as opportunity allows.
