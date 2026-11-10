@@ -114,6 +114,11 @@ Two defects in one method:
 .getLoadedPackages()`, `IgPackageInfo.name()/version()/fhirVersion()`), and use `\n`. The
 method then needs no `try`/`catch (Exception)` at all.
 
+**Fixed 2026-11-10:** the method now reads the installed packages through
+`IgPackageManager.getLoadedPackages()`, prints real line breaks, and marks packages that are
+not used for validation. Both reflection calls and the two-backslash escapes are gone from
+`MainWindow` (verified by search: no `Class.forName`, no doubled escapes left in the file).
+
 ### R3-2. The IG registry search runs on a non-daemon thread
 
 **Bug — P2.** `IgPackageDialog:275`.
@@ -133,6 +138,11 @@ report nobody can reproduce on a fast connection.
 **Fix:** make the thread a daemon, or route the call through `BackgroundTasks`, which
 already guarantees a daemon worker and a JavaFX-thread callback (and is what the rest of the
 UI uses).
+
+**Fixed 2026-11-10:** the search now runs through a small `daemonThread` helper in
+`IgPackageDialog`, the same guarantee the planner and installer threads in that class already
+had by setting the flag themselves. Its result still arrives through `Platform.runLater`, so
+the dialog code is otherwise unchanged.
 
 ### R3-3. The REST console persists the request body while its own documentation says it does not
 
@@ -157,6 +167,15 @@ code's own documentation promises otherwise. The token and password exclusions *
 `save()` (and the field if nothing else reads it); keeping the behaviour means correcting
 the javadoc, the test name and the user guide, because a user reading either will believe
 the body is not on disk. Raise to P1 if the product position is that bodies never persist.
+
+**Fixed 2026-11-10, on the documentation's side.** Nothing reads a remembered body
+(`RestRequestPane` builds the saved state with `body = ""`), and the class's own bullet is
+an explicit privacy decision, so the code was the wrong half. The `body` component is gone
+from `RestConsoleState` entirely: it is not written, not read, and `save()` now removes a
+`body` key left behind by an earlier build. `RestWorkbenchWorkspaceStateProvider` no longer
+captures or restores a body either, so a workspace archive cannot carry one. The structural
+test now asserts the record has no `body`, `password`, `token` or `secret` component, and a
+new case checks that an old stored body is purged rather than resurrected.
 
 ### R3-4. Nothing tests `MainWindow` or `WorkspaceActions`
 
@@ -217,9 +236,9 @@ Every open item, highest priority first. Type is Bug / Issue / Enhancement.
 | ~~M7~~ | Issue | Fixed | Connections and validation state restore on open (§2.1). Tree/tabs and FHIRPath remain unwired; no start-up restore prompt yet | `workspace/*WorkspaceStateProvider` |
 | M8 | Bug | **P2** | Closing asks twice: `confirmUnsavedChanges(...)` then `workspaceActions.closeDecision()` | `MainWindow:344-345, 1511` |
 | M9 | Bug | **P2** | `WorkspaceService.open()` assigns `current`/`currentPath` before `restoreAll`, so a provider failure leaves the service pointing at an archive the UI never applied | `WorkspaceService:66-78` |
-| R3-1 | Bug | **P2** | "Loaded Packages" prints literal `\n`, and reaches the package manager by reflection although the typed API is imported | `MainWindow:2659-2693` |
-| R3-2 | Bug | **P2** | Registry search thread is not a daemon, so the JVM outlives a closed window while a search is in flight | `IgPackageDialog:275` |
-| R3-3 | Bug | **P2** | REST console writes the request body to plaintext Preferences while its javadoc and a test name say it does not | `RestConsoleState:112, 151, 36-38` |
+| ~~R3-1~~ | Bug | Fixed | "Loaded Packages" lists installed packages from the typed API with real line breaks and an inactive marker | `MainWindow` |
+| ~~R3-2~~ | Bug | Fixed | Registry search runs on a daemon thread, so a closed window no longer leaves the JVM waiting for the request | `IgPackageDialog` |
+| ~~R3-3~~ | Bug | Fixed | The request body is no longer persisted anywhere: the component is removed, old values are purged, and workspace archives no longer carry it | `RestConsoleState` |
 | R3-4 | Enhancement | **P2** | No test builds `MainWindow` or `WorkspaceActions` — the gap that hid H6 | `src/test` |
 | M1 | Enhancement | **P3** | `MainWindow` is still 2,697 lines with 17 `catch (Exception)` blocks; one slice moved out | `MainWindow` |
 | L10 | Bug | **P3** | Diagnostics export writes with the platform charset, not UTF-8 | `SmartDiagnosticsPane:86` |

@@ -2660,44 +2660,32 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     /**
-     * Shows information about currently loaded packages.
+     * Shows the installed IG packages, marking the ones that are not used for validation.
      */
     private void showLoadedPackagesInfo() {
-        try {
-            Class<?> validationServiceClass = 
-                    Class.forName("com.spiraleyes.fhirviewer.service.ValidationService");
-            java.lang.reflect.Method getPackageManager = 
-                    validationServiceClass.getMethod("getPackageManager");
-            Object packageManager = getPackageManager.invoke(fhirService.validationService());
-            
-            java.lang.reflect.Method getLoadedPackages = 
-                    packageManager.getClass().getMethod("getLoadedPackages");
-            java.util.List<?> packages = (java.util.List<?>) getLoadedPackages.invoke(packageManager);
-            
-            if (packages.isEmpty()) {
-                showAlert(Alert.AlertType.INFORMATION, "Loaded Packages", 
-                        "No Implementation Guide packages are currently loaded.\\n\\n" +
-                        "To load packages:\\n" +
-                        "1. Go to Implementation Guide > Manage Packages\\n" +
-                        "2. Search for packages or load from file\\n" +
-                        "3. Download and load the desired packages");
-            } else {
-                StringBuilder message = new StringBuilder();
-                message.append("Loaded Implementation Guide Packages\\n");
-                message.append("=====================================\\n\\n");
-                for (Object pkg : packages) {
-                    java.lang.reflect.Method getName = pkg.getClass().getMethod("name");
-                    java.lang.reflect.Method getVersion = pkg.getClass().getMethod("version");
-                    java.lang.reflect.Method getFhirVersion = pkg.getClass().getMethod("fhirVersion");
-                    message.append("- ").append(getName.invoke(pkg))
-                           .append(" ").append(getVersion.invoke(pkg))
-                           .append(" (").append(getFhirVersion.invoke(pkg)).append(")\\n");
-                }
-                message.append("\\nThese packages are available for validation.");
-                showAlert(Alert.AlertType.INFORMATION, "Loaded Packages", message.toString());
-            }
-        } catch (Exception e) {
-            showFailure("Failed to get package information", e);
+        IgPackageManager packages = fhirService.validationService().getPackageManager();
+        var loaded = packages.getLoadedPackages();
+        if (loaded.isEmpty()) {
+            showAlert(Alert.AlertType.INFORMATION, "Loaded Packages",
+                    "No Implementation Guide packages are currently loaded.\n\n"
+                            + "To load packages:\n"
+                            + "1. Go to Implementation Guide > Manage Packages\n"
+                            + "2. Search for packages or load from file\n"
+                            + "3. Download and load the desired packages");
+            return;
         }
+        StringBuilder message = new StringBuilder();
+        message.append("Loaded Implementation Guide Packages\n");
+        message.append("=====================================\n\n");
+        for (var pkg : loaded) {
+            message.append("- ").append(pkg.name()).append(' ').append(pkg.version())
+                    .append(" (").append(pkg.fhirVersion()).append(')');
+            if (!packages.isActive(pkg.name())) {
+                message.append(" - inactive");
+            }
+            message.append('\n');
+        }
+        message.append("\nThese packages are available for validation.");
+        showAlert(Alert.AlertType.INFORMATION, "Loaded Packages", message.toString());
     }
 }

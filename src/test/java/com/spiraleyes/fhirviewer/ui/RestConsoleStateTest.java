@@ -43,7 +43,7 @@ class RestConsoleStateTest {
                 "application/fhir+json",
                 ServerAuthKind.BASIC,
                 "alice",
-                1500, 900, 0.6, "");
+                1500, 900, 0.6);
     }
 
     @Test
@@ -108,7 +108,20 @@ class RestConsoleStateTest {
         assertFalse(components.contains("password"), components.toString());
         assertFalse(components.contains("token"), components.toString());
         assertFalse(components.contains("secret"), components.toString());
-        // body is captured for workspace state but is not a credential
+        assertFalse(components.contains("body"), components.toString());
+    }
+
+    @Test
+    @DisplayName("A body left behind by an earlier build is removed, not read back")
+    void bodyFromAnEarlierBuildIsPurged() throws Exception {
+        java.util.prefs.Preferences node = node();
+        node.put("body", "{\"resourceType\":\"Patient\",\"name\":[{\"text\":\"phi\"}]}");
+
+        RestConsoleState loaded = RestConsoleState.load(List.of());
+        loaded.save();
+
+        assertFalse(java.util.Arrays.asList(node.keys()).contains("body"),
+                "an old request body must not stay in the preference store");
     }
 
     @Test

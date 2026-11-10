@@ -36,6 +36,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *   <li><b>The request body.</b> A body is far more likely to be a patient resource than a
  *       credential, and writing one to disk unasked is a decision this tool should not make
  *       silently. It is a one-line change if that trade is judged wrong.</li>
+ *       silently. It has no component in this record at all, so a later edit to the capture
+ *       code cannot start persisting one by accident.</li>
  * </ul>
  * The user name is remembered: it is half of a credential but not a secret, and retyping it
  * is pure friction.
@@ -59,8 +61,7 @@ public record RestConsoleState(
         String userName,
         double windowWidth,
         double windowHeight,
-        double dividerPosition,
-        String body) {
+        double dividerPosition) {
 
     private static final Logger log = Logger.getLogger(RestConsoleState.class.getName());
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -78,14 +79,13 @@ public record RestConsoleState(
     public RestConsoleState {
         parameters = parameters == null ? List.of() : List.copyOf(parameters);
         headers = headers == null ? List.of() : List.copyOf(headers);
-        body = body == null ? "" : body;
     }
 
     /** An empty state: a fresh console starts here. */
     public static RestConsoleState defaults() {
         return new RestConsoleState("", RestMethod.GET, "", "", List.of(), List.of(),
                 RestRequest.DEFAULT_CONTENT_TYPE, ServerAuthKind.ANONYMOUS, "",
-                1400, 820, 0.52, "");
+                1400, 820, 0.52);
     }
 
 /**
@@ -111,8 +111,7 @@ public record RestConsoleState(
                     node.get("userName", ""),
                     node.getDouble("windowWidth", 1400),
                     node.getDouble("windowHeight", 820),
-                    node.getDouble("divider", 0.52),
-                    node.get("body", ""));
+                    node.getDouble("divider", 0.52));
         } catch (RuntimeException | BackingStoreException e) {
             log.log(Level.FINE, "could not read the remembered console settings", e);
             return defaults();
@@ -148,7 +147,9 @@ public record RestConsoleState(
             node.putDouble("windowWidth", windowWidth);
             node.putDouble("windowHeight", windowHeight);
             node.putDouble("divider", dividerPosition);
-            node.put("body", body);
+            // Earlier builds wrote the request body here. Drop one if it is still around
+            // rather than leaving patient data in the store after the field is gone.
+            node.remove("body");
             node.flush();
         } catch (RuntimeException | BackingStoreException e) {
             log.log(Level.FINE, "could not remember the console settings", e);
@@ -218,7 +219,7 @@ public record RestConsoleState(
         return value == null ? "" : value;
     }
 
-    /** The remembered request body, or the empty string. */
+    /** Describes the remembered request without its body, which is not remembered. */
     @Override
     public String toString() {
         return "RestConsoleState[" + method + " " + baseUrl + path + ", "

@@ -14,8 +14,9 @@ import java.util.prefs.Preferences;
  * Capture/restore boundary for REST workbench state.
  *
  * <p>Serialises saved requests and supported drafts (method, path, parameters, safe headers,
- * body reference). Excludes authorisation/secrets. Restore populates workbench state only;
- * it never auto-executes a request.</p>
+ * and no request body). Excludes authorisation/secrets and the body, which is usually a
+ * patient resource. Restore populates workbench state only; it never auto-executes a
+ * request.</p>
  */
 public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvider {
 
@@ -43,8 +44,8 @@ public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvid
             out.put("authKind", state.authKind() == null ? null : state.authKind().name());
             out.put("userName", state.userName());
             // Deliberately NOT captured: password, token (the remembered console
-            // password field is also a credential).
-            out.put("body", state.body());        } catch (Exception ignored) {
+            // password field is also a credential), and the request body.
+        } catch (Exception ignored) {
             // Preferences unavailable — workspace still opens
         }
         return out;
@@ -84,8 +85,7 @@ public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvid
                     asString(entries.get("contentType")),
                     authKind,
                     asString(entries.get("userName")),
-                    0, 0, 0,
-                    asString(entries.get("body"))
+                    0, 0, 0
             );
             state.save();
         } catch (Exception ignored) {

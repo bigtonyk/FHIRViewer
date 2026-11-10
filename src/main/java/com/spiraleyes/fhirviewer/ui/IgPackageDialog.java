@@ -272,7 +272,7 @@ public class IgPackageDialog extends Dialog<String> {
         }
         statusLabel.setText("Searching registry...");
         searchButton.setDisable(true);
-        new Thread(() -> {
+        daemonThread(() -> {
             try {
                 var results = registryService.searchPackages(query);
                 javafx.application.Platform.runLater(() -> {
@@ -373,6 +373,20 @@ public class IgPackageDialog extends Dialog<String> {
         }, "ig-package-install");
         worker.setDaemon(true);
         worker.start();
+    }
+
+    /**
+     * Runs a task on a daemon thread.
+     *
+     * <p>A registry search can outlive the window it was started from: closing the dialog
+     * while a request is in flight must not keep the JVM alive until the socket gives up,
+     * which is what a non-daemon worker does. The result is delivered through
+     * {@code Platform.runLater} by the task itself. The caller starts the returned thread.</p>
+     */
+    private static Thread daemonThread(Runnable task) {
+        Thread thread = new Thread(task);
+        thread.setDaemon(true);
+        return thread;
     }
 
     /** Activates or deactivates the selected installed package (Update 7). */
