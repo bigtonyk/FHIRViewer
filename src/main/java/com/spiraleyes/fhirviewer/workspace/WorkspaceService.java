@@ -48,6 +48,18 @@ public class WorkspaceService {
         providers.add(new ValidationWorkspaceStateProvider(packageManager));
     }
 
+    /**
+     * Builds a service whose providers are exactly the given ones.
+     *
+     * <p>For tests: the real constructor wires the five feature providers, none of which can
+     * be made to fail, so the state a failed restore leaves behind would otherwise be
+     * untestable.</p>
+     */
+    WorkspaceService(List<WorkspaceStateProvider> providers) {
+        this.prefs = Preferences.userRoot().node(PREFS_NODE);
+        this.providers.addAll(providers);
+    }
+
     public WorkspaceMetadata newWorkspace(String name) {
         WorkspaceMetadata meta = new WorkspaceMetadata(WorkspaceMetadata.CURRENT_SCHEMA_VERSION, UUID.randomUUID(), name);
         current = meta;
@@ -59,12 +71,47 @@ public class WorkspaceService {
         return meta;
     }
 
+    /**
+     * Opens an archive and applies its state.
+     *
+     * <p>The archive becomes the current workspace only after its sections have been
+     * applied. Adopting it first meant that a failing provider left the service pointing at
+     * an archive the window never showed: Save would then have written over a file the user
+     * had not opened, and the caller's "failed to open" message described an open that had
+     * half happened.</p>
+     *
+     * <p>On failure the previous workspace is put back where the providers can take it, the
+     * recorded last-opened archive is left alone, and the failure is reported as an
+     * {@link IOException} — the type {@link #openLastFromPreferences()} already treats as
+     * "nothing to open", so an unrestorable archive cannot abort start-up.</p>
+     */
     public WorkspaceMetadata open(Path path) throws IOException {
         WorkspaceMetadata meta = WorkspaceArchiveReader.read(path);
+        WorkspaceMetadata previous = current;
+        Path previousPath = currentPath;
+        boolean wasDirty = dirty;
+        try {
+            restoreAll(meta);
+        } catch (RuntimeException e) {
+            // Some providers may already have applied their section before this one failed:
+            // restore the workspace we were on, so the features do not hold a mixture of two
+            // archives. Best effort — an archive that cannot be applied is the real failure.
+            if (previous != null) {
+                try {
+                    restoreAll(previous);
+                } catch (RuntimeException ignored) {
+                    // Reported below as the failure to open the archive that was asked for.
+                }
+            }
+            current = previous;
+            currentPath = previousPath;
+            dirty = wasDirty;
+            throw new IOException("Could not restore workspace " + path.getFileName()
+                    + ": " + e.getMessage(), e);
+        }
         current = meta;
         currentPath = path;
         dirty = false;
-        restoreAll(meta);
         // Persist this as the last used workspace
         prefs.put(KEY_LAST_PATH, path.toString());
         prefs.put(KEY_LAST_ID, meta.workspaceId().toString());

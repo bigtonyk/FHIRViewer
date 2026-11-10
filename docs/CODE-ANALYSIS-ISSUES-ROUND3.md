@@ -54,8 +54,8 @@ resolve; `R3-*` are new here.
 
 Net effect: the High section of the first pass is closed, and the one acknowledged unfixed
 Medium (M3) turned out to be fixed in the tree already. M7 was then fixed on 2026-11-10
-(section 2.1), so no P1 is open, and the R3 findings are closed as well: M8 and M9 are the
-remaining P2 items, ahead of the P3 tail.
+(section 2.1), so no P1 is open, and the R3 findings are closed as well. M8 and M9 were
+fixed on 2026-11-10, leaving the P3 tail.
 
 ---
 
@@ -269,7 +269,7 @@ Every open item, highest priority first. Type is Bug / Issue / Enhancement.
 |----|------|----------|------|-------|
 | ~~M7~~ | Issue | Fixed | Connections and validation state restore on open (§2.1). Tree/tabs and FHIRPath remain unwired; no start-up restore prompt yet | `workspace/*WorkspaceStateProvider` |
 | M8 | Bug | **P2** | Closing asks twice: `confirmUnsavedChanges(...)` then `workspaceActions.closeDecision()` | `MainWindow:344-345, 1511` |
-| M9 | Bug | **P2** | `WorkspaceService.open()` assigns `current`/`currentPath` before `restoreAll`, so a provider failure leaves the service pointing at an archive the UI never applied | `WorkspaceService:66-78` |
+| ~~M9~~ | Bug | Fixed | `open()` applies an archive's sections before adopting it, so a provider failure reports an `IOException` with the previous workspace, path and dirty flag intact | `WorkspaceService` |
 | ~~R3-1~~ | Bug | Fixed | "Loaded Packages" lists installed packages from the typed API with real line breaks and an inactive marker | `MainWindow` |
 | ~~R3-2~~ | Bug | Fixed | Registry search runs on a daemon thread, so a closed window no longer leaves the JVM waiting for the request | `IgPackageDialog` |
 | ~~R3-3~~ | Bug | Fixed | The request body is no longer persisted anywhere: the component is removed, old values are purged, and workspace archives no longer carry it | `RestConsoleState` |
@@ -325,9 +325,7 @@ Closed since the second pass: H1–H6, M2, M3, M4, M5, M6, L1–L8, L14.
 
 ## 6. Suggested order
 
-1. **M8, M9** — the two remaining P2 bugs, both close-path and open-path correctness and
-   both small and local.
-2. **M7 follow-up** — the state that matters now restores. What is left is offering the
+1. **M7 follow-up** — the state that matters now restores. What is left is offering the
    recovery snapshot at start-up, and deciding whether tree/tabs and FHIRPath ever carry
    durable state in a single-document window.
-3. **P3 tail** — L10–L12, M1 as opportunity allows.
+2. **P3 tail** — L10–L12, M1 as opportunity allows.

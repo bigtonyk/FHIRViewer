@@ -129,6 +129,14 @@ has half happened. `Main.java` also calls `openLastFromPreferences()` without ha
 runtime exception. The archive reader itself is careful (see strengths), so this is about
 partial application rather than corrupt input.
 
+**Fixed 2026-11-10:** `open()` reads the archive, applies its sections, and only then adopts
+`current` and `currentPath`. A provider failure restores the workspace that was already open
+where it can, leaves the recorded last-opened archive untouched, and surfaces as an
+`IOException` — which `openLastFromPreferences()` already turns into "nothing to open", so a
+bad archive can no longer abort start-up through an unhandled runtime exception.
+`WorkspaceServiceIntegrationTest` injects a failing provider and asserts the previous
+workspace survives.
+
 **Fix:** read and restore into locals, and assign the fields only once the restore succeeded.
 
 ---

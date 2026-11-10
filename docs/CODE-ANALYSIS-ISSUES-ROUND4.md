@@ -44,13 +44,18 @@ IDs are stable: `H*`, `M*`, `L*` come from the first two passes, `R3-*` from the
 | M2–M6 | P3 | Fixed |
 | M7 workspace restore | P1 | Fixed except the start-up restore offer and the two unwired providers |
 | M8 double close prompt | P2 | **Fixed 2026-11-10** — see R4-8 |
-| M9 `WorkspaceService.open()` ordering | P2 | **Open** |
+| M9 `WorkspaceService.open()` ordering | P2 | **Fixed 2026-11-10** — see the note below the table |
 | L1–L8, L14 | P3 | Fixed |
 | L9 `SecretBox` passphrase as `String` | P3 | Open by design, documented |
 | L10 diagnostics charset | P3 | Open |
 | L11 test names promise more than they check | P3 | Open |
 | L12 hardcoded locations, placeholder package names | P3 | Open — `RestConsoleState` still uses `com/example/fhirviewer/restConsole` |
 | R3-1 … R3-6 | P2/P3 | Fixed, see the third pass |
+
+**Fixed after this pass:** M8, whose flag now lasts exactly one close (R4-8), and M9, whose
+`open()` now applies an archive's sections before adopting it — a provider failure is
+reported as an `IOException` with the previous workspace, path and dirty flag intact, and is
+covered by `WorkspaceServiceIntegrationTest`.
 
 ---
 
@@ -292,7 +297,6 @@ Every open item, highest priority first. Type is Bug / Issue / Enhancement.
 
 | ID | Type | Priority | Item | Where |
 |----|------|----------|------|-------|
-| M9 | Bug | **P2** | `WorkspaceService.open()` assigns `current`/`currentPath` before `restoreAll`, so a provider failure leaves the service pointing at an archive the UI never applied | `WorkspaceService:62-71` |
 | R4-1 | Bug | **P2** | Registry requests and downloads have no deadline, so a stalled registry blocks the search or install thread indefinitely | `PackageRegistryService:47-52, 199-204, 375-380` |
 | R4-2 | Bug | **P2** | Downloaded package file name is built from registry metadata unsanitised; `..` or a separator escapes the package directory | `PackageRegistryService:399, 344, 370` |
 | R4-3 | Bug | **P3** | An install reports every unmet dependency in the session as its own failure | `PackageInstaller:278` |
@@ -310,7 +314,7 @@ Every open item, highest priority first. Type is Bug / Issue / Enhancement.
 | L9 | Issue | **P3** | `SecretBox` keeps the passphrase in an un-zeroable `String`; deliberate, documented | `SecretBox:53, 79` |
 | M7 | Enhancement | **P3** | Start-up restore prompt still absent; tree/tabs and FHIRPath providers still unwired | `workspace/*WorkspaceStateProvider` |
 
-Closed since the third pass: R3-1 … R3-6, and M8 in this pass.
+Closed since the third pass: R3-1 … R3-6, and M8 and M9 in this pass.
 
 ---
 
@@ -364,11 +368,10 @@ Closed since the third pass: R3-1 … R3-6, and M8 in this pass.
 
 ## 6. Suggested order
 
-1. **M9** — the remaining long-standing P2 bug, still open. M8 is fixed above.
-2. **R4-1, R4-2** — the registry's missing deadline and the unsanitised file name; one small
+1. **R4-1, R4-2** — the registry's missing deadline and the unsanitised file name; one small
    edit each, in the one layer that talks to a third party and writes what it says.
-3. **R4-3, R4-4, R4-5** — the install report, the version conflict and the start-up crash.
-4. **P3 tail** — R4-6 through R4-10, then L10–L12 and M1 as opportunity allows.
+2. **R4-3, R4-4, R4-5** — the install report, the version conflict and the start-up crash.
+3. **P3 tail** — R4-6 through R4-10, then L10–L12 and M1 as opportunity allows.
 
 ---
 
