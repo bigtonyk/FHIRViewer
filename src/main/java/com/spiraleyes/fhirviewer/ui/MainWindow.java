@@ -334,6 +334,12 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         // service that had never opened anything: Save could only fail with "No workspace
         // open", and the close prompt had no changes of its own to ask about.
         workspaceActions.openLastWorkspace();
+        // Opening a workspace restores the configured servers and the package activation
+        // set, so the menu and picker state that depends on both is refreshed now rather
+        // than when the user next happens to trigger one of them.
+        updateEditActions();
+        updateServerActions();
+        refreshProfileChoices();
         wireInteractions();
         startIgPackageAutoLoad();
         // Closing the window is the last chance to save an edited resource.

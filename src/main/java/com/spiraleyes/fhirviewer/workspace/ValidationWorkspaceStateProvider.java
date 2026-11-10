@@ -6,7 +6,11 @@ import com.spiraleyes.fhirviewer.model.IgPackageInfo;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Capture/restore boundary for validation state.
@@ -15,6 +19,9 @@ import java.util.stream.Collectors;
  * substitutes missing package versions — it warns on missing dependencies.</p>
  */
 public class ValidationWorkspaceStateProvider implements WorkspaceStateProvider {
+
+    private static final Logger LOG =
+            LoggerFactory.getLogger(ValidationWorkspaceStateProvider.class);
 
     private final IgPackageManager packageManager;
 
@@ -66,6 +73,7 @@ public class ValidationWorkspaceStateProvider implements WorkspaceStateProvider 
     public void restore(Object snapshot) {
         if (!(snapshot instanceof Map) || packageManager == null) return;
         Map<String, Object> entries = (Map<String, Object>) snapshot;
+        Set<String> active = names(entries.get("activePackages"));
         // Never silently substitute missing package versions — warn on missing
         Object packages = entries.get("packages");
         if (packages instanceof List<?> list) {
@@ -77,12 +85,27 @@ public class ValidationWorkspaceStateProvider implements WorkspaceStateProvider 
                     String version = versionObj == null ? "" : String.valueOf(versionObj);
                     IgPackageInfo installed = packageManager.getPackage(name);
                     if (installed == null || !version.equals(installed.version())) {
-                        System.err.println("Workspace restore: validation package '"
+                        LOG.warn("Workspace restore: validation package '"
                                 + name + "#" + version + "' is not installed.");
+                        continue;
                     }
+                    // Installed at the archived version: bring back whether it took part in
+                    // validation. Packages the archive does not name are left as they are,
+                    // so installing something after the save is not undone by a restore.
+                    packageManager.setActive(name, active.contains(name));
                 }
             }
         }
+    }
+
+    private static Set<String> names(Object value) {
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(String::valueOf)
+                    .collect(Collectors.toSet());
+        }
+        return Set.of();
     }
 }
 

@@ -26,7 +26,7 @@ about code that fails to compile or fails its own tests.
 | H5 UI tests in CI | Fixed: `xvfb-run -a --server-args=...` on the Linux leg (`ci.yml:75-80`) |
 | M1 `MainWindow` size | First slice only — workspace file actions moved to `WorkspaceActions`; the window is still 2,685 lines |
 | M2 duplicated `run` | Fixed: one private `submit` |
-| M3 script output capture | **Not fixed.** The tee was reverted: JShell evaluates snippets on its own thread, so a thread-scoped tee captured nothing |
+| M3 script output capture | **Fixed** — `ScriptingSession.evaluatePart` (`:412-433`) captures `System.out`/`err` around `shell.eval` and reports the lines as `OUTPUT` entries. This row said "not fixed"; corrected in the third pass |
 | M4, M5, M6 | Fixed (SLF4J, directory-counted retention, README) |
 | L1–L8 | Fixed. L9 deliberately unchanged |
 
@@ -218,3 +218,8 @@ recovery only through `workspaceActions`.
   external caller would not appear.
 - `service/PackageInstaller`'s download path delegates to HAPI's package registry; its size
   and integrity behaviour was not audited here.
+
+---
+
+Third pass (2026-11-10): `CODE-ANALYSIS-ISSUES-ROUND3.md` carries six new findings and one
+consolidated backlog with a priority for every open item.
