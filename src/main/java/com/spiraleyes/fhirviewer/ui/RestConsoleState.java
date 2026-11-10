@@ -35,7 +35,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       exists to avoid.</li>
  *   <li><b>The request body.</b> A body is far more likely to be a patient resource than a
  *       credential, and writing one to disk unasked is a decision this tool should not make
- *       silently. It is a one-line change if that trade is judged wrong.</li>
  *       silently. It has no component in this record at all, so a later edit to the capture
  *       code cannot start persisting one by accident.</li>
  * </ul>

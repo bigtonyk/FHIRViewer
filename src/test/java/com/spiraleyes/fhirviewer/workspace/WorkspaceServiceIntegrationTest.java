@@ -184,6 +184,17 @@ class WorkspaceServiceIntegrationTest {
     }
 
     @Test
+    void captureAllCurrentSaysNothingIsOpenRatherThanNpe() {
+        WorkspaceService service = new WorkspaceService();
+
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                service::captureAllCurrent);
+
+        assertEquals("No workspace open", e.getMessage(),
+                "the trap should fail the way save() does, not with a bare NPE");
+    }
+
+    @Test
     void noArgConstructorStillWorks() {
         WorkspaceService service = new WorkspaceService();
         service.newWorkspace("Untitled");

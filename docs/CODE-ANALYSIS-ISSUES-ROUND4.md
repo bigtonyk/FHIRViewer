@@ -52,10 +52,11 @@ IDs are stable: `H*`, `M*`, `L*` come from the first two passes, `R3-*` from the
 | L12 hardcoded locations, placeholder package names | P3 | Open — `RestConsoleState` still uses `com/example/fhirviewer/restConsole` |
 | R3-1 … R3-6 | P2/P3 | Fixed, see the third pass |
 
-**Fixed after this pass:** M8, whose flag now lasts exactly one close (R4-8), and M9, whose
+**Fixed after this pass:** M8, whose flag now lasts exactly one close (R4-8); M9, whose
 `open()` now applies an archive's sections before adopting it — a provider failure is
 reported as an `IOException` with the previous workspace, path and dirty flag intact, and is
-covered by `WorkspaceServiceIntegrationTest`.
+covered by `WorkspaceServiceIntegrationTest`; and R4-1, R4-2, R4-9 and R4-10, the four fixes
+noted below.
 
 ---
 
@@ -95,6 +96,11 @@ the same effect on an install the user has already confirmed.
 set `.connectTimeout(...)` on the builder and `.timeout(...)` on both requests, and let the
 existing `PackageRegistryException` reporting carry the failure.
 
+**Fixed 2026-11-10:** the client sets `.connectTimeout(...)` and both requests set
+`.timeout(...)`, all from one `REQUEST_TIMEOUT` of twenty seconds. A stalled registry now
+fails through the existing `PackageRegistryException` path — the same message the user would
+see for a refused connection — instead of holding the search or install thread.
+
 ### R4-2. A downloaded package's file name comes from registry metadata unsanitised
 
 **Bug (robustness, remote-controlled path) — P2.** `service/PackageRegistryService:399`, used at
@@ -123,6 +129,11 @@ path, and the workspace archive reader by contrast refuses absolute paths and an
 **Fix:** reject a package id or version that is not `[A-Za-z0-9._+-]+` (a FHIR package id and
 a semver both are), and assert the resolved path's parent is `destination` before handing it
 to the body handler.
+
+**Fixed 2026-11-10:** `fileNameOf` rejects an id or version outside `[A-Za-z0-9._+-]+` with a
+readable `PackageRegistryException`, and the download normalises the resolved path and
+refuses to write unless its parent is the package directory. `PackageRegistryServiceTest`
+covers the accepted name and three escaping ones.
 
 ### R4-3. An install reports every unmet dependency in the session as its own failure
 
@@ -269,6 +280,12 @@ caller that trusts the declared return type gets an NPE where `save()` throws a 
 
 **Fix:** return `null` (and say so) or throw the same `IllegalStateException` `save()` uses.
 
+**Fixed 2026-11-10:** it throws `IllegalStateException("No workspace open")`, the same words and
+same type `save()` uses, and the javadoc says so. Returning `null` was the other option, but a
+return type that is `null` in the ordinary start-up state is the trap being fixed. The one
+caller already catches `Exception`; `WorkspaceServiceIntegrationTest` asserts the type and
+message.
+
 ### R4-10. The REST console's javadoc bullet was mangled by the R3-3 edit
 
 **Issue (documentation) — P3.** `ui/RestConsoleState:37-40`.
@@ -289,6 +306,9 @@ so it is worth reading correctly.
 **Fix:** keep the second half only: "It has no component in this record at all, so a later
 edit to the capture code cannot start persisting one by accident."
 
+**Fixed 2026-11-10:** the first fragment is gone, so the bullet states one reason in one
+voice again.
+
 ---
 
 ## 3. Consolidated backlog
@@ -297,16 +317,11 @@ Every open item, highest priority first. Type is Bug / Issue / Enhancement.
 
 | ID | Type | Priority | Item | Where |
 |----|------|----------|------|-------|
-| R4-1 | Bug | **P2** | Registry requests and downloads have no deadline, so a stalled registry blocks the search or install thread indefinitely | `PackageRegistryService:47-52, 199-204, 375-380` |
-| R4-2 | Bug | **P2** | Downloaded package file name is built from registry metadata unsanitised; `..` or a separator escapes the package directory | `PackageRegistryService:399, 344, 370` |
 | R4-3 | Bug | **P3** | An install reports every unmet dependency in the session as its own failure | `PackageInstaller:278` |
 | R4-4 | Issue | **P3** | Planner keys dependencies by id only, so a version conflict is dropped silently | `PackageInstaller:200, 226` |
 | R4-5 | Bug | **P3** | An over-large numeric block index throws `NumberFormatException` out of `read()` and aborts start-up | `ServerDefinitionStore:220` |
 | R4-6 | Issue | **P3** | Package/IG layer still logs through `java.util.logging`, which a packaged build never shows | `IgPackageManager`, `PackageInstaller`, `PackageRegistryService`, `NpmPackageReader` |
 | R4-7 | Bug | **P3** | `WorkspaceArchiveWriter` NPEs for a relative target with no parent; the status line then says "Failed to save workspace: null" | `WorkspaceArchiveWriter:20-21` |
-| R4-8 | Bug | **P3** | `closingFromAction` is never cleared, so a vetoed close makes every later close skip both prompts | `MainWindow:323, 347, 1522` |
-| R4-9 | Bug | **P3** | `captureAllCurrent()` NPEs when nothing is open; only its one caller's blanket catch hides it | `WorkspaceService:145-147` |
-| R4-10 | Issue | **P3** | REST console javadoc bullet duplicated and half-false after the R3-3 edit | `RestConsoleState:37-40` |
 | M1 | Enhancement | **P3** | `MainWindow` is 2,693 lines; the six extraction candidates are mapped in §7 | `MainWindow` |
 | L10 | Bug | **P3** | Diagnostics export writes with the platform charset, not UTF-8 | `SmartDiagnosticsPane:86` |
 | L11 | Issue | **P3** | Several `restore…` tests assert only "does not throw" while their names promise a populated state | `*WorkspaceStateProviderTest` |
@@ -314,7 +329,8 @@ Every open item, highest priority first. Type is Bug / Issue / Enhancement.
 | L9 | Issue | **P3** | `SecretBox` keeps the passphrase in an un-zeroable `String`; deliberate, documented | `SecretBox:53, 79` |
 | M7 | Enhancement | **P3** | Start-up restore prompt still absent; tree/tabs and FHIRPath providers still unwired | `workspace/*WorkspaceStateProvider` |
 
-Closed since the third pass: R3-1 … R3-6, and M8 and M9 in this pass.
+Closed since the third pass: R3-1 … R3-6, and M8 (filed again as R4-8), M9, R4-1, R4-2, R4-9
+and R4-10 in this pass.
 
 ---
 
@@ -353,8 +369,10 @@ Closed since the third pass: R3-1 … R3-6, and M8 and M9 in this pass.
 - Static reading only. No profiling, no runtime exercise of the GUI, no measurement. No build
   and no test run was performed for this pass.
 - The package layer was read in full but not exercised: no registry request was made, so
-  R4-1 and R4-2 are conclusions from the code, not from an observed stall or write outside
-  the directory.
+  R4-1 and R4-2 were conclusions from the code, not from an observed stall or write outside
+  the directory. R4-2's guard is now covered by `PackageRegistryServiceTest`; R4-1's deadline
+  is not exercised by any test, since reaching it needs a registry that connects and then
+  stalls.
 - R4-5's crash path assumes a hand-edited or otherwise malformed properties file; the
   application never writes an index that large.
 - R4-8 depends on a close request being vetoed, which no current handler does except this
@@ -368,10 +386,8 @@ Closed since the third pass: R3-1 … R3-6, and M8 and M9 in this pass.
 
 ## 6. Suggested order
 
-1. **R4-1, R4-2** — the registry's missing deadline and the unsanitised file name; one small
-   edit each, in the one layer that talks to a third party and writes what it says.
-2. **R4-3, R4-4, R4-5** — the install report, the version conflict and the start-up crash.
-3. **P3 tail** — R4-6 through R4-10, then L10–L12 and M1 as opportunity allows.
+1. **R4-3, R4-4, R4-5** — the install report, the version conflict and the start-up crash.
+2. **P3 tail** — R4-6 and R4-7, then L10–L12 and M1 as opportunity allows.
 
 ---
 

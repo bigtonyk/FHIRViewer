@@ -1,6 +1,7 @@
 package com.spiraleyes.fhirviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -80,5 +81,24 @@ class PackageRegistryServiceTest {
         PackageRegistryService service = new PackageRegistryService();
         assertTrue(service.searchPackages(" ").isEmpty());
         assertTrue(service.searchPackages(null).isEmpty());
+    }
+
+    @Test
+    @DisplayName("A package id or version that cannot be a file name is rejected")
+    void fileNameRejectsAnythingThatIsNotAPackageIdOrVersion() {
+        assertEquals("hl7.fhir.us.core-3.1.0.tgz",
+                PackageRegistryService.fileNameOf(info("hl7.fhir.us.core", "3.1.0")));
+
+        assertThrows(PackageRegistryService.PackageRegistryException.class,
+                () -> PackageRegistryService.fileNameOf(info("../../evil", "1.0.0")));
+        assertThrows(PackageRegistryService.PackageRegistryException.class,
+                () -> PackageRegistryService.fileNameOf(info("hl7.fhir.us.core", "../../1.0.0")));
+        assertThrows(PackageRegistryService.PackageRegistryException.class,
+                () -> PackageRegistryService.fileNameOf(info("C:\\evil", "1.0.0")));
+    }
+
+    private static PackageInfo info(String packageId, String version) {
+        return new PackageInfo(packageId, version, packageId, "", "R4",
+                "https://example.org/" + packageId, "https://example.org/package.tgz", packageId);
     }
 }

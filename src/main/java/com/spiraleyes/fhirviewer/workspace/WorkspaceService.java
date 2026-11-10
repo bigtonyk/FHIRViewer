@@ -189,7 +189,19 @@ public class WorkspaceService {
         if (current != null) current = captureAll(current);
     }
 
+    /**
+     * Captures the current workspace's state without writing it anywhere.
+     *
+     * <p>The snapshot is built from the open workspace's schema version and id, so one must be
+     * open. Said plainly here rather than left to a null dereference: callers that reach this
+     * at start-up are asking a question with no answer, and both the message and the exception
+     * type match {@link #save()}.</p>
+     *
+     * @return the captured state
+     * @throws IllegalStateException when no workspace is open
+     */
     public WorkspaceMetadata captureAllCurrent() {
+        if (current == null) throw new IllegalStateException("No workspace open");
         return captureAll(current);
     }
 
