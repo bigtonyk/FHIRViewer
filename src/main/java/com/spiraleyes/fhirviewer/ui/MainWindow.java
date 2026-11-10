@@ -319,6 +319,10 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     /**
      * True while the window is being closed by an action that has already asked about
      * unsaved changes, so the close request handler does not ask a second time.
+     *
+     * <p>Cleared again when that close returns. A close request can be vetoed by any
+     * handler, and a flag left set would make every later close and Exit skip both
+     * prompts.</p>
      */
     private boolean closingFromAction;
 
@@ -344,13 +348,15 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         startIgPackageAutoLoad();
         // Closing the window is the last chance to save an edited resource.
         stage.setOnCloseRequest(event -> {
-            if (closingFromAction) {
+            if (!closingFromAction
+                    && (!confirmUnsavedChanges("closing the window")
+                            || !workspaceActions.closeDecision())) {
+                event.consume();
                 return;
             }
-            if (!confirmUnsavedChanges("closing the window")
-                    || !workspaceActions.closeDecision()) {
-                event.consume();
-            }
+            // The window is going away, so the recovery snapshot thread has nothing left to
+            // watch; without this every window closed and reopened left one behind.
+            workspaceActions.close();
         });
         updateWindowTitle();
     }
@@ -1517,8 +1523,16 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         if (!confirmUnsavedChanges("exiting") || !workspaceActions.closeDecision()) {
             return;
         }
-        closingFromAction = true;
-        stage.close();
+        // The close request handler runs inside stage.close() and must not ask about the
+        // same unsaved work twice, so the flag covers exactly that call. A close another
+        // handler vetoes must not leave it set: the next Exit would then discard edits
+        // without a question.
+        try {
+            closingFromAction = true;
+            stage.close();
+        } finally {
+            closingFromAction = false;
+        }
     }
 
     /** Gives a dialog the same stylesheets as the main window, so it follows the theme. */

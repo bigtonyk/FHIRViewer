@@ -244,6 +244,21 @@ H6 made the service live, so what was inert is now worth fixing:
   again, so a later restore would offer a snapshot taken *before* the save. Nothing calls it
   yet; it is the first thing the M7 work will call.
 
+**Fixed 2026-11-10:** all three. `close()` shuts the scheduler down and waits up to five
+seconds for snapshots already queued or in progress to finish, so the files on disk match
+what the service last reported; it is idempotent, a snapshot requested after it is ignored
+instead of throwing, and
+`MainWindow`'s close request now calls it through `WorkspaceActions.close()` on both the
+close button and the Exit action. `lastSnapshotTime` is gone: it was written twice and read
+nowhere, and the on-disk file name already carries the time. `saveCurrentArchive()` saves
+first and resets the baseline after, and the reset bumps a generation counter that a queued
+or in-progress snapshot compares against — one that no longer matches is skipped, or its
+file deleted if it was already written. That also protects the existing
+`forgetSnapshot()` calls on New, Open and start-up, which had the same race without it.
+`WorkspaceRecoveryServiceTest` grew four cases: a save leaves nothing to restore, a queued
+snapshot is discarded by a reset, a snapshot queued before a save is not offered after it,
+and closing stops the thread while keeping (and restoring) a snapshot it finished.
+
 ---
 
 ## 3. Consolidated backlog
@@ -265,7 +280,7 @@ Every open item, highest priority first. Type is Bug / Issue / Enhancement.
 | L12 | Issue | **P3** | Recovery directory from `user.home` inside the class; `workspace` as a global preference node; `com/example/fhirviewer/...` node names in a `com.spiraleyes` project | `WorkspaceActions:60`, `WorkspaceService:17`, `RestConsoleState:66`, `PackageStorage:107` |
 | L9 | Issue | **P3** | `SecretBox` keeps the passphrase in an un-zeroable `String`; deliberate, documented | `SecretBox:108-115` |
 | ~~R3-5~~ | Issue | Fixed | Default package directory resolved per call from `user.home` via `Path.of`; covered by `PackageStorageTest` | `PackageStorage` |
-| R3-6 | Issue | **P3** | Recovery scheduler never shut down; `lastSnapshotTime` unused; `saveCurrentArchive` orders its snapshot wrong | `WorkspaceRecoveryService:49, 57, 147` |
+| ~~R3-6~~ | Issue | Fixed | Recovery service has a `close()` wired to the window close, drops the unused timestamp, and disowns snapshots a save or reset has overtaken | `WorkspaceRecoveryService` |
 
 Closed since the second pass: H1–H6, M2, M3, M4, M5, M6, L1–L8, L14.
 
@@ -310,12 +325,9 @@ Closed since the second pass: H1–H6, M2, M3, M4, M5, M6, L1–L8, L14.
 
 ## 6. Suggested order
 
-1. **M7 follow-up** — the state that matters now restores. What is left is offering the
+1. **M8, M9** — the two remaining P2 bugs, both close-path and open-path correctness and
+   both small and local.
+2. **M7 follow-up** — the state that matters now restores. What is left is offering the
    recovery snapshot at start-up, and deciding whether tree/tabs and FHIRPath ever carry
    durable state in a single-document window.
-2. **R3-6** — with M7, because that is when `saveCurrentArchive()` starts running and its
-   ordering bug becomes reachable.
-3. **M8, M9** — two close-path and open-path correctness bugs, small and local.
-4. **R3-1, R3-3** — user-visible and privacy-relevant respectively; each is a small change.
-5. **R3-2** — one line, or a switch to `BackgroundTasks`.
-6. **P3 tail** — L10–L12, M1 as opportunity allows.
+3. **P3 tail** — L10–L12, M1 as opportunity allows.

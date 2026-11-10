@@ -2,9 +2,13 @@ package com.spiraleyes.fhirviewer.workspace;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,5 +68,88 @@ class WorkspaceRecoveryServiceTest {
 
         assertTrue(recovery.handleCloseDecision(), "Proceed must allow the close");
         assertTrue(asked.get());
+    }
+
+    @Test
+    @DisplayName("Saving leaves no snapshot to offer back")
+    void savingLeavesNoSnapshotToRestore() throws Exception {
+        WorkspaceService workspace = new WorkspaceService();
+        workspace.newWorkspace("Saved");
+        Path archive = dir.resolve("saved.fhirworkspace");
+        workspace.saveAs(archive);
+        workspace.markDirty();
+        WorkspaceRecoveryService recovery = recovery(workspace,
+                WorkspaceRecoveryService.CloseDecision.PROCEED, new AtomicBoolean());
+
+        recovery.saveCurrentArchive();
+        recovery.close();
+
+        assertTrue(Files.isRegularFile(archive), "the save must reach disk");
+        assertFalse(workspace.isDirty(), "a saved workspace has nothing to lose");
+        assertFalse(recovery.hasRecoverySnapshot(),
+                "the state the save replaced must not come back as a recovery point");
+        assertEquals(List.of(), snapshotFiles());
+    }
+
+    @Test
+    @DisplayName("A queued snapshot is discarded when the baseline is reset")
+    void aQueuedSnapshotIsDiscardedByAForget() throws Exception {
+        WorkspaceService workspace = new WorkspaceService();
+        workspace.newWorkspace("Changed");
+        WorkspaceRecoveryService recovery = recovery(workspace,
+                WorkspaceRecoveryService.CloseDecision.PROCEED, new AtomicBoolean());
+
+        recovery.takeSnapshotNow();
+        recovery.forgetSnapshot();
+        // close() waits for the thread, so the outcome is settled before asserting.
+        recovery.close();
+
+        assertFalse(recovery.hasRecoverySnapshot(),
+                "clearing the path must also disown the snapshot still in flight");
+        assertEquals(List.of(), snapshotFiles());
+    }
+
+    @Test
+    @DisplayName("A snapshot queued before a save is not offered after it")
+    void aSnapshotQueuedBeforeASaveIsNotOfferedAfterwards() throws Exception {
+        WorkspaceService workspace = new WorkspaceService();
+        workspace.newWorkspace("Edited");
+        workspace.saveAs(dir.resolve("edited.fhirworkspace"));
+        workspace.markDirty();
+        WorkspaceRecoveryService recovery = recovery(workspace,
+                WorkspaceRecoveryService.CloseDecision.PROCEED, new AtomicBoolean());
+
+        recovery.takeSnapshotNow();
+        recovery.saveCurrentArchive();
+        recovery.close();
+
+        assertFalse(recovery.hasRecoverySnapshot());
+        assertEquals(List.of(), snapshotFiles());
+    }
+
+    @Test
+    @DisplayName("Closing stops the snapshot thread and keeps what it finished")
+    void closeKeepsTheCompletedSnapshot() throws Exception {
+        WorkspaceService workspace = new WorkspaceService();
+        workspace.newWorkspace("Live");
+        WorkspaceRecoveryService recovery = recovery(workspace,
+                WorkspaceRecoveryService.CloseDecision.PROCEED, new AtomicBoolean());
+
+        recovery.takeSnapshotNow();
+        recovery.close();
+        recovery.close();
+        recovery.takeSnapshotNow();
+
+        assertTrue(recovery.hasRecoverySnapshot(), "a snapshot taken before closing survives");
+        assertEquals(1, snapshotFiles().size());
+        assertTrue(recovery.restoreFromLastSnapshot(), "and can still be restored");
+        assertTrue(workspace.isDirty(), "a restored workspace has changes to save");
+    }
+
+    /** The {@code .snap} files in the recovery directory this test's service writes to. */
+    private List<Path> snapshotFiles() throws Exception {
+        try (Stream<Path> entries = Files.list(dir.resolve(".fhirviewer-recovery"))) {
+            return entries.map(Path::getFileName).sorted().toList();
+        }
     }
 }

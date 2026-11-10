@@ -7,7 +7,9 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -54,8 +56,10 @@ public class WorkspaceRecoveryService {
             });
 
     private volatile Path lastSnapshotPath = null;
-    private volatile Instant lastSnapshotTime = Instant.EPOCH;
     private volatile boolean pendingSnapshot = false;
+    /** Bumped by every baseline reset; a snapshot queued before one describes a dead state. */
+    private long snapshotGeneration = 0;
+    private long pendingGeneration = 0;
     private final Object snapshotLock = new Object();
 
     /**
@@ -81,8 +85,14 @@ public class WorkspaceRecoveryService {
         synchronized (snapshotLock) {
             if (pendingSnapshot) return;
             pendingSnapshot = true;
+            pendingGeneration = snapshotGeneration;
         }
-        scheduler.execute(this::doSnapshot);
+        try {
+            scheduler.execute(this::doSnapshot);
+        } catch (RejectedExecutionException e) {
+            LOG.debug("Ignored a recovery snapshot requested after the service was closed");
+            synchronized (snapshotLock) { pendingSnapshot = false; }
+        }
     }
 
     /**
@@ -140,13 +150,23 @@ public class WorkspaceRecoveryService {
      * one or saved: a snapshot of the previous state is not this workspace's history.
      */
     public void forgetSnapshot() {
-        lastSnapshotPath = null;
-        lastSnapshotTime = Instant.EPOCH;
+        // Bumping the generation also disowns snapshots that are still queued or being
+        // written: clearing the path alone let one finish afterwards and offer itself back.
+        synchronized (snapshotLock) {
+            snapshotGeneration++;
+            lastSnapshotPath = null;
+        }
     }
 
+    /**
+     * Writes the workspace archive and resets the recovery baseline once it is on disk.
+     *
+     * <p>The order matters: queueing a snapshot before the save left one that could finish
+     * afterwards and set {@code lastSnapshotPath} again, so the next restore would offer a
+     * snapshot of the state the save had just replaced.</p>
+     */
     public void saveCurrentArchive() throws IOException {
         if (workspaceService.getCurrent() == null) throw new IllegalStateException("No workspace");
-        takeSnapshotNow();
         workspaceService.save();
         forgetSnapshot();
         LOG.debug("Workspace archive saved; recovery baseline reset");
@@ -155,7 +175,16 @@ public class WorkspaceRecoveryService {
     public void onMeaningfulChange() { takeSnapshotNow(); }
 
     private void doSnapshot() {
-        synchronized (snapshotLock) { if (!pendingSnapshot) return; pendingSnapshot = false; }
+        long generation;
+        synchronized (snapshotLock) {
+            if (!pendingSnapshot) return;
+            pendingSnapshot = false;
+            generation = pendingGeneration;
+            if (generation != snapshotGeneration) {
+                LOG.debug("Skipped a recovery snapshot the workspace had already moved past");
+                return;
+            }
+        }
         // Nothing to snapshot before a workspace exists: a session that has only ever had
         // its servers configured has no workspace id to name the file after, and capture
         // needs one. The change that asked for this snapshot is still marked dirty, so the
@@ -173,10 +202,21 @@ public class WorkspaceRecoveryService {
             Path t = p.resolveSibling(p.getFileName() + ".tmp");
             WorkspaceArchiveWriter.write(t, sm);
             Files.move(t, p, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            lastSnapshotPath = p; lastSnapshotTime = Instant.now();
-            pruneOldSnapshots();
-            LOG.debug("Snapshot written: {}", p.getFileName());
         } catch (IOException e) { LOG.warn("Could not write a recovery snapshot: {}", e.getMessage()); }
+        synchronized (snapshotLock) {
+            if (generation != snapshotGeneration) {
+                // Saved or replaced while this was being written: the file describes a state
+                // that is no longer anyone's recovery point.
+                LOG.debug("Discarded a recovery snapshot the workspace moved past while it was written");
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException e) { LOG.warn("Could not remove the stale snapshot {}: {}", p.getFileName(), e.getMessage()); }
+                return;
+            }
+            lastSnapshotPath = p;
+        }
+        pruneOldSnapshots();
+        LOG.debug("Snapshot written: {}", p.getFileName());
     }
 
     private void pruneOldSnapshots() {
@@ -190,5 +230,29 @@ public class WorkspaceRecoveryService {
             int del = stale.size() - MAX_SNAPSHOTS;
             for (int i = 0; i < del; i++) { try { Files.delete(stale.get(i)); } catch (IOException ex) { LOG.warn("Could not prune {}: {}", stale.get(i), ex.getMessage()); } }
         } catch (IOException e) { LOG.warn("Could not read the recovery directory: {}", e.getMessage()); }
+    }
+
+    /**
+     * Stops the snapshot thread, once the window that owns this service is gone.
+     *
+     * <p>Without it, every window closed and reopened left its own snapshot thread behind,
+     * with no way to release it. Snapshots already queued are allowed to finish, so the
+     * files on disk match what the service last reported; only a thread that will not stop
+     * is interrupted. Idempotent: the window's close handler and its exit action can both
+     * reach it.</p>
+     */
+    public void close() {
+        // shutdown(), not shutdownNow(): a snapshot requested moments before the window
+        // closed is still worth keeping, and cancelling the queued task would throw it away.
+        scheduler.shutdown();
+        try {
+            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                scheduler.shutdownNow();
+                LOG.warn("The recovery snapshot thread did not stop within five seconds");
+            }
+        } catch (InterruptedException e) {
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }

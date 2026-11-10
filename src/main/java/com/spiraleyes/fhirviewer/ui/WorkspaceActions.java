@@ -97,6 +97,11 @@ final class WorkspaceActions {
         return recovery.handleCloseDecision();
     }
 
+    /** Releases the recovery service's thread once the window is closing. Idempotent. */
+    void close() {
+        recovery.close();
+    }
+
     /** Replaces the workspace with a new, empty one, asking first when work would be lost. */
     void newWorkspace() {
         if (!recovery.handleCloseDecision()) {
