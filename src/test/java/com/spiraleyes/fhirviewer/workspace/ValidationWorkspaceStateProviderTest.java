@@ -55,7 +55,7 @@ class ValidationWorkspaceStateProviderTest {
     }
 
     @Test
-    void restoreWarnsOnMissingPackage() {
+    void restoreDoesNotSubstituteAMissingPackage() {
         IgPackageManager pm = new IgPackageManager(); // empty: no packages installed
         ValidationWorkspaceStateProvider p = new ValidationWorkspaceStateProvider(pm);
 
@@ -66,8 +66,11 @@ class ValidationWorkspaceStateProviderTest {
         Map<String, Object> snap = new java.util.LinkedHashMap<>();
         snap.put("packages", List.of(pkg));
 
-        // Should not throw; package is missing so a warning is printed
         p.restore(snap);
+
+        assertNull(pm.getPackage("missing-ig"),
+                "a package that is not installed is reported, never invented");
+        assertTrue(pm.getActivePackages().isEmpty());
     }
 
     @Test
@@ -95,6 +98,10 @@ class ValidationWorkspaceStateProviderTest {
         entries.add("not a map");
         entries.add(42);
         snap.put("packages", entries);
-        p.restore(snap); // should not throw
+
+        p.restore(snap);
+
+        assertTrue(pm.getLoadedPackages().isEmpty(),
+                "an entry that is not a map names no package and is dropped");
     }
 }

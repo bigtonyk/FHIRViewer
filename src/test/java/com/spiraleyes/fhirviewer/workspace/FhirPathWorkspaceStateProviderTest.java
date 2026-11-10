@@ -63,15 +63,18 @@ class FhirPathWorkspaceStateProviderTest {
     }
 
     @Test
-    void restoreDoesNotAutoEvaluate() {
-        boolean[] evaluated = {false};
+    void restoreAppliesExpressionsWithoutRecapturing() {
+        AtomicReference<List<String>> applied = new AtomicReference<>();
+        boolean[] captured = {false};
         FhirPathWorkspaceStateProvider p = new FhirPathWorkspaceStateProvider(
-                () -> List.of(),
-                (expressions, contextRef) -> { evaluated[0] = true; }
+                () -> { captured[0] = true; return List.of(); },
+                (expressions, contextRef) -> applied.set(expressions)
         );
+
         p.restore(Map.of("expressions", List.of("Patient.name")));
-        // The applier is called (state applied), but no auto-evaluation happens here — that the UI's responsibility. This test just confirms restore is a plain apply.
-        assertTrue(evaluated[0]);
+
+        assertEquals(List.of("Patient.name"), applied.get());
+        assertFalse(captured[0], "restore applies the archive; it does not read the view back");
     }
 
     @Test

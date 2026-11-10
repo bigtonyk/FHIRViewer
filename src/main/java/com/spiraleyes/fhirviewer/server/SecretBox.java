@@ -3,6 +3,7 @@ package com.spiraleyes.fhirviewer.server;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Base64;
 
 import javax.crypto.Cipher;
@@ -30,6 +31,12 @@ import javax.crypto.spec.SecretKeySpec;
  * <p>AES-GCM is authenticated: a wrong passphrase or a tampered file fails to decrypt
  * rather than returning garbage, and the two cases are reported as the same
  * {@link SecretBoxException} on purpose, so the failure does not leak which one it was.</p>
+ *
+ * <p><b>The passphrase is not kept here.</b> Both entry points take the passphrase as a
+ * {@code char[]} as well as a {@code String}. A caller that holds the passphrase for the
+ * session passes the array it can wipe; the {@code String} forms convert, use and wipe a
+ * temporary copy of their own. An array handed in is only read, never modified, so the
+ * caller stays in charge of clearing it.</p>
  */
 public final class SecretBox {
 
@@ -49,8 +56,30 @@ public final class SecretBox {
 
     private final SecureRandom random = new SecureRandom();
 
-    /** Encrypts a secret under the given passphrase, returning the stored line. */
+    /**
+     * Encrypts a secret under the given passphrase, returning the stored line.
+     *
+     * <p>For callers that only have a {@code String} — a text field's contents, say. The
+     * array it converts to is wiped before this returns. Prefer
+     * {@link #encrypt(char[], String)} when the passphrase already lives in an array.
+     */
     public String encrypt(String passphrase, String secret) throws SecretBoxException {
+        char[] chars = passphrase == null ? null : passphrase.toCharArray();
+        try {
+            return encrypt(chars, secret);
+        } finally {
+            if (chars != null) Arrays.fill(chars, '\0');
+        }
+    }
+
+    /**
+     * Encrypts a secret under a passphrase held as a wipeable array, returning the stored line.
+     *
+     * <p>The array is read and not modified, so the caller can wipe it when the operation
+     * that needed it is done. {@link PBEKeySpec} keeps its own copy, which is cleared in a
+     * {@code finally} once the key is derived.
+     */
+    public String encrypt(char[] passphrase, String secret) throws SecretBoxException {
         requirePassphrase(passphrase);
         if (secret == null) {
             throw new SecretBoxException("There is no secret to encrypt.");
@@ -71,12 +100,29 @@ public final class SecretBox {
     }
 
     /**
-     * Decrypts a stored line produced by {@link #encrypt}.
+     * Decrypts a stored line produced by {@link #encrypt}, for callers that hold the
+     * passphrase as a {@code String}. The array it converts to is wiped before this returns.
      *
      * @throws SecretBoxException when the passphrase is wrong or the value is not a
      *                            well-formed, unmodified value this class produced
      */
     public String decrypt(String passphrase, String stored) throws SecretBoxException {
+        char[] chars = passphrase == null ? null : passphrase.toCharArray();
+        try {
+            return decrypt(chars, stored);
+        } finally {
+            if (chars != null) Arrays.fill(chars, '\0');
+        }
+    }
+
+    /**
+     * Decrypts a stored line produced by {@link #encrypt}, reading the passphrase from an
+     * array the caller owns and can wipe.
+     *
+     * @throws SecretBoxException when the passphrase is wrong or the value is not a
+     *                            well-formed, unmodified value this class produced
+     */
+    public String decrypt(char[] passphrase, String stored) throws SecretBoxException {
         requirePassphrase(passphrase);
         if (stored == null || stored.isBlank()) {
             throw new SecretBoxException("There is no stored secret to decrypt.");
@@ -105,8 +151,8 @@ public final class SecretBox {
         return value != null && value.startsWith(VERSION + '$') && value.split("\\$", -1).length == 4;
     }
 
-    private static SecretKey deriveKey(String passphrase, byte[] salt) throws GeneralSecurityException {
-        PBEKeySpec spec = new PBEKeySpec(passphrase.toCharArray(), salt, ITERATIONS, KEY_BITS);
+    private static SecretKey deriveKey(char[] passphrase, byte[] salt) throws GeneralSecurityException {
+        PBEKeySpec spec = new PBEKeySpec(passphrase, salt, ITERATIONS, KEY_BITS);
         try {
             byte[] derived = SecretKeyFactory.getInstance(KDF).generateSecret(spec).getEncoded();
             return new SecretKeySpec(derived, "AES");
@@ -115,8 +161,8 @@ public final class SecretBox {
         }
     }
 
-    private static void requirePassphrase(String passphrase) throws SecretBoxException {
-        if (passphrase == null || passphrase.isEmpty()) {
+    private static void requirePassphrase(char[] passphrase) throws SecretBoxException {
+        if (passphrase == null || passphrase.length == 0) {
             throw new SecretBoxException("A passphrase is required.");
         }
     }

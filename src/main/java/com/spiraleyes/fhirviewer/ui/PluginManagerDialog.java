@@ -79,7 +79,10 @@ public class PluginManagerDialog extends Dialog<Void> {
     private static final String PLUGIN_FOLDER_KEY = "pluginFolder";
 
     /** The preferences node this dialog stores its own settings under. */
-    private static final String PREFERENCE_NODE = "com/example/fhirviewer/pluginManager";
+    private static final String PREFERENCE_NODE = "com/spiraleyes/fhirviewer/pluginManager";
+
+    /** Where earlier builds kept the same setting; carried over, then emptied. */
+    private static final String LEGACY_PREFERENCE_NODE = "com/example/fhirviewer/pluginManager";
 
     private final FhirServerPluginRegistry registry;
     private final PluginSettingsStore settingsStore;
@@ -164,9 +167,27 @@ public class PluginManagerDialog extends Dialog<Void> {
         }
     }
 
-    /** The single preferences node this dialog owns. */
+    /**
+     * The single preferences node this dialog owns.
+     *
+     * <p>Scoped to the application's own package. An earlier build used a placeholder package
+     * name; its one setting is carried over on first read and the old node emptied, so there
+     * is one source from here on and the remembered plugin folder still appears.</p>
+     */
     private static java.util.prefs.Preferences preferenceNode() throws BackingStoreException {
-        return java.util.prefs.Preferences.userRoot().node(PREFERENCE_NODE);
+        java.util.prefs.Preferences current =
+                java.util.prefs.Preferences.userRoot().node(PREFERENCE_NODE);
+        java.util.prefs.Preferences legacy =
+                java.util.prefs.Preferences.userRoot().node(LEGACY_PREFERENCE_NODE);
+        if (current.get(PLUGIN_FOLDER_KEY, null) == null) {
+            String remembered = legacy.get(PLUGIN_FOLDER_KEY, null);
+            if (remembered != null) {
+                current.put(PLUGIN_FOLDER_KEY, remembered);
+                current.flush();
+            }
+        }
+        legacy.remove(PLUGIN_FOLDER_KEY);
+        return current;
     }
 
     /**

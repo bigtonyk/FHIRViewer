@@ -46,10 +46,10 @@ IDs are stable: `H*`, `M*`, `L*` come from the first two passes, `R3-*` from the
 | M8 double close prompt | P2 | **Fixed 2026-11-10** — see R4-8 |
 | M9 `WorkspaceService.open()` ordering | P2 | **Fixed 2026-11-10** — see the note below the table |
 | L1–L8, L14 | P3 | Fixed |
-| L9 `SecretBox` passphrase as `String` | P3 | Open by design, documented |
-| L10 diagnostics charset | P3 | Open |
-| L11 test names promise more than they check | P3 | Open |
-| L12 hardcoded locations, placeholder package names | P3 | Open — `RestConsoleState` still uses `com/example/fhirviewer/restConsole` |
+| L9 `SecretBox` passphrase as `String` | P3 | **Fixed 2026-11-10** — accepted as `char[]`, session path keeps it as one |
+| L10 diagnostics charset | P3 | **Fixed 2026-11-10** — export writes UTF-8 explicitly |
+| L11 test names promise more than they check | P3 | **Fixed 2026-11-10** — six `restore…` tests now assert the state they name |
+| L12 hardcoded locations, placeholder package names | P3 | **Fixed 2026-11-10** — recovery home overridable; both preference nodes scoped and migrated |
 | R3-1 … R3-6 | P2/P3 | Fixed, see the third pass |
 
 **Fixed after this pass:** M8, whose flag now lasts exactly one close (R4-8); M9, whose
@@ -323,14 +323,34 @@ Every open item, highest priority first. Type is Bug / Issue / Enhancement.
 | R4-6 | Issue | **P3** | Package/IG layer still logs through `java.util.logging`, which a packaged build never shows | `IgPackageManager`, `PackageInstaller`, `PackageRegistryService`, `NpmPackageReader` |
 | R4-7 | Bug | **P3** | `WorkspaceArchiveWriter` NPEs for a relative target with no parent; the status line then says "Failed to save workspace: null" | `WorkspaceArchiveWriter:20-21` |
 | M1 | Enhancement | **P3** | `MainWindow` is 2,693 lines; the six extraction candidates are mapped in §7 | `MainWindow` |
-| L10 | Bug | **P3** | Diagnostics export writes with the platform charset, not UTF-8 | `SmartDiagnosticsPane:86` |
-| L11 | Issue | **P3** | Several `restore…` tests assert only "does not throw" while their names promise a populated state | `*WorkspaceStateProviderTest` |
-| L12 | Issue | **P3** | Hardcoded locations and placeholder package names, including `com/example/fhirviewer/...` preference nodes | `WorkspaceActions:60`, `WorkspaceService:17`, `RestConsoleState:70`, `PackageStorage:105` |
-| L9 | Issue | **P3** | `SecretBox` keeps the passphrase in an un-zeroable `String`; deliberate, documented | `SecretBox:53, 79` |
 | M7 | Enhancement | **P3** | Start-up restore prompt still absent; tree/tabs and FHIRPath providers still unwired | `workspace/*WorkspaceStateProvider` |
 
 Closed since the third pass: R3-1 … R3-6, and M8 (filed again as R4-8), M9, R4-1, R4-2, R4-9
-and R4-10 in this pass.
+and R4-10 in this pass, plus L9, L10, L11 and L12.
+
+**L11 was mostly assertions, not renames.** `RestWorkbenchWorkspaceStateProviderTest`
+now reads its state back with `RestConsoleState.load` and checks the method, URL, path,
+parameters, headers, content type, auth kind and user name, instead of calling `restore` and
+checking nothing; the two tests whose names claimed a warning or a non-execution that no
+assertion could see were renamed to the check they actually make.
+
+**L12 moved the three locations, not just their names.** `WorkspaceActions` builds the
+recovery home in one place and honours `fhirviewer.recovery.home`, so a portable run and a
+test can keep snapshots out of the home directory. `WorkspaceService` and `RestConsoleState`
+own package-scoped nodes (`com/spiraleyes/fhirviewer/...`) instead of `workspace` and
+`com/example/fhirviewer/restConsole`, and `PluginManagerDialog`'s remembered folder moved
+the same way; each reads the old node once and empties it, so a
+workspace or a console an earlier build remembered still comes back. The two tests that read
+those nodes now read the ones the application uses, which is what stops them passing while
+the real key is broken. `PackageStorage`'s read of `com/example/fhirviewer/ui` stays: it is
+the migration path for directories chosen by earlier builds, not a node this build writes.
+
+**L9 was a code change, not a doc one.** `SecretBox` now takes the passphrase as a `char[]` as
+well as a `String`, and the one long-lived holder — `ServerPassphrase`, through
+`ServerCredentials.from` and `PluginSettingsStore.unlockForServer` — hands it on as an array and
+wipes each copy once the credential is resolved. The dialog's typed text still passes through a
+`String`, because a JavaFX `PasswordField` offers no other form; the `String` overloads convert,
+use and wipe, so that is now the only copy nobody can reach.
 
 ---
 
@@ -387,7 +407,7 @@ and R4-10 in this pass.
 ## 6. Suggested order
 
 1. **R4-3, R4-4, R4-5** — the install report, the version conflict and the start-up crash.
-2. **P3 tail** — R4-6 and R4-7, then L10–L12 and M1 as opportunity allows.
+2. **P3 tail** — R4-6 and R4-7, then M1 as opportunity allows.
 
 ---
 

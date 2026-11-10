@@ -163,6 +163,44 @@ class WorkspaceWiringTest {
     }
 
     private static Preferences workspacePreferences() throws Exception {
-        return Preferences.userRoot().node("workspace");
+        return Preferences.userRoot().node(WorkspaceService.PREFERENCES_NODE);
+    }
+
+    @Test
+    @DisplayName("A workspace an earlier build recorded is picked up and its old node emptied")
+    void preferencesFromAnEarlierBuildAreMigrated() throws Exception {
+        Path archive = recordedWorkspace("Migrated");
+        workspacePreferences().clear();
+        Preferences legacy = Preferences.userRoot().node("workspace");
+        legacy.put("lastPath", archive.toString());
+        legacy.put("lastId", "11111111-1111-1111-1111-111111111111");
+        legacy.put("lastName", "Migrated");
+        legacy.flush();
+
+        WorkspaceService service = new WorkspaceService();
+
+        assertTrue(service.openLastFromPreferences() != null,
+                "a workspace an earlier build recorded must still reopen");
+        assertEquals(0, Preferences.userRoot().node("workspace").keys().length,
+                "the bare workspace node must not survive as a second source of truth");
+    }
+
+    @Test
+    @DisplayName("The recovery directory can be moved off the home directory")
+    void recoveryHomeFollowsAProperty() {
+        String previous = System.getProperty(WorkspaceActions.RECOVERY_HOME_PROPERTY);
+        Path elsewhere = dir.resolve("recovery");
+        try {
+            System.setProperty(WorkspaceActions.RECOVERY_HOME_PROPERTY, elsewhere.toString());
+
+            assertEquals(elsewhere, WorkspaceActions.recoveryHome());
+        } finally {
+            if (previous == null) {
+                System.clearProperty(WorkspaceActions.RECOVERY_HOME_PROPERTY);
+            } else {
+                System.setProperty(WorkspaceActions.RECOVERY_HOME_PROPERTY, previous);
+            }
+        }
+        assertEquals(Path.of(System.getProperty("user.home", ".")), WorkspaceActions.recoveryHome());
     }
 }

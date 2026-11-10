@@ -176,6 +176,28 @@ public final class PluginSettingsStore {
      */
     public PluginSettings unlockForServer(FhirServerConfiguration server, String passphrase)
             throws IOException, SecretBoxException {
+        char[] chars = passphrase == null ? null : passphrase.toCharArray();
+        try {
+            return unlockForServer(server, chars);
+        } finally {
+            if (chars != null) java.util.Arrays.fill(chars, '\0');
+        }
+    }
+
+    /**
+     * Decrypts the stored password for a server, reading the passphrase from an array the
+     * caller owns and can wipe.
+     *
+     * <p>The path a session passphrase takes: it is held in a {@code char[]} precisely so it
+     * can be cleared, and converting it to a {@code String} to get this far would leave a
+     * copy nobody can clear.</p>
+     *
+     * @return the settings with a plaintext password, or {@code null} when that server
+     *         has no saved settings
+     * @throws SecretBoxException when the passphrase is wrong or the stored value is damaged
+     */
+    public PluginSettings unlockForServer(FhirServerConfiguration server, char[] passphrase)
+            throws IOException, SecretBoxException {
         PluginSettings locked = readForServer(server);
         if (locked == null) {
             return null;

@@ -63,7 +63,8 @@ public class ServerCredentialsTest {
         ServerCredentials credentials = credentialsWithPassphrase();
         savePassword(credentials);
 
-        ServerCredentials wrong = new ServerCredentials(credentials.store(), () -> "not it");
+        ServerCredentials wrong = new ServerCredentials(credentials.store(),
+                () -> "not it".toCharArray());
 
         // A credential problem must not become an exception on every read: the honest
         // outcome is an anonymous request, and a 401 from the server if it needs auth.
@@ -179,7 +180,8 @@ public class ServerCredentialsTest {
     }
 
     private ServerCredentials credentialsWithPassphrase() {
-        return new ServerCredentials(new PluginSettingsStore(settingsFile()), () -> PASSPHRASE);
+        return new ServerCredentials(new PluginSettingsStore(settingsFile()),
+                () -> PASSPHRASE.toCharArray());
     }
 
     private ServerDefinition firely(String url) {

@@ -38,6 +38,14 @@ final class WorkspaceActions {
     /** The extension a workspace archive carries, with the dot. */
     private static final String WORKSPACE_EXTENSION = ".fhirworkspace";
 
+    /**
+     * Moves the recovery snapshots off the home directory, for a portable run or a test.
+     *
+     * <p>{@code user.home} is right for a normal install and wrong for a test that should not
+     * write into it, or for a copy run from a memory stick.
+     */
+    static final String RECOVERY_HOME_PROPERTY = "fhirviewer.recovery.home";
+
     private final Stage owner;
     private final WorkspaceService workspaceService;
     private final ThemeManager themeManager;
@@ -57,8 +65,17 @@ final class WorkspaceActions {
         this.themeManager = themeManager;
         this.status = status;
         this.recovery = new WorkspaceRecoveryService(workspaceService,
-                Path.of(System.getProperty("user.home", ".")),
+                recoveryHome(),
                 this::confirmClose);
+    }
+
+    /** The directory recovery snapshots live beside: {@code user.home} unless moved. */
+    static Path recoveryHome() {
+        String configured = System.getProperty(RECOVERY_HOME_PROPERTY);
+        if (configured != null && !configured.isBlank()) {
+            return Path.of(configured);
+        }
+        return Path.of(System.getProperty("user.home", "."));
     }
 
     /**

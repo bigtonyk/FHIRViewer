@@ -69,7 +69,23 @@ class RestWorkbenchWorkspaceStateProviderTest {
         entry.put("authKind", "BASIC");
         entry.put("userName", "alice");
 
-        p.restore(entry); // should not throw, should not auto-execute any request
+        p.restore(entry);
+
+        // Written back to the console's own store, which is what restore is for: reopening
+        // the workbench shows the request the archive described.
+        RestConsoleState restored = RestConsoleState.load(null);
+        assertEquals(RestMethod.GET, restored.method());
+        assertEquals("https://example.org/fhir", restored.baseUrl());
+        assertEquals("/Patient", restored.path());
+        assertEquals(2, restored.parameters().size());
+        assertEquals("_count", restored.parameters().get(0).name());
+        assertEquals("10", restored.parameters().get(0).value());
+        assertEquals(1, restored.headers().size());
+        assertEquals("Accept", restored.headers().get(0).name());
+        assertEquals("application/fhir+json", restored.headers().get(0).value());
+        assertEquals("application/fhir+json", restored.contentType());
+        assertEquals(ServerAuthKind.BASIC, restored.authKind());
+        assertEquals("alice", restored.userName());
     }
 
     @Test
@@ -77,7 +93,10 @@ class RestWorkbenchWorkspaceStateProviderTest {
         RestWorkbenchWorkspaceStateProvider p = new RestWorkbenchWorkspaceStateProvider();
         Map<String, Object> entry = new java.util.LinkedHashMap<>();
         entry.put("method", "NOT-A-REAL-METHOD");
-        p.restore(entry); // should not throw, falls back to GET
+        p.restore(entry);
+
+        assertEquals(RestMethod.GET, RestConsoleState.load(null).method(),
+                "an unknown verb must fall back to GET rather than abort the restore");
     }
 
     @Test

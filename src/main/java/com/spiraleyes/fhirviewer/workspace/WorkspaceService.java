@@ -1,5 +1,6 @@
 package com.spiraleyes.fhirviewer.workspace;
 
+import java.util.prefs.BackingStoreException;
 import java.util.prefs.Preferences;
 
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
@@ -14,7 +15,20 @@ import java.util.List;
 import java.util.UUID;
 
 public class WorkspaceService {
-    private static final String PREFS_NODE = "workspace";
+
+    /**
+     * The preference node this service owns.
+     *
+     * <p>Package-scoped rather than the bare word {@code workspace}, which is a name any
+     * application on the machine could have taken: two applications writing the same keys
+     * there would read each other's values. Public so a test can read the node the
+     * application actually uses instead of repeating the name.
+     */
+    public static final String PREFERENCES_NODE = "com/spiraleyes/fhirviewer/workspace";
+
+    /** The bare node earlier builds used; migrated into {@link #PREFERENCES_NODE}. */
+    private static final String LEGACY_PREFERENCES_NODE = "workspace";
+
     private static final String KEY_LAST_ID = "lastId";
     private static final String KEY_LAST_NAME = "lastName";
     private static final String KEY_LAST_PATH = "lastPath";
@@ -40,7 +54,7 @@ public class WorkspaceService {
     public WorkspaceService(FhirServerManager serverManager,
                             FhirServerPluginRegistry pluginRegistry,
                             IgPackageManager packageManager) {
-        this.prefs = Preferences.userRoot().node(PREFS_NODE);
+        this.prefs = openPreferences();
         providers.add(new ConnectionsWorkspaceStateProvider(serverManager, pluginRegistry));
         providers.add(new RestWorkbenchWorkspaceStateProvider());
         providers.add(new TreeTabsWorkspaceStateProvider());
@@ -56,8 +70,39 @@ public class WorkspaceService {
      * untestable.</p>
      */
     WorkspaceService(List<WorkspaceStateProvider> providers) {
-        this.prefs = Preferences.userRoot().node(PREFS_NODE);
+        this.prefs = openPreferences();
         this.providers.addAll(providers);
+    }
+
+    /**
+     * This service's preference node, carrying over anything an earlier build recorded under
+     * the bare {@code workspace} node.
+     *
+     * <p>The old node is emptied once its values are safe, so there is one source from here
+     * on. A preferences backend that refuses any of this is ignored: a workspace that cannot
+     * be reopened is a Save As, not a reason to fail start-up.
+     */
+    private static Preferences openPreferences() {
+        Preferences current = Preferences.userRoot().node(PREFERENCES_NODE);
+        try {
+            Preferences legacy = Preferences.userRoot().node(LEGACY_PREFERENCES_NODE);
+            for (String key : new String[] {KEY_LAST_ID, KEY_LAST_NAME, KEY_LAST_PATH}) {
+                if (current.get(key, null) != null) {
+                    continue;
+                }
+                String recorded = legacy.get(key, null);
+                if (recorded != null) {
+                    current.put(key, recorded);
+                }
+            }
+            current.flush();
+            for (String key : new String[] {KEY_LAST_ID, KEY_LAST_NAME, KEY_LAST_PATH}) {
+                legacy.remove(key);
+            }
+        } catch (RuntimeException | BackingStoreException ignored) {
+            // A preference store that cannot be migrated still leaves a working service.
+        }
+        return current;
     }
 
     public WorkspaceMetadata newWorkspace(String name) {

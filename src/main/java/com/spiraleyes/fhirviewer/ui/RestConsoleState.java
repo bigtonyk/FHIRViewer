@@ -65,8 +65,17 @@ public record RestConsoleState(
     private static final Logger log = Logger.getLogger(RestConsoleState.class.getName());
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    /** The preferences node this console owns. */
-    private static final String NODE = "com/example/fhirviewer/restConsole";
+    /**
+     * The preferences node this console owns.
+     *
+     * <p>Scoped to the application's own package. Earlier builds wrote to
+     * {@link #LEGACY_NODE}, a placeholder package name that never matched this project; that
+     * node is read and then removed rather than kept as a second source of truth.
+     */
+    private static final String NODE = "com/spiraleyes/fhirviewer/restConsole";
+
+    /** Where earlier builds kept the same values. Read, migrated, then dropped. */
+    private static final String LEGACY_NODE = "com/example/fhirviewer/restConsole";
 
     /**
      * A preference value is limited to about 8 KB. Anything over this is dropped rather than
@@ -98,22 +107,62 @@ public record RestConsoleState(
     public static RestConsoleState load(List<String> knownServerUrls) {
         try {
             Preferences node = nodeForTest();
+            Preferences legacy = legacyNode();
             return new RestConsoleState(
-                    node.get("serverBaseUrl", ""),
-                    readMethod(node.get("method", "")),
-                    node.get("baseUrl", ""),
-                    node.get("path", ""),
-                    readPairs(node.get("parameters", "")),
-                    readPairs(node.get("headers", "")),
-                    node.get("contentType", RestRequest.DEFAULT_CONTENT_TYPE),
-                    readAuthKind(node.get("authKind", "")),
-                    node.get("userName", ""),
-                    node.getDouble("windowWidth", 1400),
-                    node.getDouble("windowHeight", 820),
-                    node.getDouble("divider", 0.52));
+                    remembered(node, legacy, "serverBaseUrl", ""),
+                    readMethod(remembered(node, legacy, "method", "")),
+                    remembered(node, legacy, "baseUrl", ""),
+                    remembered(node, legacy, "path", ""),
+                    readPairs(remembered(node, legacy, "parameters", "")),
+                    readPairs(remembered(node, legacy, "headers", "")),
+                    remembered(node, legacy, "contentType", RestRequest.DEFAULT_CONTENT_TYPE),
+                    readAuthKind(remembered(node, legacy, "authKind", "")),
+                    remembered(node, legacy, "userName", ""),
+                    rememberedDouble(node, legacy, "windowWidth", 1400),
+                    rememberedDouble(node, legacy, "windowHeight", 820),
+                    rememberedDouble(node, legacy, "divider", 0.52));
         } catch (RuntimeException | BackingStoreException e) {
             log.log(Level.FINE, "could not read the remembered console settings", e);
             return defaults();
+        }
+    }
+
+    /**
+     * The node earlier builds used, or {@code null} when it cannot be opened.
+     *
+     * <p>Being empty is the normal case once anything has been saved: the values have moved,
+     * so there is nothing left to read from it.
+     */
+    private static Preferences legacyNode() {
+        try {
+            return Preferences.userRoot().node(LEGACY_NODE);
+        } catch (RuntimeException unavailable) {
+            return null;
+        }
+    }
+
+    /** A remembered string, falling back to the node earlier builds used. */
+    private static String remembered(Preferences node, Preferences legacy, String key,
+            String fallback) {
+        String value = node.get(key, null);
+        if (value == null && legacy != null) {
+            value = legacy.get(key, null);
+        }
+        return value == null ? fallback : value;
+    }
+
+    /** A remembered number, from either node, tolerating text that is not one. */
+    private static double rememberedDouble(Preferences node, Preferences legacy, String key,
+            double fallback) {
+        String value = remembered(node, legacy, key, null);
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException unreadable) {
+            log.log(Level.FINE, "could not read remembered " + key, unreadable);
+            return fallback;
         }
     }
 
@@ -150,6 +199,13 @@ public record RestConsoleState(
             // rather than leaving patient data in the store after the field is gone.
             node.remove("body");
             node.flush();
+            // Earlier builds wrote these values to a placeholder package node. They have been
+            // migrated by now, so it goes rather than surviving as a second source of truth.
+            try {
+                Preferences.userRoot().node(LEGACY_NODE).removeNode();
+            } catch (RuntimeException alreadyGone) {
+                log.log(Level.FINE, "could not remove the earlier console node", alreadyGone);
+            }
         } catch (RuntimeException | BackingStoreException e) {
             log.log(Level.FINE, "could not remember the console settings", e);
         }

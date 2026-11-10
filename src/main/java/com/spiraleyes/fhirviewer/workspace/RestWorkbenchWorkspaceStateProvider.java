@@ -8,7 +8,6 @@ import com.spiraleyes.fhirviewer.ui.RestParameterList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.prefs.Preferences;
 
 /**
  * Capture/restore boundary for REST workbench state.
@@ -20,8 +19,6 @@ import java.util.prefs.Preferences;
  */
 public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvider {
 
-    private static final String NODE = "com/example/fhirviewer/restConsole";
-
     @Override
     public String providerId() {
         return "rest-workbench";
@@ -32,7 +29,6 @@ public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvid
     public Object capture() {
         Map<String, Object> out = new LinkedHashMap<>();
         try {
-            Preferences node = Preferences.userRoot().node(NODE);
             RestConsoleState state = RestConsoleState.load(null);
             out.put("serverBaseUrl", state.serverBaseUrl());
             out.put("method", state.method() == null ? null : state.method().name());
@@ -57,7 +53,6 @@ public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvid
         if (!(snapshot instanceof Map)) return;
         Map<String, Object> entries = (Map<String, Object>) snapshot;
         try {
-            Preferences node = Preferences.userRoot().node(NODE);
             RestMethod method = RestMethod.GET;
             Object m = entries.get("method");
             if (m instanceof String s) {

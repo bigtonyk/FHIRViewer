@@ -193,4 +193,30 @@ class RestConsoleStateTest {
     private static java.util.prefs.Preferences node() throws java.util.prefs.BackingStoreException {
         return RestConsoleState.nodeForTest();
     }
+
+    @Test
+    @DisplayName("A console an earlier build remembered comes back, and its old node is emptied")
+    void valuesFromTheEarlierNodeAreMigrated() throws Exception {
+        java.util.prefs.Preferences current = node();
+        current.clear();
+        java.util.prefs.Preferences legacy =
+                java.util.prefs.Preferences.userRoot().node("com/example/fhirviewer/restConsole");
+        legacy.put("path", "Patient/legacy");
+        legacy.put("method", "PUT");
+        legacy.put("divider", "0.33");
+        legacy.flush();
+
+        RestConsoleState restored = RestConsoleState.load(List.of());
+
+        assertEquals("Patient/legacy", restored.path(),
+                "a console an earlier build remembered is still the user's console");
+        assertEquals(RestMethod.PUT, restored.method());
+        assertEquals(0.33, restored.dividerPosition());
+
+        restored.save();
+
+        assertEquals(0, java.util.prefs.Preferences.userRoot()
+                        .node("com/example/fhirviewer/restConsole").keys().length,
+                "the placeholder node must not survive as a second source of truth");
+    }
 }

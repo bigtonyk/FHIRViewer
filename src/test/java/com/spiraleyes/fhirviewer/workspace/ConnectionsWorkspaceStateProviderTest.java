@@ -77,7 +77,7 @@ class ConnectionsWorkspaceStateProviderTest {
     }
 
     @Test
-    void restoreWithMissingPluginWarnsButDoesNotConnect() {
+    void restoreSkipsAServerWhosePluginIsMissing() {
         FhirServerManager manager = new FhirServerManager();
         FhirServerPluginRegistry registry = new FhirServerPluginRegistry(); // empty: no plugins registered
 
@@ -90,9 +90,10 @@ class ConnectionsWorkspaceStateProviderTest {
         snap.put("Ghost Server", entry);
 
         ConnectionsWorkspaceStateProvider p = new ConnectionsWorkspaceStateProvider(manager, registry);
-        // Should not throw, should not auto-connect (manager.servers() unchanged)
         p.restore(snap);
-        assertTrue(manager.servers().isEmpty());
+
+        assertTrue(manager.servers().isEmpty(),
+                "a server with no plugin cannot answer a request, so it is not added");
     }
 
     @Test
