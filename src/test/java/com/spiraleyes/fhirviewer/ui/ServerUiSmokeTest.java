@@ -84,6 +84,9 @@ class ServerUiSmokeTest {
         try {
             Platform.startup(STARTED::countDown);
             STARTED.await(30, TimeUnit.SECONDS);
+        } catch (IllegalStateException alreadyStarted) {
+            // Another UI test class started the toolkit first. That is the state this class
+            // wants, not a reason to skip every test it has.
         } catch (Throwable toolkitProblem) {
             // Recorded rather than thrown: an unavailable toolkit must skip the test, not
             // fail it. A real defect in the screens still fails the test below.

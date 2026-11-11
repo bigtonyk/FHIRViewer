@@ -1011,11 +1011,17 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         if (documentSession.resource() == null) {
             stage.setTitle(APPLICATION_TITLE);
         } else {
-            // The asterisk is the usual "there are unsaved changes" marker.
-            boolean dirty = documentSession.loaded() != null && documentSession.loaded().isDirty();
-            stage.setTitle(APPLICATION_TITLE + " - " + documentSession.label() + (dirty ? " *" : ""));
+            stage.setTitle(titleFor(documentSession.label(), documentSession.isDirty()));
         }
         updateEditActions();
+    }
+
+    /**
+     * The window title for a displayed resource: its label, with the asterisk that marks
+     * unsaved changes. Named here so the rule the window shows can be asserted directly.
+     */
+    static String titleFor(String label, boolean dirty) {
+        return APPLICATION_TITLE + " - " + label + (dirty ? " *" : "");
     }
 
     /** Enables Save and Undo only when there is something for them to act on. */

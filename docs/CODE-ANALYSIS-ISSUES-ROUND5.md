@@ -150,13 +150,15 @@ Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7, M7, R5-1 and R
   the restored expressions were not seen on screen.
 - R4 §7's line spans are from the fourth pass and have not been re-measured against 1,099
   lines; the M7 wiring and the two split steps have moved every region after the fields.
-- M1's steps were checked at three levels: `test-compile` after every slice, the full suite
-  (1,039 tests, 0 failures) after the editor-core move, and one real launch of the window on
-  this machine with a sample file passed on the command line — it started, loaded the sample
-  through the new session and stayed up for 25 seconds with no stack trace. Interaction is not
-  covered: no edit, undo, delete, source apply or Save As was performed, so the dirty flag,
-  undo depth, asterisk and tree rebuild order are still unobserved, as are the About and
-  Implementation Guide dialogs and the nine server dialogs.
+- M1's steps were checked at four levels: `test-compile` after every slice, the full suite
+  after the editor-core and menu moves, one real launch of the window on this machine with a
+  sample file on the command line (it started, loaded the sample through the new session and
+  stayed up with no stack trace), and `DocumentSessionCheckTest`, which builds the session over
+  real views on a toolkit and asserts the three facts a launch alone could not: an edit marks
+  the document and puts the asterisk in the title, undo clears both and restores the value, and
+  the history stops at the documented twenty. What remains unobserved is what needs a click:
+  the About and Implementation Guide dialogs, the nine server dialogs, Save As and the file
+  choosers, and `refreshAfterEdit`'s select-after-rebuild as it appears on screen.
 
 ---
 
