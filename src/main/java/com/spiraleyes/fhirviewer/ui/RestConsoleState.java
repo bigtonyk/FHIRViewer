@@ -1,10 +1,11 @@
 package com.spiraleyes.fhirviewer.ui;
 
 import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import java.util.prefs.BackingStoreException;
 import java.util.prefs.Preferences;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.spiraleyes.fhirviewer.server.ServerAuthKind;
 import com.spiraleyes.fhirviewer.server.rest.RestMethod;
@@ -62,7 +63,7 @@ public record RestConsoleState(
         double windowHeight,
         double dividerPosition) {
 
-    private static final Logger log = Logger.getLogger(RestConsoleState.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(RestConsoleState.class);
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /**
@@ -122,7 +123,7 @@ public record RestConsoleState(
                     rememberedDouble(node, legacy, "windowHeight", 820),
                     rememberedDouble(node, legacy, "divider", 0.52));
         } catch (RuntimeException | BackingStoreException e) {
-            log.log(Level.FINE, "could not read the remembered console settings", e);
+            log.debug("could not read the remembered console settings", e);
             return defaults();
         }
     }
@@ -161,7 +162,7 @@ public record RestConsoleState(
         try {
             return Double.parseDouble(value.trim());
         } catch (NumberFormatException unreadable) {
-            log.log(Level.FINE, "could not read remembered " + key, unreadable);
+            log.debug("could not read remembered " + key, unreadable);
             return fallback;
         }
     }
@@ -204,10 +205,10 @@ public record RestConsoleState(
             try {
                 Preferences.userRoot().node(LEGACY_NODE).removeNode();
             } catch (RuntimeException alreadyGone) {
-                log.log(Level.FINE, "could not remove the earlier console node", alreadyGone);
+                log.debug("could not remove the earlier console node", alreadyGone);
             }
         } catch (RuntimeException | BackingStoreException e) {
-            log.log(Level.FINE, "could not remember the console settings", e);
+            log.debug("could not remember the console settings", e);
         }
     }
 
@@ -227,7 +228,7 @@ public record RestConsoleState(
             // Over the limit it is left alone rather than truncated: the previous value stays,
             // and losing the whole list is better than restoring half of one.
         } catch (Exception notSerializable) {
-            log.log(Level.FINE, "could not remember " + key, notSerializable);
+            log.debug("could not remember " + key, notSerializable);
         }
     }
 
@@ -245,7 +246,7 @@ public record RestConsoleState(
             }
             return pairs;
         } catch (Exception unreadable) {
-            log.log(Level.FINE, "could not read remembered name/value pairs", unreadable);
+            log.debug("could not read remembered name/value pairs", unreadable);
             return List.of();
         }
     }

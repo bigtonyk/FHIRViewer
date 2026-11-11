@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.prefs.Preferences;
 
 import org.junit.jupiter.api.AfterEach;
@@ -20,6 +21,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.spiraleyes.fhirviewer.server.FhirServerManager;
+import com.spiraleyes.fhirviewer.workspace.FhirPathWorkspaceStateProvider;
+import com.spiraleyes.fhirviewer.workspace.TreeTabsWorkspaceStateProvider;
 import com.spiraleyes.fhirviewer.workspace.WorkspaceService;
 
 /**
@@ -106,6 +110,48 @@ class WorkspaceWiringTest {
     }
 
     @Test
+    @DisplayName("Declining the start-up restore leaves the session without a workspace")
+    void decliningTheRestoreOpensNothing() throws Exception {
+        recordedWorkspace("Unwanted");
+        WorkspaceService service = new WorkspaceService();
+        List<String> messages = new ArrayList<>();
+
+        actionsFor(service, messages, name -> false).openLastWorkspace();
+
+        assertNull(service.getCurrent(),
+                "a declined restore must not open the workspace it offered");
+        assertTrue(messages.stream().anyMatch(m -> m.contains("without the last workspace")),
+                messages.toString());
+    }
+
+    @Test
+    @DisplayName("Tree and FHIRPath state given to the service is saved and restored")
+    void viewStateRoundTripsThroughAWorkspace() throws Exception {
+        Map<String, Object> treeState = new LinkedHashMap<>();
+        treeState.put("selected", "Patient.name[0]");
+        WorkspaceService saved = new WorkspaceService(new FhirServerManager(), null, null,
+                new TreeTabsWorkspaceStateProvider(() -> treeState, null),
+                new FhirPathWorkspaceStateProvider(() -> List.of("Patient.name"), null));
+        saved.newWorkspace("View State");
+        Path archive = dir.resolve("view-state.fhirworkspace");
+        saved.saveAs(archive);
+
+        Map<String, Object> appliedTree = new LinkedHashMap<>();
+        List<String> appliedExpressions = new ArrayList<>();
+        WorkspaceService opened = new WorkspaceService(new FhirServerManager(), null, null,
+                new TreeTabsWorkspaceStateProvider(null, appliedTree::putAll),
+                new FhirPathWorkspaceStateProvider(() -> List.of(),
+                        (expressions, contextRef) -> appliedExpressions.addAll(expressions)));
+
+        opened.open(archive);
+
+        assertEquals("Patient.name[0]", appliedTree.get("selected"),
+                "the tree selection must come back with the workspace");
+        assertEquals(List.of("Patient.name"), appliedExpressions,
+                "the saved expressions must come back with the workspace");
+    }
+
+    @Test
     @DisplayName("A recorded workspace whose archive has moved is forgotten")
     void aMissingArchiveIsForgotten() throws Exception {
         Path gone = dir.resolve("moved-away.fhirworkspace");
@@ -159,7 +205,16 @@ class WorkspaceWiringTest {
     }
 
     private static WorkspaceActions actionsFor(WorkspaceService service, List<String> messages) {
-        return new WorkspaceActions(null, service, new ThemeManager(), messages::add);
+        return actionsFor(service, messages, name -> true);
+    }
+
+    /**
+     * Actions whose start-up restore question is answered by the test: the production prompt is
+     * modal, so a headless run supplies the answer instead of showing it.
+     */
+    private static WorkspaceActions actionsFor(WorkspaceService service, List<String> messages,
+            Predicate<String> restore) {
+        return new WorkspaceActions(null, service, new ThemeManager(), messages::add, restore);
     }
 
     private static Preferences workspacePreferences() throws Exception {

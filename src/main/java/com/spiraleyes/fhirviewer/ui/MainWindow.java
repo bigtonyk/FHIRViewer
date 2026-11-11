@@ -7,9 +7,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.logging.Logger;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.hl7.fhir.instance.model.api.IBase;
 import org.hl7.fhir.instance.model.api.IBaseReference;
@@ -35,6 +39,8 @@ import com.spiraleyes.fhirviewer.service.ValidationService;
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.service.IgPackageManager;
+import com.spiraleyes.fhirviewer.workspace.FhirPathWorkspaceStateProvider;
+import com.spiraleyes.fhirviewer.workspace.TreeTabsWorkspaceStateProvider;
 import com.spiraleyes.fhirviewer.workspace.WorkspaceService;
 import com.spiraleyes.fhirviewer.server.FhirServerPlugin;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
@@ -83,6 +89,7 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputDialog;
 import javafx.scene.control.ToolBar;
 import javafx.scene.control.Tooltip;
+import javafx.scene.control.TreeItem;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -102,7 +109,7 @@ import javafx.stage.Stage;
  */
 public class MainWindow {
 
-    private static final Logger logger = Logger.getLogger(MainWindow.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(MainWindow.class);
     private static final String APPLICATION_TITLE = "FHIR Resource Viewer";
     private static final String READY_STATUS = "Ready. Use File > Open to load a FHIR JSON or XML resource.";
     /** How many edits can be undone; older snapshots are dropped. */
@@ -158,7 +165,11 @@ public class MainWindow {
     private final WorkspaceService workspaceService = new WorkspaceService(
             serverManager,
             serverService.registry(),
-            fhirService.validationService().getPackageManager());
+            fhirService.validationService().getPackageManager(),
+            // The tree selection, the two tab selections and the FHIRPath entries live in
+            // this window, so the providers that capture and apply them are wired here.
+            new TreeTabsWorkspaceStateProvider(this::captureTreeTabs, this::applyTreeTabs),
+            new FhirPathWorkspaceStateProvider(this::captureFhirPath, this::applyFhirPath));
 
     /**
      * New, Open, Save and the questions asked before a workspace is replaced or the window
@@ -382,7 +393,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                     logger.info("Auto-loaded " + loaded + " IG package(s) from storage");
                 }
             } catch (RuntimeException e) {
-                logger.warning("IG package auto-load failed: " + e.getMessage());
+                logger.warn("IG package auto-load failed: " + e.getMessage());
             }
         }, "ig-package-auto-load");
         loader.setDaemon(true);
@@ -1653,7 +1664,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
             // gained or changed a server now has something worth saving.
             workspaceActions.markWorkspaceChanged();
         } catch (IOException e) {
-            logger.warning("Could not save the FHIR server list: " + e.getMessage());
+            logger.warn("Could not save the FHIR server list: " + e.getMessage());
             setStatus("The server was added for this session only: the list could not be saved ("
                     + e.getMessage() + ").");
         }
@@ -2492,6 +2503,68 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         return view;
     }
 
+    /**
+     * The tree selection and the two tab selections, as a workspace records them.
+     *
+     * <p>An element path identifies the selected node across a save and a load; the tabs are
+     * recorded by title, because the tab objects themselves belong to this window.</p>
+     */
+    private Map<String, Object> captureTreeTabs() {
+        Map<String, Object> state = new LinkedHashMap<>();
+        TreeItem<ResourceNode> selected = treeView.getSelectionModel().getSelectedItem();
+        if (selected != null && selected.getValue() != null) {
+            state.put("selected", selected.getValue().getPath());
+        }
+        state.put("structureTab", selectedTabTitle(structureTabs));
+        state.put("documentTab", selectedTabTitle(documentTabs));
+        return state;
+    }
+
+    /**
+     * Applies a restored tree selection and tab choice.
+     *
+     * <p>Both are best effort: the element a workspace recorded may not exist in the resource
+     * loaded now, and a tab title may have changed since, so a miss leaves the current state
+     * alone instead of failing the open.</p>
+     */
+    private void applyTreeTabs(Map<String, Object> state) {
+        selectTabTitled(structureTabs, state.get("structureTab"));
+        selectTabTitled(documentTabs, state.get("documentTab"));
+        Object selected = state.get("selected");
+        if (selected instanceof String path) {
+            treeView.selectPath(path);
+        }
+    }
+
+    /** The expressions the FHIRPath tab holds, for a workspace to record. */
+    private List<String> captureFhirPath() {
+        return fhirPathView.expressions();
+    }
+
+    /** Puts a workspace's expressions back into the FHIRPath tab. */
+    private void applyFhirPath(List<String> expressions, String contextRef) {
+        fhirPathView.restoreExpressions(expressions);
+    }
+
+    /** The title of the selected tab, or {@code null} when the pane has none. */
+    private static String selectedTabTitle(TabPane pane) {
+        Tab selected = pane.getSelectionModel().getSelectedItem();
+        return selected == null ? null : selected.getText();
+    }
+
+    /** Selects the tab whose title matches, leaving the selection alone when none does. */
+    private static void selectTabTitled(TabPane pane, Object title) {
+        if (!(title instanceof String wanted)) {
+            return;
+        }
+        for (Tab tab : pane.getTabs()) {
+            if (wanted.equals(tab.getText())) {
+                pane.getSelectionModel().select(tab);
+                return;
+            }
+        }
+    }
+
     /** The cached application logo, loaded once from the class path. */
     private Image applicationLogo() {
         if (applicationLogo == null && !applicationLogoFailed) {
@@ -2501,8 +2574,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                     applicationLogo = new Image(in);
                 }
             } catch (java.io.IOException | RuntimeException problem) {
-                logger.log(java.util.logging.Level.WARNING,
-                        "Could not load the application logo", problem);
+                logger.warn("Could not load the application logo", problem);
             }
             applicationLogoFailed = true;
         }

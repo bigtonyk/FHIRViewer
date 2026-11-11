@@ -42,13 +42,13 @@ from the fourth, and `R5-*` are new here.
 | R4-3 unmet dependencies misattributed | P3 | Fixed 2026-11-10 — an install reports only the gaps it added |
 | R4-4 planner drops version conflicts | P3 | Fixed 2026-11-10 — the losing requirement is reported before installing |
 | R4-5 over-large block index aborts start-up | P3 | Fixed 2026-11-10 — indices are ordered without parsing |
-| R4-6 package layer logs through JUL | P3 | **Open** — see §2 |
-| R4-7 writer NPEs for a parentless target | P3 | **Open** — see §2 |
+| R4-6 package layer logs through JUL | P3 | Fixed 2026-11-10 — every file now logs through SLF4J |
+| R4-7 writer NPEs for a parentless target | P3 | Fixed 2026-11-10 — the parent directory is resolved before it is created |
 | R4-8 `closingFromAction` never cleared | P3 | Fixed 2026-11-10 — flag lasts one close |
 | R4-9 `captureAllCurrent()` NPE at start-up | P3 | Fixed 2026-11-10 — throws `IllegalStateException` |
 | R4-10 mangled console javadoc bullet | P3 | Fixed 2026-11-10 |
-| M1 `MainWindow` size | P3 | **Open** — 2,705 lines; split plan is R4 §7 |
-| M7 workspace restore | P1 | **Open in part** — start-up restore is silent, two providers unwired; see §2 |
+| M1 `MainWindow` size | P3 | **Open** — 2,777 lines; split plan is R4 §7 |
+| M7 workspace restore | P1 | Fixed 2026-11-10 — restore is offered at start-up; tree/tabs and FHIRPath state wired |
 | L9 passphrase as un-zeroable `String` | P3 | Fixed 2026-11-10 — `char[]` end to end on the session path |
 | L10 diagnostics charset | P3 | Fixed 2026-11-10 — export writes UTF-8 explicitly |
 | L11 test names promise more than they check | P3 | Fixed 2026-11-10 — six `restore…` tests now assert the state they name |
@@ -58,69 +58,12 @@ from the fourth, and `R5-*` are new here.
 
 ## 2. Outstanding findings
 
-### R4-6. Two logging systems, and the package layer's half reaches nobody
+### M1. `MainWindow` is 2,777 lines
 
-**Issue — P3.** Eight files still import `java.util.logging`; eighteen import SLF4J.
-
-The package-layer four are the ones that matter: `service/IgPackageManager:18`,
-`service/NpmPackageReader:10`, `service/PackageInstaller:10`,
-`service/PackageRegistryService:18`. Only `slf4j-simple` is on the class path, so JUL writes
-through its default `ConsoleHandler` to stderr and the SLF4J binding never sees it. In
-development that is visible in the terminal; in a packaged image launched from the Start menu
-there is no console, so `Skipping package …`, `No 4.0 release of … is published` and
-`Cannot read dependencies of …` are shown to nobody.
-
-The other four — `ui/IgPackageDialog`, `ui/MainWindow`, `ui/PluginManagerDialog`,
-`ui/RestConsoleState` — matter less: `RestConsoleState` logs at `FINE` deliberately and
-tolerates a missing backend, and the dialogs log their own recoverable failures.
-
-**Fix:** migrate each file to SLF4J as it is touched. No new dependency: the binding is
-already there.
-
-### R4-7. `WorkspaceArchiveWriter` throws `NullPointerException` for a target with no parent
-
-**Bug — P3.** `workspace/WorkspaceArchiveWriter:20-21`.
-
-```java
-Path tmp = target.resolveSibling(target.getFileName().toString() + ".tmp");
-Files.createDirectories(target.getParent());
-```
-
-`Path.of("untitled.fhirworkspace").getParent()` is `null`, so a relative file name with no
-directory — which public `WorkspaceService.saveAs(Path)` accepts — throws an NPE before
-anything is written. `WorkspaceActions.save` catches `Exception`, so the user sees
-`Failed to save workspace: null` in the status line instead of a readable reason.
-`ServerDefinitionStore.writeProperties` and `PluginSettingsStore.writeProperties` both guard
-the same call with `toAbsolutePath().getParent()`, so this is an inconsistency rather than an
-unavoidable one.
-
-**Fix:** `Path parent = target.toAbsolutePath().getParent(); if (parent != null) Files.createDirectories(parent);`
-
-### M1. `MainWindow` is 2,705 lines
-
-**Enhancement — P3.** `ui/MainWindow.java`; 2,705 lines at `448f7fe` (2,693 in the fourth
-pass — the M7 call site and the L12 recovery-home accessor added the twelve). The
-decomposition plan, the two shared seams and an order that keeps each step reviewable are in
-R4 §7; it has not been started.
-
-### M7. The start-up restore is silent, and two providers are still unwired
-
-**Enhancement — P1, open in part.** `workspace/WorkspaceService:60-61`, `ui/MainWindow:340`.
-
-The workspace machinery now exists and runs: `MainWindow` constructs the service with the
-server manager, plugin registry and package manager, and `WorkspaceActions.openLastWorkspace()`
-reopens whatever the previous session had. What is still missing is the part M7 asked for:
-
-- **No prompt.** `openLastWorkspace()` reopens and writes a status line. There is no offer
-  to restore, so a user who does not want last session's workspace never gets the choice.
-- **`TreeTabsWorkspaceStateProvider` is constructed with no callbacks** (`:60`), so its
-  `capture()` returns an empty map and its `restore()` is documented as a no-op: the tree
-  selection and open tabs are not actually saved.
-- **`FhirPathWorkspaceStateProvider` is constructed the same way** (`:61`), so saved FHIRPath
-  expressions are neither captured nor restored.
-
-**Fix:** pass the tree/tabs and FHIRPath view's capture and apply callbacks at construction,
-and put the restore behind the same kind of prompt `handleCloseDecision()` uses for closing.
+**Enhancement — P3.** `ui/MainWindow.java`; 2,777 lines now (2,705 at `448f7fe`, 2,693 in the
+fourth pass — the M7 wiring added the last seventy-two). The decomposition plan, the two
+shared seams and an order that keeps each step reviewable are in R4 §7; it has not been
+started.
 
 ---
 
@@ -172,15 +115,12 @@ gives up that property.
 
 | ID | Type | Priority | Item | Where |
 |----|------|----------|------|-------|
-| R4-7 | Bug | **P3** | `WorkspaceArchiveWriter` NPEs for a relative target with no parent; the status line then says "Failed to save workspace: null" | `WorkspaceArchiveWriter:20-21` |
-| R4-6 | Issue | **P3** | Package/IG layer still logs through `java.util.logging`, which a packaged build never shows | `IgPackageManager`, `PackageInstaller`, `PackageRegistryService`, `NpmPackageReader` |
 | R5-1 | Issue | **P3** | `RestConsoleStateTest`'s javadoc promises a test isolation the class does not have | `RestConsoleStateTest` |
 | R5-2 | Issue | **P3** | The preference-writing tests leave the developer's real settings changed | `RestConsoleStateTest`, `WorkspaceWiringTest` |
-| M7 | Enhancement | **P3** | Start-up restore is silent; tree/tabs and FHIRPath providers still unwired | `WorkspaceService:60-61`, `MainWindow:340` |
-| M1 | Enhancement | **P3** | `MainWindow` is 2,705 lines; the six extraction candidates are mapped in R4 §7 | `MainWindow` |
+| M1 | Enhancement | **P3** | `MainWindow` is 2,777 lines; the six extraction candidates are mapped in R4 §7 | `MainWindow` |
 
 Closed since the fourth pass: R4-1, R4-2, R4-8, R4-9, R4-10, L9, L10, L11 and L12.
-Closed since this pass was written: R4-3, R4-4 and R4-5.
+Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7 and M7.
 
 ---
 
@@ -198,25 +138,29 @@ Closed since this pass was written: R4-3, R4-4 and R4-5.
 - R4-5's fix is covered by loading a hand-written file whose highest block index has twenty
   digits, which also pins the numeric ordering across index lengths; the window that loads it
   at start-up was not launched.
+- R4-7's fix is covered by saving to a relative file name with no directory; the status line
+  `WorkspaceActions.save` writes on failure was not observed on a running window.
+- R4-6's migration is verified by a search showing `java.util.logging` is gone from the source
+  and by the suites that exercise the package and console paths still passing. Whether a
+  packaged image now shows the messages was not observed: no image was built or launched, so
+  the claim established here is that the eight files use the binding the other eighteen use.
 - R4-3's fix compares the manager's unmet set before and after the install, so one case goes
   unreported: a package reinstalled while the same dependency key is still unmet. The key is
   already in the snapshot when `resolveDependencies` re-adds it, so it reads as unchanged.
 - R5-1 and R5-2 were confirmed by reading the two test classes and by running their suites,
   which themselves write the real nodes. The effect on a developer's settings was not
   observed before and after a run.
-- M7's unwired providers were confirmed from the two constructor calls; how much of the tree
-  selection and FHIRPath expression state a user would miss was not exercised.
-- R4 §7's line spans are from the fourth pass and have not been re-measured against 2,705
+- M7's fix is covered by tests that the start-up offer is asked and can be declined, and that
+  tree/tab and FHIRPath state passed to the service round-trips through a workspace archive.
+  The window itself was not launched, so the prompt's wording, the restored tab selection and
+  the restored expressions were not seen on screen.
+- R4 §7's line spans are from the fourth pass and have not been re-measured against 2,777
   lines.
 
 ---
 
 ## 6. Suggested order
 
-1. **R4-7** — small, user-visible, and in a path two other writers already guard; a save that
-   fails with an `NullPointerException` the status line renders as "null" is the worst thing
-   left.
-2. **R5-1 and R5-2** — a doc paragraph and a save/restore pair around the two test classes.
-3. **R4-6 as each file is touched**, rather than as a sweep.
-4. **M7**, then **M1** as opportunity allows; M1's plan is already written and its first two
-   steps are mechanical.
+1. **R5-1 and R5-2** — a doc paragraph and a save/restore pair around the two test classes.
+2. **M1** as opportunity allows; its plan is already written and its first two steps are
+   mechanical.

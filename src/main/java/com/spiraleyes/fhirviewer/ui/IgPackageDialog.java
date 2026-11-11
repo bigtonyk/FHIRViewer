@@ -25,7 +25,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
-import java.util.logging.Logger;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Dialog for managing FHIR Implementation Guide packages.
@@ -33,7 +35,7 @@ import java.util.logging.Logger;
  * and loading them into the validation service.
  */
 public class IgPackageDialog extends Dialog<String> {
-    private static final Logger logger = Logger.getLogger(IgPackageDialog.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(IgPackageDialog.class);
 
     /** Wide enough that the three columns and the button rows are never clipped. */
     private static final double MIN_WIDTH = 1180;
@@ -288,7 +290,7 @@ public class IgPackageDialog extends Dialog<String> {
                     }
                 });
             } catch (Exception e) {
-                logger.severe("Error searching registry: " + e.getMessage());
+                logger.error("Error searching registry: " + e.getMessage());
                 javafx.application.Platform.runLater(() -> {
                     statusLabel.setText("Error searching registry");
                     searchButton.setDisable(false);
@@ -331,7 +333,7 @@ public class IgPackageDialog extends Dialog<String> {
                         packageInfo.getPackageId(), packageInfo.getVersion());
                 javafx.application.Platform.runLater(() -> confirmAndInstall(installer, plan));
             } catch (Exception e) {
-                logger.warning("Install planning failed: " + e.getMessage());
+                logger.warn("Install planning failed: " + e.getMessage());
                 javafx.application.Platform.runLater(() -> {
                     downloadLoadButton.setDisable(false);
                     statusLabel.setText("Installation could not be planned");
@@ -481,7 +483,7 @@ public class IgPackageDialog extends Dialog<String> {
             refreshLoadedPackages();
             searchResultsList.refresh();
         } catch (Exception e) {
-            logger.warning("Error loading package: " + e.getMessage());
+            logger.warn("Error loading package: " + e.getMessage());
             statusLabel.setText("Error loading package");
             showAlert(Alert.AlertType.ERROR, describeFailure(e), "Installation failed");
         }

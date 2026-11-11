@@ -15,7 +15,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.logging.Logger;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.hl7.fhir.common.hapi.validation.support.NpmPackageValidationSupport;
 import org.hl7.fhir.instance.model.api.IBaseResource;
@@ -40,7 +42,7 @@ import ca.uhn.fhir.parser.LenientErrorHandler;
  */
 public class IgPackageManager {
 
-    private static final Logger logger = Logger.getLogger(IgPackageManager.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(IgPackageManager.class);
 
     /** The FHIR major version this build validates. */
     private static final String SUPPORTED_VERSION_PREFIX = "4.0";
@@ -344,7 +346,7 @@ public class IgPackageManager {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, "*.tgz")) {
             stream.forEach(tgzFiles::add);
         } catch (IOException e) {
-            logger.warning("Cannot list package directory " + directory + ": " + e.getMessage());
+            logger.warn("Cannot list package directory " + directory + ": " + e.getMessage());
             return 0;
         }
         tgzFiles.sort(Comparator.comparing(Path::getFileName));
@@ -354,7 +356,7 @@ public class IgPackageManager {
                 loadPackageFromFile(file);
                 installed++;
             } catch (IOException | RuntimeException e) {
-                logger.warning("Skipping package " + file + ": " + e.getMessage());
+                logger.warn("Skipping package " + file + ": " + e.getMessage());
             }
         }
         return installed;
@@ -389,7 +391,7 @@ public class IgPackageManager {
                 try {
                     loadPackageFromFile(file);
                 } catch (IOException | RuntimeException e) {
-                    logger.warning("Cannot load dependency " + key + ": " + e.getMessage());
+                    logger.warn("Cannot load dependency " + key + ": " + e.getMessage());
                     unmetDependencies.add(key);
                 }
                 continue;
@@ -447,7 +449,7 @@ public class IgPackageManager {
             try {
                 target.add(parser.parseResource(json));
             } catch (RuntimeException e) {
-                logger.fine("Skipping unreadable package entry " + file + ": " + e.getMessage());
+                logger.debug("Skipping unreadable package entry " + file + ": " + e.getMessage());
             }
         }
     }

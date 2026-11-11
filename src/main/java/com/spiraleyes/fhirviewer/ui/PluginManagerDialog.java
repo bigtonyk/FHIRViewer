@@ -6,8 +6,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Consumer;
-import java.util.logging.Logger;
 import java.util.prefs.BackingStoreException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.spiraleyes.fhirviewer.server.FhirServerPlugin;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
@@ -68,7 +70,7 @@ import javafx.stage.Window;
  * credential saved here could never authenticate anything.</p>
  */
 public class PluginManagerDialog extends Dialog<Void> {
-    private static final Logger logger = Logger.getLogger(PluginManagerDialog.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(PluginManagerDialog.class);
 
     private static final double MIN_WIDTH = 1120;
     private static final double PREF_WIDTH = 1300;
@@ -151,8 +153,7 @@ public class PluginManagerDialog extends Dialog<Void> {
         try {
             return preferenceNode().get(PLUGIN_FOLDER_KEY, "");
         } catch (RuntimeException | BackingStoreException e) {
-            logger.log(java.util.logging.Level.FINE,
-                    "could not read the remembered plugin folder", e);
+            logger.debug("could not read the remembered plugin folder", e);
             return "";
         }
     }
@@ -162,8 +163,7 @@ public class PluginManagerDialog extends Dialog<Void> {
         try {
             preferenceNode().put(PLUGIN_FOLDER_KEY, folder == null ? "" : folder);
         } catch (RuntimeException | BackingStoreException e) {
-            logger.log(java.util.logging.Level.FINE,
-                    "could not remember the plugin folder", e);
+            logger.debug("could not remember the plugin folder", e);
         }
     }
 
@@ -408,7 +408,7 @@ public class PluginManagerDialog extends Dialog<Void> {
             try {
                 chooser.setInitialDirectory(Path.of(folderField.getText().trim()).toFile());
             } catch (RuntimeException e) {
-                logger.log(java.util.logging.Level.FINE, "ignoring unusable folder path", e);
+                logger.debug("ignoring unusable folder path", e);
             }
         }
         java.io.File chosen = chooser.showDialog(getOwner());

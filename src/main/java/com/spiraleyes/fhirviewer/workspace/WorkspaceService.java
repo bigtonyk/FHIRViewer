@@ -54,11 +54,28 @@ public class WorkspaceService {
     public WorkspaceService(FhirServerManager serverManager,
                             FhirServerPluginRegistry pluginRegistry,
                             IgPackageManager packageManager) {
+        this(serverManager, pluginRegistry, packageManager, null, null);
+    }
+
+    /**
+     * Creates the service with the live subsystems and the view state the window owns.
+     *
+     * <p>The tree/tab and FHIRPath providers need callbacks into the window, so they are
+     * passed in rather than built here. Built here with no callbacks, their capture was an
+     * empty map and their restore a no-op, which is how the tree selection, the open tabs and
+     * the saved expressions came to be silently absent from every workspace. A {@code null}
+     * provider keeps that documented no-op behaviour, which is what a headless test uses.</p>
+     */
+    public WorkspaceService(FhirServerManager serverManager,
+                            FhirServerPluginRegistry pluginRegistry,
+                            IgPackageManager packageManager,
+                            TreeTabsWorkspaceStateProvider treeTabs,
+                            FhirPathWorkspaceStateProvider fhirPath) {
         this.prefs = openPreferences();
         providers.add(new ConnectionsWorkspaceStateProvider(serverManager, pluginRegistry));
         providers.add(new RestWorkbenchWorkspaceStateProvider());
-        providers.add(new TreeTabsWorkspaceStateProvider());
-        providers.add(new FhirPathWorkspaceStateProvider());
+        providers.add(treeTabs == null ? new TreeTabsWorkspaceStateProvider() : treeTabs);
+        providers.add(fhirPath == null ? new FhirPathWorkspaceStateProvider() : fhirPath);
         providers.add(new ValidationWorkspaceStateProvider(packageManager));
     }
 
@@ -195,6 +212,25 @@ public class WorkspaceService {
             forgetLastWorkspace();
             return null;
         }
+    }
+
+    /**
+     * The name of the workspace the previous session had open, or {@code null} when none was
+     * recorded or its archive is gone.
+     *
+     * <p>Separate from {@link #openLastFromPreferences()} so start-up can ask before anything
+     * is applied. Applying first would put the question after the fact: the workspace would
+     * already be the user's, and there would be nothing left to decline.</p>
+     */
+    public String lastWorkspaceName() {
+        String savedPath = prefs.get(KEY_LAST_PATH, null);
+        if (savedPath == null || !Files.isRegularFile(Path.of(savedPath))) {
+            return null;
+        }
+        String name = prefs.get(KEY_LAST_NAME, null);
+        return name == null || name.isBlank()
+                ? Path.of(savedPath).getFileName().toString()
+                : name;
     }
 
     /** Drops the recorded last-workspace identity: there is no archive to reopen. */

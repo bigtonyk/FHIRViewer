@@ -15,8 +15,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
-import java.util.logging.Logger;
 import java.util.regex.Pattern;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,7 +54,7 @@ public final class PackageRegistryService {
      */
     private static final Pattern FILE_NAME_PART = Pattern.compile("[A-Za-z0-9._+-]+");
 
-    private static final Logger logger = Logger.getLogger(PackageRegistryService.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(PackageRegistryService.class);
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -177,7 +179,7 @@ public final class PackageRegistryService {
                     return info;
                 }
             }
-            logger.warning("No " + targetFhirVersion + " release of " + id
+            logger.warn("No " + targetFhirVersion + " release of " + id
                     + " is published; using the newest version " + versions.get(0).getVersion());
         }
         return versions.get(0);

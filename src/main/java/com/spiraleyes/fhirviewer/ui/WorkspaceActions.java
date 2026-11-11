@@ -3,6 +3,7 @@ package com.spiraleyes.fhirviewer.ui;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonBar;
@@ -51,8 +52,11 @@ final class WorkspaceActions {
     private final ThemeManager themeManager;
     private final Consumer<String> status;
     private final WorkspaceRecoveryService recovery;
+    private final Predicate<String> restoreConfirmation;
 
     /**
+     * Actions that ask the user before reopening last session's workspace.
+     *
      * @param owner            the window the dialogs are modal to
      * @param workspaceService the workspace these actions read and write
      * @param themeManager     source of the dialog stylesheets
@@ -60,6 +64,19 @@ final class WorkspaceActions {
      */
     WorkspaceActions(Stage owner, WorkspaceService workspaceService, ThemeManager themeManager,
             Consumer<String> status) {
+        this(owner, workspaceService, themeManager, status, null);
+    }
+
+    /**
+     * @param restoreConfirmation answers "reopen the last workspace?"; {@code null} asks the
+     *                            user, and a test supplies its own answer because a modal
+     *                            dialog cannot be driven headless
+     */
+    WorkspaceActions(Stage owner, WorkspaceService workspaceService, ThemeManager themeManager,
+            Consumer<String> status, Predicate<String> restoreConfirmation) {
+        this.restoreConfirmation = restoreConfirmation != null
+                ? restoreConfirmation
+                : this::confirmRestore;
         this.owner = owner;
         this.workspaceService = workspaceService;
         this.themeManager = themeManager;
@@ -79,13 +96,26 @@ final class WorkspaceActions {
     }
 
     /**
-     * Opens the workspace the previous session had open, if its archive is still there.
+     * Offers to reopen the workspace the previous session had open, and opens it when asked.
      *
      * <p>Called once at start-up. It is what makes the rest of this class meaningful: with
-     * no workspace open, Save had nothing to write over and the close prompt had no
-     * changes of its own to ask about.</p>
+     * no workspace open, Save had nothing to write over and the close prompt had no changes
+     * of its own to ask about. The offer is the part that was missing — reopening silently
+     * left a user who wanted a fresh session with no way to say so. Declining keeps the
+     * record, so the offer comes back next time and File &gt; Open still reaches the archive.</p>
      */
     void openLastWorkspace() {
+        String name = workspaceService.lastWorkspaceName();
+        if (name == null) {
+            // Nothing to offer. The open call is still made so a record whose archive has
+            // moved is forgotten instead of being offered again next time.
+            workspaceService.openLastFromPreferences();
+            return;
+        }
+        if (!restoreConfirmation.test(name)) {
+            status.accept("Started without the last workspace: " + name + ".");
+            return;
+        }
         WorkspaceMetadata opened = workspaceService.openLastFromPreferences();
         if (opened != null) {
             recovery.forgetSnapshot();
@@ -242,6 +272,28 @@ final class WorkspaceActions {
             return WorkspaceRecoveryService.CloseDecision.CANCEL;
         }
         return WorkspaceRecoveryService.CloseDecision.PROCEED;
+    }
+
+    /**
+     * Asks whether to reopen the workspace the previous session left behind.
+     *
+     * <p>The same shape as {@link #confirmClose()}: a modal confirmation styled like the
+     * window's other dialogs, with the destructive-looking choice labelled instead of yes/no.
+     *
+     * @return {@code true} when the user chose to reopen it
+     */
+    private boolean confirmRestore(String name) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(owner);
+        alert.setTitle(APPLICATION_TITLE);
+        alert.setHeaderText("Reopen the last workspace?");
+        alert.setContentText("The previous session had \"" + name + "\" open.");
+        style(alert.getDialogPane());
+
+        ButtonType restore = new ButtonType("Reopen Workspace", ButtonBar.ButtonData.YES);
+        ButtonType startEmpty = new ButtonType("Start Without It", ButtonBar.ButtonData.NO);
+        alert.getButtonTypes().setAll(restore, startEmpty);
+        return alert.showAndWait().filter(restore::equals).isPresent();
     }
 
     /** Same stylesheets and width as the window's other dialogs, so it follows the theme. */

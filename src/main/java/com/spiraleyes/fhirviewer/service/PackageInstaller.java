@@ -9,7 +9,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.logging.Logger;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.spiraleyes.fhirviewer.model.IgPackageInfo;
 import com.spiraleyes.fhirviewer.service.PackageRegistryService.PackageInfo;
@@ -29,7 +31,7 @@ import com.spiraleyes.fhirviewer.service.PackageRegistryService.PackageInfo;
  */
 public class PackageInstaller {
 
-    private static final Logger logger = Logger.getLogger(PackageInstaller.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(PackageInstaller.class);
 
     /** The FHIR version this build validates; dependency versions prefer it. */
     public static final String TARGET_FHIR_VERSION = "4.0";
@@ -303,7 +305,7 @@ public class PackageInstaller {
         try {
             return NpmPackageReader.readMetadata(packageFile).dependencies();
         } catch (IOException e) {
-            logger.warning("Cannot read dependencies of " + packageFile + ": " + e.getMessage());
+            logger.warn("Cannot read dependencies of " + packageFile + ": " + e.getMessage());
             return List.of();
         }
     }
@@ -341,7 +343,7 @@ public class PackageInstaller {
                 logger.info("Installed " + label);
             } catch (IOException | RuntimeException e) {
                 failures.add(label + ": " + e.getMessage());
-                logger.warning("Could not install " + label + ": " + e.getMessage());
+                logger.warn("Could not install " + label + ": " + e.getMessage());
             }
         }
         for (String unmet : packageManager.getUnmetDependencies()) {

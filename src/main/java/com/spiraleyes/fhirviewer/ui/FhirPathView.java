@@ -138,6 +138,29 @@ public class FhirPathView extends VBox {
         return !entries.getItems().isEmpty();
     }
 
+    /** The expressions in the list, in display order, as a workspace records them. */
+    public List<String> expressions() {
+        return entries.getItems().stream().map(Result::expression).toList();
+    }
+
+    /**
+     * Replaces the list with expressions a workspace recorded, in their order.
+     *
+     * <p>Each one is evaluated against whatever resource is loaded now, so a restored entry
+     * shows the result it has rather than a stale one. With nothing loaded that is the
+     * view's own "No FHIR resource is loaded.", and Recalculate All fills the results in
+     * once a resource is opened.</p>
+     */
+    public void restoreExpressions(List<String> expressions) {
+        entries.getItems().clear();
+        if (expressions == null) {
+            return;
+        }
+        for (String expression : expressions) {
+            addEntry(expression);
+        }
+    }
+
     /** List cell that renders an entry as the expression plus its result or error. */
     private static final class ResultCell extends ListCell<Result> {
 
