@@ -252,37 +252,16 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     private final MenuButton themeMenu = new MenuButton("Theme");
     private final ThemeManager themeManager = new ThemeManager();
 
-    // Editing actions, created up front so their enabled state can be updated at any time.
-    private final MenuItem newMenuItem = new MenuItem("New...");
-    private final MenuItem saveMenuItem = new MenuItem("Save");
-    private final MenuItem saveAsMenuItem = new MenuItem("Save As...");
-    private final MenuItem undoMenuItem = new MenuItem("Undo Change");
-    private final MenuItem addChildMenuItem = new MenuItem("Add Child Element...");
-    private final MenuItem deleteMenuItem = new MenuItem("Delete Element");
     private final Button saveButton = new Button("Save");
     private final Button undoButton = new Button("Undo");
 
     /**
-     * The resource actions that only make sense for a resource that came from a server.
-     *
-     * <p>Held as fields because their enabled state depends on the displayed resource's
-     * origin, which changes on every display. Offering "Delete from FHIR Server" for a file
-     * that was opened from disk would be a button that always fails.</p>
+     * The menu bar, with the items whose enabled state depends on the document or the server
+     * list. Built by {@code MainMenuFactory} as the last step of the M1 split; the enabling
+     * stays here, in {@code updateEditActions} and {@code updateServerActions}, because this
+     * window is what knows when either changed.
      */
-    private MenuItem refreshFromServerItem;
-    private MenuItem patchOnServerItem;
-    private MenuItem deleteFromServerItem;
-
-    /**
-     * The File menu's server actions.
-     *
-     * <p>Both depend on state that is not known while the menu is being built: opening
-     * needs at least one configured server, and saving needs a displayed resource. Held
-     * as fields so {@link #updateServerActions()} can set their state whenever either
-     * changes, exactly as the existing Save and Undo items do.</p>
-     */
-    private MenuItem openFromServerItem;
-    private MenuItem saveToServerItem;
+    private final MainMenuFactory.Result menus;
 
     /**
      * Which profile validation runs against: automatic (the resource's own
@@ -389,6 +368,31 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
             }
 
             @Override
+            public Tab bundleTab() {
+                return bundleTab;
+            }
+
+            @Override
+            public Tab detailsTab() {
+                return detailsTab;
+            }
+
+            @Override
+            public Tab jsonTab() {
+                return jsonTab;
+            }
+
+            @Override
+            public Tab xmlTab() {
+                return xmlTab;
+            }
+
+            @Override
+            public Tab fhirPathTab() {
+                return fhirPathTab;
+            }
+
+            @Override
             public boolean showUnpopulated() {
                 return showUnpopulated.isSelected();
             }
@@ -403,6 +407,39 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                 themeManager, searchMemory, capabilitiesCache, serverPassphrase, this::setStatus,
                 this::persistServers, this::updateEditActions, serverResourceActions::serverFor,
                 MainWindow::pluginSettingsFile, MainWindow::smartLaunchFile, documentSession);
+        this.menus = new MainMenuFactory(documentSession, serverScreens, serverResourceActions,
+                igPackageActions, workspaceActions, aboutDialog, documentViews, showUnpopulated,
+                this::themeMenuItems, new MainMenuFactory.WindowActions() {
+                    @Override
+                    public void newResource() {
+                        MainWindow.this.newResource();
+                    }
+
+                    @Override
+                    public void closeWindow() {
+                        MainWindow.this.closeWindow();
+                    }
+
+                    @Override
+                    public void validate() {
+                        MainWindow.this.validateDisplayedResource();
+                    }
+
+                    @Override
+                    public void showUserGuide() {
+                        MainWindow.this.showUserGuide();
+                    }
+
+                    @Override
+                    public void showSmartGuide() {
+                        MainWindow.this.showSmartGuide();
+                    }
+
+                    @Override
+                    public void showPhase6Guide() {
+                        MainWindow.this.showPhase6Guide();
+                    }
+                }).build();
         loadSavedServers();
         buildLayout();
         // The workspace the previous session had open. Without this the window held a
@@ -573,216 +610,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     private MenuBar buildMenuBar() {
-        Menu fileMenu = new Menu("File");
-
-        newMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+N"));
-        newMenuItem.setOnAction(event -> newResource());
-
-        MenuItem open = new MenuItem("Open...");
-        open.setAccelerator(KeyCombination.keyCombination("Shortcut+O"));
-        open.setOnAction(event -> documentSession.openFile());
-
-        // Phase 7. Held as fields like the other state-dependent items, because their
-        // enabled state depends on both the displayed resource and the configured
-        // servers, neither of which is known when the menu is built.
-        openFromServerItem = new MenuItem("Open from FHIR Server...");
-        openFromServerItem.setOnAction(event -> serverScreens.open());
-
-        saveToServerItem = new MenuItem("Save to FHIR Server...");
-        saveToServerItem.setOnAction(event -> serverResourceActions.save());
-
-        saveMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+S"));
-        saveMenuItem.setOnAction(event -> documentSession.save());
-
-        saveAsMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Shift+S"));
-        saveAsMenuItem.setOnAction(event -> documentSession.saveAs());
-
-        MenuItem samplePatient = new MenuItem("Patient (JSON)");
-        samplePatient.setOnAction(event -> documentSession.openSample(FhirService.SAMPLE_PATIENT));
-        MenuItem sampleBundle = new MenuItem("Bundle (JSON, 2 entries)");
-        sampleBundle.setOnAction(event -> documentSession.openSample(FhirService.SAMPLE_BUNDLE));
-        Menu sampleMenu = new Menu("Open Sample", null, samplePatient, sampleBundle);
-
-        MenuItem exportJson = new MenuItem("Export as JSON...");
-        exportJson.setOnAction(event -> documentSession.export(ResourceFormat.JSON));
-        MenuItem exportXml = new MenuItem("Export as XML...");
-        exportXml.setOnAction(event -> documentSession.export(ResourceFormat.XML));
-
-        MenuItem close = new MenuItem("Close");
-        close.setOnAction(event -> documentSession.close());
-        MenuItem exit = new MenuItem("Exit");
-        exit.setOnAction(event -> closeWindow());
-
-        fileMenu.getItems().addAll(
-                newMenuItem,
-                open,
-                openFromServerItem,
-                new SeparatorMenuItem(),
-                saveMenuItem,
-                saveAsMenuItem,
-                saveToServerItem,
-                new SeparatorMenuItem(),
-                sampleMenu,
-                exportJson,
-                exportXml,
-                new SeparatorMenuItem(),
-                close,
-                exit);
-        
-        Menu workspaceMenu = new Menu("Workspace");
-        MenuItem wsNew = new MenuItem("New Workspace...");
-        wsNew.setOnAction(e -> newWorkspace());
-        MenuItem wsOpen = new MenuItem("Open Workspace...");
-        wsOpen.setOnAction(e -> openWorkspace());
-        MenuItem wsSave = new MenuItem("Save Workspace");
-        wsSave.setOnAction(e -> saveWorkspace());
-        MenuItem wsSaveAs = new MenuItem("Save Workspace As...");
-        wsSaveAs.setOnAction(e -> saveWorkspaceAs());
-        workspaceMenu.getItems().addAll(wsNew, wsOpen, new SeparatorMenuItem(), wsSave, wsSaveAs);
-
-        Menu igMenu = igPackageActions.menu();
-        return new MenuBar(fileMenu, buildEditMenu(), buildViewMenu(),
-                buildToolsMenu(), buildHelpMenu(), igMenu, workspaceMenu);
-    }
-
-    private Menu buildEditMenu() {
-        undoMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Z"));
-
-        undoMenuItem.setOnAction(event -> documentSession.undoEdit());
-
-        addChildMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Shift+A"));
-        addChildMenuItem.setOnAction(event -> documentSession.addChildToSelection(documentSession.selected()));
-
-        deleteMenuItem.setAccelerator(KeyCombination.keyCombination("Delete"));
-        deleteMenuItem.setOnAction(event -> documentSession.deleteSelectedNode());
-
-        return new Menu("Edit", null, undoMenuItem, new SeparatorMenuItem(), addChildMenuItem, deleteMenuItem);
-    }
-
-    private Menu buildViewMenu() {
-        Menu viewMenu = new Menu("View");
-
-        MenuItem showTree = new MenuItem("Resource Tree");
-        showTree.setOnAction(event -> structureTabs.getSelectionModel().select(treeTab));
-        MenuItem showBundle = new MenuItem("Bundle Navigator");
-        showBundle.setOnAction(event -> structureTabs.getSelectionModel().select(bundleTab));
-        MenuItem showPretty = new MenuItem("Pretty");
-        showPretty.setOnAction(event -> documentTabs.getSelectionModel().select(prettyTab));
-        MenuItem showDetails = new MenuItem("Details");
-        showDetails.setOnAction(event -> documentTabs.getSelectionModel().select(detailsTab));
-        MenuItem showJson = new MenuItem("JSON");
-        showJson.setOnAction(event -> documentTabs.getSelectionModel().select(jsonTab));
-        MenuItem showXml = new MenuItem("XML");
-        showXml.setOnAction(event -> documentTabs.getSelectionModel().select(xmlTab));
-        MenuItem showFhirPath = new MenuItem("FHIRPath");
-        showFhirPath.setOnAction(event -> documentTabs.getSelectionModel().select(fhirPathTab));
-
-        MenuItem expandAll = new MenuItem("Expand All");
-        expandAll.setOnAction(event -> treeView.expandAll());
-        MenuItem collapseAll = new MenuItem("Collapse All");
-        collapseAll.setOnAction(event -> treeView.collapseAll());
-
-        showUnpopulated.setOnAction(event -> documentSession.refreshTree());
-
-        Menu themesMenu = new Menu("Theme");
-        themesMenu.getItems().setAll(themeMenuItems());
-
-        viewMenu.getItems().addAll(
-                showTree,
-                showBundle,
-                new SeparatorMenuItem(),
-                showPretty,
-                showDetails,
-                showJson,
-                showXml,
-                showFhirPath,
-                new SeparatorMenuItem(),
-                expandAll,
-                collapseAll,
-                new SeparatorMenuItem(),
-                themesMenu,
-                showUnpopulated);
-        return viewMenu;
-    }
-
-    private Menu buildToolsMenu() {
-        MenuItem validate = new MenuItem("Validate Resource");
-        validate.setAccelerator(KeyCombination.keyCombination("Shortcut+T"));
-        validate.setOnAction(event -> validateDisplayedResource());
-
-        MenuItem searchServer = new MenuItem("Search FHIR Server...");
-        searchServer.setAccelerator(KeyCombination.keyCombination("Shortcut+K"));
-        searchServer.setOnAction(event -> serverScreens.search());
-
-        MenuItem manageServers = new MenuItem("FHIR Servers...");
-        manageServers.setOnAction(event -> serverScreens.manageServers());
-
-        MenuItem managePlugins = new MenuItem("Server Plugins...");
-        managePlugins.setOnAction(event -> serverScreens.managePlugins());
-
-        // Phase 6. Both are generic: the operation list comes from the active plugin, so a
-        // future vendor's operations appear here without this menu knowing they exist.
-        MenuItem serverStatus = new MenuItem("Server Status and Capabilities...");
-        serverStatus.setOnAction(event -> serverScreens.connectionStatus());
-
-        MenuItem runOperation = new MenuItem("Run Server Operation...");
-        runOperation.setOnAction(event -> serverScreens.operation());
-
-        // The REST console is a peer of the plugin path, not a subordinate of it: it calls
-        // endpoints no plugin declares, which is the whole reason it exists.
-        MenuItem restConsole = new MenuItem("REST Console...");
-        restConsole.setOnAction(event -> serverScreens.restConsole());
-
-        MenuItem scriptingConsole = new MenuItem("Scripting Console...");
-        scriptingConsole.setOnAction(event -> serverScreens.scriptingConsole());
-
-        // SMART on FHIR launches. The workbench itself opens like every other screen: a
-        // dialog from the Tools menu. Discovery and authorization inside it stay disabled
-        // until Phases 02 and 03 wire them up.
-        MenuItem smartWorkbench = new MenuItem("SMART Launch Workbench...");
-        smartWorkbench.setOnAction(event -> serverScreens.smartWorkbench());
-
-        // Resource actions, enabled only when the displayed resource came from a server.
-        MenuItem refreshFromServer = new MenuItem("Refresh from FHIR Server");
-        refreshFromServer.setDisable(true);
-        refreshFromServer.setOnAction(event -> serverResourceActions.refresh());
-
-        MenuItem patchOnServer = new MenuItem("Patch on FHIR Server...");
-        patchOnServer.setDisable(true);
-        patchOnServer.setOnAction(event -> serverResourceActions.patch());
-
-        MenuItem deleteFromServer = new MenuItem("Delete from FHIR Server...");
-        deleteFromServer.setDisable(true);
-        deleteFromServer.setOnAction(event -> serverResourceActions.delete());
-
-        this.refreshFromServerItem = refreshFromServer;
-        this.patchOnServerItem = patchOnServer;
-        this.deleteFromServerItem = deleteFromServer;
-
-        // Open from / Save to a server live in the File menu: they open and save the
-        // displayed resource, which is what the File menu is for. What remains here is
-        // the server administration, plus the actions on a resource already read from
-        // one.
-        return new Menu("Tools", null, validate, new SeparatorMenuItem(), searchServer,
-                refreshFromServer, patchOnServer,
-                deleteFromServer, new SeparatorMenuItem(), manageServers, managePlugins,
-                new SeparatorMenuItem(), serverStatus, runOperation,
-                new SeparatorMenuItem(), restConsole,
-                new SeparatorMenuItem(), scriptingConsole,
-                new SeparatorMenuItem(), smartWorkbench);
-    }
-
-    private Menu buildHelpMenu() {
-        MenuItem userGuide = new MenuItem("User Guide");
-        userGuide.setOnAction(event -> showUserGuide());
-        MenuItem smartGuide = new MenuItem("SMART on FHIR Launch Guide");
-        smartGuide.setOnAction(event -> showSmartGuide());
-        MenuItem scriptingGuide = new MenuItem("Scripting Guide");
-        scriptingGuide.setOnAction(event -> showPhase6Guide());
-        MenuItem about = new MenuItem("About");
-        about.setOnAction(event -> aboutDialog.show());
-        return new Menu("Help", null, userGuide, new SeparatorMenuItem(),
-                smartGuide, new SeparatorMenuItem(), scriptingGuide, new SeparatorMenuItem(), about);
+        return menus.bar();
     }
 
     /** Opens the SMART on FHIR Launch Guide, bundled alongside the server-functions guide. */
@@ -1195,14 +1023,14 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         boolean loaded = documentSession.loaded() != null;
         boolean canUndo = !!documentSession.canUndo();
         boolean hasSelection = loaded && documentSession.selected() != null;
-        saveMenuItem.setDisable(!loaded);
-        saveAsMenuItem.setDisable(!loaded);
+        menus.items().save().setDisable(!loaded);
+        menus.items().saveAs().setDisable(!loaded);
         saveButton.setDisable(!loaded);
-        undoMenuItem.setDisable(!canUndo);
+        menus.items().undo().setDisable(!canUndo);
         undoButton.setDisable(!canUndo);
-        addChildMenuItem.setDisable(!hasSelection);
+        menus.items().addChild().setDisable(!hasSelection);
         // The resource itself cannot be deleted, only the elements inside it.
-        deleteMenuItem.setDisable(!hasSelection || documentSession.selected().getParent() == null);
+        menus.items().delete().setDisable(!hasSelection || documentSession.selected().getParent() == null);
         updateServerActions();
     }
 
@@ -1217,26 +1045,26 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     private void updateServerActions() {
         boolean fromServer = documentSession.origin() != null && documentSession.origin().isSaved();
         boolean hasServer = !serverManager.servers().isEmpty();
-        if (refreshFromServerItem != null) {
-            refreshFromServerItem.setDisable(!fromServer);
+        if (menus.items().refreshFromServer() != null) {
+            menus.items().refreshFromServer().setDisable(!fromServer);
         }
-        if (patchOnServerItem != null) {
-            patchOnServerItem.setDisable(!fromServer);
+        if (menus.items().patchOnServer() != null) {
+            menus.items().patchOnServer().setDisable(!fromServer);
         }
-        if (deleteFromServerItem != null) {
-            deleteFromServerItem.setDisable(!fromServer);
+        if (menus.items().deleteFromServer() != null) {
+            menus.items().deleteFromServer().setDisable(!fromServer);
         }
-        if (openFromServerItem != null) {
+        if (menus.items().openFromServer() != null) {
             // With no server configured the action could only open the "add a server"
             // dialog, which is not what the item says it does, so it is disabled and the
             // user is pointed at the item that does add one.
-            openFromServerItem.setDisable(!hasServer);
+            menus.items().openFromServer().setDisable(!hasServer);
         }
-        if (saveToServerItem != null) {
+        if (menus.items().saveToServer() != null) {
             // A resource to write and somewhere to write it to. A resource with no
             // origin is still offered: a file or a sample can be pushed to a server, and
             // that is a create rather than an update.
-            saveToServerItem.setDisable(documentSession.resource() == null || !hasServer);
+            menus.items().saveToServer().setDisable(documentSession.resource() == null || !hasServer);
         }
     }
 

@@ -35,7 +35,17 @@ interface DocumentViews {
 
     Tab treeTab();
 
+    Tab bundleTab();
+
     Tab prettyTab();
+
+    Tab detailsTab();
+
+    Tab jsonTab();
+
+    Tab xmlTab();
+
+    Tab fhirPathTab();
 
     /** Whether the "show unpopulated elements" toggle is on. */
     boolean showUnpopulated();

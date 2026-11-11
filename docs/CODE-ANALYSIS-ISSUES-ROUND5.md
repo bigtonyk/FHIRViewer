@@ -47,7 +47,7 @@ from the fourth, and `R5-*` are new here.
 | R4-8 `closingFromAction` never cleared | P3 | Fixed 2026-11-10 — flag lasts one close |
 | R4-9 `captureAllCurrent()` NPE at start-up | P3 | Fixed 2026-11-10 — throws `IllegalStateException` |
 | R4-10 mangled console javadoc bullet | P3 | Fixed 2026-11-10 |
-| M1 `MainWindow` size | P3 | **Open in part** — 1,271 lines; R4 §7 steps 1–5 done |
+| M1 `MainWindow` size | P3 | **Fixed 2026-11-11** — 1,099 lines; all six R4 §7 steps done |
 | M7 workspace restore | P1 | Fixed 2026-11-10 — restore is offered at start-up; tree/tabs and FHIRPath state wired |
 | L9 passphrase as un-zeroable `String` | P3 | Fixed 2026-11-10 — `char[]` end to end on the session path |
 | L10 diagnostics charset | P3 | Fixed 2026-11-10 — export writes UTF-8 explicitly |
@@ -58,10 +58,10 @@ from the fourth, and `R5-*` are new here.
 
 ## 2. Outstanding findings
 
-### M1. `MainWindow` is 1,271 lines
+### M1. `MainWindow` is 1,099 lines
 
-**Enhancement — P3, started.** `ui/MainWindow.java`; 1,271 lines now (1,923 before the editor core moved, 2,071 before the file operations, 2,292 before step 4, 2,599 before step 3, 2,777 before the first
-split step, 2,705 at `448f7fe`, 2,693 in the fourth pass). R4 §7's order is being followed:
+**Enhancement — P3, complete.** `ui/MainWindow.java`; 1,099 lines now (1,271 before the menu factory moved, 1,923 before the editor core moved, 2,071 before the file operations, 2,292 before step 4, 2,599 before step 3, 2,777 before the first
+split step, 2,705 at `448f7fe`, 2,693 in the fourth pass). R4 §7's order was followed:
 
 - **Step 1 done** — `AboutDialog` (174 lines) took the dialog, its logo cache, its link
   handling and the `hostServices` field with it; the window keeps the Help menu item and one
@@ -90,8 +90,12 @@ split step, 2,705 at `448f7fe`, 2,693 in the fourth pass). R4 §7's order is bei
   hands them over once through `DocumentViews`; the session is also the `DocumentPort` the
   server classes talk to, so the anonymous port implementation is gone. File operations moved
   with it, which collapsed the earlier 5a/5b split into one class.
-- **Step 6 unstarted** — the menu factory, which R4 §7 puts last because the menu items are
-  enable-state fields read by `updateEditActions`.
+- **Step 6 done** — `MainMenuFactory` (314 lines) builds the File, Edit, View, Tools, Help,
+  Workspace and IG menus and returns the ten items whose enabled state the window sets
+  (`Items`), so `updateEditActions` and `updateServerActions` still own the enabling, exactly
+  as R4 §7 intended. Handlers come from the objects that own them; the six window-level ones
+  go through a small `WindowActions` interface. `DocumentViews` gained the five tab accessors
+  the View menu needs.
 
 ---
 
@@ -105,7 +109,7 @@ Both findings this pass added are fixed: R5-1's javadoc now states the real-node
 
 | ID | Type | Priority | Item | Where |
 |----|------|----------|------|-------|
-| M1 | Enhancement | **P3** | `MainWindow` is 1,271 lines; `AboutDialog`, `IgPackageActions`, `ServerResourceActions`, `ServerScreens` and `DocumentSession` extracted; only the menu factory left per R4 §7 | `MainWindow` |
+| M1 | Enhancement | **P3** | `MainWindow` is 1,099 lines; `AboutDialog`, `IgPackageActions`, `ServerResourceActions`, `ServerScreens`, `DocumentSession` and `MainMenuFactory` extracted; M1 complete | `MainWindow` |
 
 Closed since the fourth pass: R4-1, R4-2, R4-8, R4-9, R4-10, L9, L10, L11 and L12.
 Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7, M7, R5-1 and R5-2.
@@ -144,7 +148,7 @@ Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7, M7, R5-1 and R
   tree/tab and FHIRPath state passed to the service round-trips through a workspace archive.
   The window itself was not launched, so the prompt's wording, the restored tab selection and
   the restored expressions were not seen on screen.
-- R4 §7's line spans are from the fourth pass and have not been re-measured against 1,271
+- R4 §7's line spans are from the fourth pass and have not been re-measured against 1,099
   lines; the M7 wiring and the two split steps have moved every region after the fields.
 - M1's steps were checked at three levels: `test-compile` after every slice, the full suite
   (1,039 tests, 0 failures) after the editor-core move, and one real launch of the window on
