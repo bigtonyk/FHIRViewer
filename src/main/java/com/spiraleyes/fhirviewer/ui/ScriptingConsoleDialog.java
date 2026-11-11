@@ -210,7 +210,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         coordinator.reset(() -> Platform.runLater(() -> {
             setBusy(false);
             appendRaw("[session reset]");
-            setStatus("Session reset Ã¢â‚¬â€ variables, methods and classes"
+            setStatus("Session reset — variables, methods and classes"
                     + " from the previous session are gone.");
         }));
     }
@@ -296,7 +296,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         warning.setHeaderText("Scripts are not sandboxed");
         warning.setContentText("Java scripts run with the same permissions as FHIRViewer itself:"
                 + " they can read files, use the network, start processes and inspect the"
-                + " environment. Only run scripts you trust Ã¢â‚¬â€ this includes any file you open.\n\n"
+                + " environment. Only run scripts you trust — this includes any file you open.\n\n"
                 + "FHIRViewer never runs scripts on its own; nothing executes"
                 + " until you press Run.");
         ButtonType runAnyway = new ButtonType("Run Script", ButtonBar.ButtonData.OK_DONE);
@@ -304,7 +304,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         warning.getDialogPane().getStylesheets().addAll(stylesheets);
         Optional<ButtonType> answer = warning.showAndWait();
         if (answer.isEmpty() || answer.get() != runAnyway) {
-            setStatus("Run cancelled Ã¢â‚¬â€ scripts are not sandboxed.");
+            setStatus("Run cancelled — scripts are not sandboxed.");
             return false;
         }
         trustAcknowledged = true;
@@ -344,7 +344,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         savedContent = content;
         currentFile = file.toPath();
         trustAcknowledged = false;
-        setStatus("Opened " + file.getName() + " Ã¢â‚¬â€ running will ask for trust again.");
+        setStatus("Opened " + file.getName() + " — running will ask for trust again.");
     }
 
     /**
@@ -404,7 +404,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
         editor.setText(example);
         savedContent = example;
-        setStatus("Example loaded Ã¢â‚¬â€ press Run to execute it.");
+        setStatus("Example loaded — press Run to execute it.");
     }
 
     /** The bundled example text, or null when the resource is missing. */
