@@ -7,6 +7,7 @@ import com.spiraleyes.fhirviewer.service.PackageInstaller;
 import com.spiraleyes.fhirviewer.service.PackageRegistryService;
 import com.spiraleyes.fhirviewer.service.PackageStorage;
 import javafx.geometry.Insets;
+import javafx.geometry.Rectangle2D;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.BorderPane;
@@ -16,6 +17,7 @@ import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Modality;
+import javafx.stage.Screen;
 import javafx.stage.Window;
 import javafx.util.Callback;
 
@@ -24,6 +26,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -41,6 +44,9 @@ public class IgPackageDialog extends Dialog<String> {
     private static final double MIN_WIDTH = 1180;
     private static final double PREF_WIDTH = 1340;
     private static final double MIN_HEIGHT = 620;
+    private static final double PREF_HEIGHT = 760;
+    /** Space kept between the dialog and the screen edge, as in the REST console. */
+    private static final double MARGIN = 40;
 
     private final IgPackageManager packageManager;
     private final PackageRegistryService registryService;
@@ -65,15 +71,24 @@ public class IgPackageDialog extends Dialog<String> {
     private Label statusLabel;
 
     public IgPackageDialog(Window parentWindow, IgPackageManager pm,
-                          PackageRegistryService rs) {
+                          PackageRegistryService rs, ThemeManager themeManager) {
         this.packageManager = pm;
         this.registryService = rs;
+        // A dialog lives in its own scene, so it needs the window's stylesheets; without
+        // them every design token this dialog now uses resolves to nothing.
+        getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
 
         setTitle("IG Package Manager");
         setHeaderText("Manage FHIR Implementation Guide Packages");
 
         BorderPane mainPane = createMainPane();
-        getDialogPane().setContent(mainPane);
+        // The three columns cannot get meaningfully narrower, so where the screen cannot
+        // hold the requested width the body scrolls instead of dropping the right-hand
+        // column - the storage directory and "Load Package from File" - off the edge.
+        ScrollPane body = new ScrollPane(mainPane);
+        body.setFitToWidth(true);
+        body.setFitToHeight(true);
+        getDialogPane().setContent(body);
 
         ButtonType loadButtonType = new ButtonType("Load", ButtonBar.ButtonData.OK_DONE);
         getDialogPane().getButtonTypes().addAll(loadButtonType, ButtonType.CANCEL);
@@ -91,6 +106,7 @@ public class IgPackageDialog extends Dialog<String> {
         refreshLoadedPackages();
         initOwner(parentWindow);
         initModality(Modality.WINDOW_MODAL);
+        setOnShown(event -> fitToScreen());
     }
 
     private BorderPane createMainPane() {
@@ -103,26 +119,27 @@ public class IgPackageDialog extends Dialog<String> {
         mainPane.setRight(storagePanel);
 
         statusLabel = new Label("Ready");
-        statusLabel.setStyle("-fx-background-color: #f0f0f0; -fx-padding: 5px;");
-        statusLabel.setPadding(new Insets(5));
+        statusLabel.getStyleClass().add("ig-status-bar");
+        statusLabel.setMaxWidth(Double.MAX_VALUE);
         mainPane.setBottom(statusLabel);
 
         // Let the user enlarge the dialog: the three columns and the action
         // rows below the lists need room to stay readable.
         setResizable(true);
-        getDialogPane().setMinWidth(MIN_WIDTH);
-        getDialogPane().setPrefWidth(PREF_WIDTH);
-        getDialogPane().setMinHeight(MIN_HEIGHT);
+        // A starting size, not a fixed one: fitToScreen() brings it inside the display it
+        // opens on, which is what stops a 1340px request losing its right-hand column on a
+        // scaled laptop screen.
+        getDialogPane().setPrefSize(PREF_WIDTH, PREF_HEIGHT);
         return mainPane;
     }
 
     private VBox createSearchPanel() {
         VBox panel = new VBox(10);
         panel.setPadding(new Insets(15));
-        panel.setStyle("-fx-background-color: #f9f9f9; -fx-border-color: #ddd; -fx-border-width: 1px;");
+        panel.getStyleClass().add("ig-panel");
 
         Label titleLabel = new Label("Search Registry");
-        titleLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
+        titleLabel.getStyleClass().add("ig-section-title");
 
         searchField = new TextField();
         searchField.setPromptText("Package id or keywords, e.g. hl7.fhir.us.core or us core");
@@ -179,14 +196,14 @@ public class IgPackageDialog extends Dialog<String> {
     private VBox createLoadedPackagesPanel() {
         VBox panel = new VBox(10);
         panel.setPadding(new Insets(15));
-        panel.setStyle("-fx-background-color: #f0f7ff; -fx-border-color: #b3d9ff; -fx-border-width: 1px;");
+        panel.getStyleClass().addAll("ig-panel", "ig-panel-installed");
 
         Label titleLabel = new Label("Installed Packages");
-        titleLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
+        titleLabel.getStyleClass().add("ig-section-title");
 
         Label hint = new Label("Installed packages can be active or inactive.\n"
                 + "Only active packages are used for automatic profile validation.");
-        hint.setStyle("-fx-font-size: 11px; -fx-text-fill: #555;");
+        hint.getStyleClass().add("ig-hint");
 
         loadedPackagesList = new ListView<>();
         loadedPackagesList.setPrefHeight(320);
@@ -243,10 +260,10 @@ public class IgPackageDialog extends Dialog<String> {
     private VBox createStoragePanel() {
         VBox panel = new VBox(10);
         panel.setPadding(new Insets(15));
-        panel.setStyle("-fx-background-color: #fff5f5; -fx-border-color: #ffd6d6; -fx-border-width: 1px;");
+        panel.getStyleClass().add("ig-panel");
 
         Label titleLabel = new Label("Package Storage");
-        titleLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
+        titleLabel.getStyleClass().add("ig-section-title");
 
         storageDirField = new TextField();
         storageDirField.setPrefWidth(300);
@@ -259,7 +276,7 @@ public class IgPackageDialog extends Dialog<String> {
         loadFromFileButton.setOnAction(e -> loadPackageFromFile());
 
         Label helpLabel = new Label("Downloaded packages are stored in the directory above.");
-        helpLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: #666;");
+        helpLabel.getStyleClass().add("ig-hint");
 
         panel.getChildren().addAll(titleLabel, new Label("Storage Directory:"), storageDirField,
                 browseButton, loadFromFileButton, helpLabel);
@@ -560,6 +577,58 @@ public class IgPackageDialog extends Dialog<String> {
     private Path getStoragePath() {
         String dir = storageDirField.getText().trim();
         return dir.isEmpty() ? PackageStorage.getStorageDirectory() : Paths.get(dir);
+    }
+
+    /**
+     * Fits the dialog inside the screen it opens on.
+     *
+     * <p>The three columns ask for {@code PREF_WIDTH} and their controls do not shrink much
+     * below {@code MIN_WIDTH}. On a display whose logical width is smaller than that - 150%
+     * scaling on a 1920 screen leaves about 1280 - the window manager clamps the window and
+     * clips whichever column falls outside it, which was the storage column, where the
+     * directory and "Load Package from File" live. So the size is fitted here, against the
+     * same arithmetic the REST console uses.</p>
+     *
+     * <p>Sized on the shown event, not before it: the dialog sizes its window from its
+     * content when it opens and ignores a preferred size set on the pane, so a size applied
+     * earlier is replaced - measured, that put the window back at its 1180 minimum. The shown
+     * event is delivered before the first frame is painted, so the size set here is the size
+     * that appears.</p>
+     */
+    private void fitToScreen() {
+        Window window = getDialogPane().getScene() == null
+                ? null : getDialogPane().getScene().getWindow();
+        if (window == null) {
+            // No scene yet; a dialog that cannot be resized is still a working dialog.
+            return;
+        }
+        Rectangle2D bounds = screenBoundsOf(window);
+        double availableWidth = Math.max(600, bounds.getWidth() - MARGIN);
+        double availableHeight = Math.max(400, bounds.getHeight() - MARGIN);
+        double width = RestConsoleDialog.fitWithin(PREF_WIDTH, MIN_WIDTH, availableWidth);
+        double height = RestConsoleDialog.fitWithin(PREF_HEIGHT, MIN_HEIGHT, availableHeight);
+
+        // The minimum gives way when the display cannot hold it: a floor bigger than the screen
+        // is what reintroduces the clipping this exists to remove.
+        getDialogPane().setMinSize(Math.min(MIN_WIDTH, availableWidth),
+                Math.min(MIN_HEIGHT, availableHeight));
+        getDialogPane().setPrefSize(width, height);
+        window.setWidth(width);
+        window.setHeight(height);
+    }
+
+    /**
+     * The screen this dialog should fit inside, chosen by the rectangle the window covers so a
+     * dialog opened from a second monitor lands on that monitor rather than the primary one.
+     */
+    private static Rectangle2D screenBoundsOf(Window window) {
+        List<Screen> touching = window != null && window.getWidth() > 0 && window.getHeight() > 0
+                ? Screen.getScreensForRectangle(window.getX(), window.getY(),
+                        window.getWidth(), window.getHeight())
+                : List.of();
+        Screen screen = touching.isEmpty() ? Screen.getPrimary() : touching.get(0);
+        return screen == null ? new Rectangle2D(0, 0, PREF_WIDTH, PREF_HEIGHT)
+                : screen.getVisualBounds();
     }
 
     private void showAlert(Alert.AlertType type, String message) {

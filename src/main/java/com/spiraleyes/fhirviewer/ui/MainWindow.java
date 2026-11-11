@@ -298,7 +298,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         this.workspaceActions = new WorkspaceActions(stage, workspaceService, themeManager,
                 this::setStatus);
         this.igPackageActions = new IgPackageActions(stage,
-                fhirService.validationService().getPackageManager(),
+                fhirService.validationService().getPackageManager(), themeManager,
                 (title, message) -> showAlert(Alert.AlertType.INFORMATION, title, message),
                 this::showFailure,
                 this::refreshProfileChoices,

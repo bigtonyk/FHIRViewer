@@ -23,6 +23,8 @@ final class IgPackageActions {
 
     private final Stage owner;
     private final IgPackageManager packages;
+    /** Carries the design tokens into the dialog, which lives in its own scene. */
+    private final ThemeManager themeManager;
     /** Shows an information alert with the given title and text. */
     private final BiConsumer<String, String> info;
     /** Reports a failure in the status line and in an error alert. */
@@ -32,11 +34,13 @@ final class IgPackageActions {
     /** Marks the workspace dirty; the installed set is part of what it captures. */
     private final Runnable workspaceChanged;
 
-    IgPackageActions(Stage owner, IgPackageManager packages, BiConsumer<String, String> info,
+    IgPackageActions(Stage owner, IgPackageManager packages, ThemeManager themeManager,
+            BiConsumer<String, String> info,
             BiConsumer<String, Throwable> failure, Runnable profileChoicesChanged,
             Runnable workspaceChanged) {
         this.owner = owner;
         this.packages = packages;
+        this.themeManager = themeManager;
         this.info = info;
         this.failure = failure;
         this.profileChoicesChanged = profileChoicesChanged;
@@ -61,7 +65,7 @@ final class IgPackageActions {
         try {
             int installedBefore = packages.getLoadedPackageCount();
             IgPackageDialog dialog = new IgPackageDialog(owner, packages,
-                    new PackageRegistryService());
+                    new PackageRegistryService(), themeManager);
             dialog.showAndWait();
             // Packages may have been installed or activated: update the profile picker.
             profileChoicesChanged.run();
