@@ -134,7 +134,7 @@ public final class PluginSettingsStore {
      * actually saved for: a user who points the same plugin at a second server, or who
      * changes the URL, gets anonymous access rather than a password sent somewhere it
      * was never meant to go. Sending a credential to the wrong host is not a recoverable
-     * mistake, so the check is deliberately strict â€” trailing slashes and case in the
+     * mistake, so the check is deliberately strict — trailing slashes and case in the
      * scheme and host are ignored, nothing else is.
      *
      * @param server the server the application is about to talk to

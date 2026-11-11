@@ -45,8 +45,8 @@ import com.spiraleyes.fhirviewer.server.FhirServerService;
  * The Scripting Console: a multiline Java editor over a read-only output
  * console, running the buffer through an embedded JShell.
  *
- * <p>Shaped after {@link RestConsoleDialog} Ã¢â‚¬â€ a workspace {@code Dialog} with a
- * SplitPane of two halves and a status line that never lies Ã¢â‚¬â€ rather than
+ * <p>Shaped after {@link RestConsoleDialog} — a workspace {@code Dialog} with a
+ * SplitPane of two halves and a status line that never lies — rather than
  * after any modal form: the editor and the output belong on screen together,
  * and Run/Stop/Reset/Open/Save/Save As/Example/Clear Output are the content of
  * the job, not decoration around it. The dialog themes and sizes itself, the
@@ -54,8 +54,8 @@ import com.spiraleyes.fhirviewer.server.FhirServerService;
  * {@code applyDialogTheme}: that helper pins every dialog it touches to 620px,
  * and a scripting workspace at 620px is a form the panels collide in.</p>
  *
- * <p><b>Scripts are ordinary Java and are not sandboxed.</b> The first Run Ã¢â‚¬â€
- * and the first Run after opening a file, which arrives from outside Ã¢â‚¬â€ asks
+ * <p><b>Scripts are ordinary Java and are not sandboxed.</b> The first Run —
+ * and the first Run after opening a file, which arrives from outside — asks
  * for an explicit acknowledgement before anything executes, and nothing ever
  * runs on its own: not on dialog open, not on file open, not on anything but
  * the Run button.</p>
@@ -163,7 +163,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         getDialogPane().setMinHeight(540);
 
         // Dialog.close() is final, so cleanup goes here: hide fires for a Close
-        // press and a programmatic close alike Ã¢â‚¬â€ the arrangement SmartLaunchDialog
+        // press and a programmatic close alike — the arrangement SmartLaunchDialog
         // records in its own comment, for the same reason.
         setOnHidden(event -> coordinator.close());
         setOnCloseRequest(event -> {
@@ -177,7 +177,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     // Execution
     // ------------------------------------------------------------------
 
-    /** Runs the buffer Ã¢â‚¬â€ after the trust acknowledgement, and on the coordinator's worker. */
+    /** Runs the buffer — after the trust acknowledgement, and on the coordinator's worker. */
     private void onRun() {
         if (coordinator.isRunning()) {
             return;
