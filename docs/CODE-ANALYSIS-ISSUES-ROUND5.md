@@ -101,7 +101,25 @@ split step, 2,705 at `448f7fe`, 2,693 in the fourth pass). R4 §7's order was fo
 
 ## 3. New findings
 
-Both findings this pass added are fixed: R5-1's javadoc now states the real-node cost, and R5-2's save/restore pair keeps the developer's console node out of the suite. They are listed with the other closed items in §4.
+Four findings this pass carries. R5-1 and R5-2 were added when it was written and are
+fixed: R5-1's javadoc now states the real-node cost, and R5-2's save/restore pair keeps the
+developer's console node out of the suite. R5-3 and R5-4 were found on 2026-11-11 by building
+every dialog the suite does not touch on a real JavaFX toolkit and by reading what those
+screens show; both are fixed.
+
+- **R5-3 - P2, fixed 2026-11-11 (`cfedf40`, `d465aa5`).** The Scripting Console's status line
+  and trust warning showed a mojibake run where an em dash belonged, in five
+  user-facing strings and six javadoc and comment lines: the file holds the UTF-8 bytes of an
+  already decoded em dash, decoded as Windows-1252 and saved as UTF-8 again, twice over. The
+  strings were repaired first and the comments second, both by reversing that encoding rather
+  than by substituting guessed text. A scan of every Java source found no other instance.
+- **R5-4 - P2, fixed 2026-11-11 (`9eac31d`).** The IG Package Manager ignored the theme - three
+  inline panel colours, a `#f0f0f0` status bar and two inline font sizes, so it stayed a light
+  slab on every dark theme - and never consulted the screen: its 1340 px request and 1180 px
+  minimum were applied as they stood, so a display whose logical width is smaller than that
+  lost the storage column off the right edge. It now takes the `ThemeManager`, styles each part
+  through `app.css` tokens, fits itself to the screen with the REST console's `fitWithin`
+  arithmetic, and scrolls its body when the window is narrower than the content.
 
 ---
 
@@ -110,9 +128,14 @@ Both findings this pass added are fixed: R5-1's javadoc now states the real-node
 | ID | Type | Priority | Item | Where |
 |----|------|----------|------|-------|
 | M1 | Enhancement | **P3** | `MainWindow` is 1,099 lines; `AboutDialog`, `IgPackageActions`, `ServerResourceActions`, `ServerScreens`, `DocumentSession` and `MainMenuFactory` extracted; M1 complete | `MainWindow` |
+| R5-3 | Bug | **P2** | Scripting Console text carries a double-decoded em dash | `ScriptingConsoleDialog` |
+| R5-4 | Bug | **P2** | IG Package Manager ignores the theme and does not fit the screen | `IgPackageDialog` |
+
+No open items remain in this pass.
 
 Closed since the fourth pass: R4-1, R4-2, R4-8, R4-9, R4-10, L9, L10, L11 and L12.
-Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7, M7, R5-1 and R5-2.
+Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7, M7, R5-1, R5-2, R5-3
+and R5-4.
 
 ---
 
@@ -158,11 +181,20 @@ Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7, M7, R5-1 and R
   the document and puts the asterisk in the title, undo clears both and restores the value, and
   the history stops at the documented twenty. What remains unobserved is what needs a click:
   the About and Implementation Guide dialogs, the nine server dialogs, Save As and the file
-  choosers, and `refreshAfterEdit`'s select-after-rebuild as it appears on screen.
+
+- The 2026-11-11 walkthrough built and showed the six dialogs nothing else covers - About, Add
+  child, the IG Package Manager, User Guide, Fetch bearer token and the Scripting Console -
+  against the real services on a 1500x960 display, and measured each one: none threw and none
+  overflowed that screen. No button was pressed, so the trust acknowledgement, Run/Stop/Reset,
+  Load, Save As and the file choosers, and the server dialogs' request paths are unobserved.
+- R5-4's small-screen branch is arithmetic only: this display is 1500 px wide, so the clamp ran
+  through its no-change path and a window clamped below 1180 was never opened. Its theme result
+  was measured on the toolkit against a dark theme - status bar `0x0d1117ff`, installed panel
+  `0x388bfd26` - and not looked at on screen.
 
 ---
 
 ## 6. Suggested order
 
-1. **M1** as opportunity allows; its plan is already written and its first four steps are
-   mechanical.
+There is no next item: M1 was the last entry in §4 and it is complete. New work has to come
+from a fresh pass or from the unclicked paths listed in §5.
