@@ -4,9 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.prefs.Preferences;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -16,14 +21,42 @@ import com.spiraleyes.fhirviewer.server.rest.RestMethod;
 /**
  * What the console remembers, and — more importantly — what it must not.
  *
- * <p>These tests read and write the same preferences node the application uses and clear it
- * afterwards. That is deliberate: a test against a mock would not catch the one thing that
+ * <p>These tests read and write the same preferences node the application uses rather than a
+ * copy of it. That is deliberate: a test against a mock would not catch the one thing that
  * matters here, which is a secret reaching the disk through a path nobody thought about.
  *
- * <p>They do use a node of their own rather than the real one, so running the suite cannot
- * disturb a developer's remembered console settings.
+ * <p>The same choice means the tests touch the developer's own node, so the class snapshots it
+ * before each test and puts it back afterwards: the suite runs against the node the application
+ * uses without deciding what the console reopens with.</p>
  */
 class RestConsoleStateTest {
+
+    /** The developer's remembered console, put back once a test has finished with it. */
+    private Map<String, String> savedPreferences;
+
+    /**
+     * Snapshots the developer's console node and starts the test from an empty one, so a test
+     * cannot pass on what an earlier test happened to save.
+     */
+    @BeforeEach
+    void snapshotTheConsoleNode() throws Exception {
+        Preferences node = node();
+        savedPreferences = new LinkedHashMap<>();
+        for (String key : node.keys()) {
+            savedPreferences.put(key, node.get(key, ""));
+        }
+        node.clear();
+        node.flush();
+    }
+
+    /** Puts the developer's remembered console back, so a test run decides nothing for them. */
+    @AfterEach
+    void restoreTheConsoleNode() throws Exception {
+        Preferences node = node();
+        node.clear();
+        savedPreferences.forEach(node::put);
+        node.flush();
+    }
 
     private static RestConsoleState roundTrip(RestConsoleState state) {
         state.save();
@@ -114,7 +147,7 @@ class RestConsoleStateTest {
     @Test
     @DisplayName("A body left behind by an earlier build is removed, not read back")
     void bodyFromAnEarlierBuildIsPurged() throws Exception {
-        java.util.prefs.Preferences node = node();
+        Preferences node = node();
         node.put("body", "{\"resourceType\":\"Patient\",\"name\":[{\"text\":\"phi\"}]}");
 
         RestConsoleState loaded = RestConsoleState.load(List.of());
@@ -129,7 +162,7 @@ class RestConsoleStateTest {
     void noSecretReachesTheStore() throws Exception {
         populated().save();
 
-        java.util.prefs.Preferences node = RestConsoleStateTest.node();
+        Preferences node = RestConsoleStateTest.node();
         for (String key : node.keys()) {
             String value = node.get(key, "");
             assertFalse(value.contains("s3cret"), key + " looks like it holds a password");
@@ -153,7 +186,7 @@ class RestConsoleStateTest {
     @Test
     @DisplayName("Unreadable stored text falls back rather than failing")
     void corruptStoredTextIsTolerated() throws Exception {
-        java.util.prefs.Preferences node = node();
+        Preferences node = node();
         node.put("method", "TELEPORT");
         node.put("authKind", "carrier-pigeon");
         node.put("parameters", "{not json at all");
@@ -190,17 +223,17 @@ class RestConsoleStateTest {
      * <p>Delegated to the class under test so the tests and the application cannot drift
      * onto different nodes, which would let this suite pass while the real key was broken.
      */
-    private static java.util.prefs.Preferences node() throws java.util.prefs.BackingStoreException {
+    private static Preferences node() throws java.util.prefs.BackingStoreException {
         return RestConsoleState.nodeForTest();
     }
 
     @Test
     @DisplayName("A console an earlier build remembered comes back, and its old node is emptied")
     void valuesFromTheEarlierNodeAreMigrated() throws Exception {
-        java.util.prefs.Preferences current = node();
+        Preferences current = node();
         current.clear();
-        java.util.prefs.Preferences legacy =
-                java.util.prefs.Preferences.userRoot().node("com/example/fhirviewer/restConsole");
+        Preferences legacy =
+                Preferences.userRoot().node("com/example/fhirviewer/restConsole");
         legacy.put("path", "Patient/legacy");
         legacy.put("method", "PUT");
         legacy.put("divider", "0.33");
@@ -215,7 +248,7 @@ class RestConsoleStateTest {
 
         restored.save();
 
-        assertEquals(0, java.util.prefs.Preferences.userRoot()
+        assertEquals(0, Preferences.userRoot()
                         .node("com/example/fhirviewer/restConsole").keys().length,
                 "the placeholder node must not survive as a second source of truth");
     }

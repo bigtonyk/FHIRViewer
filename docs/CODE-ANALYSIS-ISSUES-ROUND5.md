@@ -69,45 +69,7 @@ started.
 
 ## 3. New findings
 
-### R5-1. `RestConsoleStateTest`'s javadoc describes a test isolation it does not have
-
-**Issue (documentation) — P3.** `ui/RestConsoleStateTest`, class javadoc and `node()`.
-
-The class says both that the tests "read and write the same preferences node the application
-uses and clear it afterwards" and that "they do use a node of their own rather than the real
-one, so running the suite cannot disturb a developer's remembered console settings". The two
-claims contradict each other, and neither holds: `node()` delegates to
-`RestConsoleState.nodeForTest()`, which returns `Preferences.userRoot().node(NODE)` — the
-application's own `com/spiraleyes/fhirviewer/restConsole` node — and there is no `@AfterEach`
-or equivalent clearing it.
-
-The delegation is the right decision, and the javadoc argues for it well: a mock would not
-catch a secret reaching the disk. What is wrong is the paragraph next to it, which promises
-the opposite. This is the same defect shape as R4-10: a privacy-sensitive class whose
-statement of intent was left saying two things.
-
-**Fix:** keep the first justification and replace the contradictory paragraph with what the
-tests actually do — they use the application's node on purpose, and therefore replace the
-developer's remembered console state when the suite runs.
-
-### R5-2. The preference-writing tests leave the developer's real settings changed
-
-**Issue (test isolation) — P3.** `ui/RestConsoleStateTest`, `ui/WorkspaceWiringTest`.
-
-Following from R5-1: both classes write the real user-root preference nodes, and neither
-restores what was there. Running the suite replaces the remembered REST console request
-(`RestConsoleStateTest`), and the recorded last workspace, including its `lastPath`
-(`WorkspaceWiringTest`). On a developer machine that means the next application launch opens
-whatever the last test wrote, or asks where to save because the test's archive was in a
-temporary directory that is now gone.
-
-The fix is small and does not cost the coverage the tests were written for: capture the
-node's values in a `@BeforeEach` and put them back in an `@AfterEach`, or run each class
-against `Preferences.userRoot().node(appNode + "-test")` seeded from nothing. The first keeps
-the "same node as the application" property the javadoc argues for; the second is cleaner but
-gives up that property.
-
-**Fix:** save and restore the node contents around each test class.
+Both findings this pass added are fixed: R5-1's javadoc now states the real-node cost, and R5-2's save/restore pair keeps the developer's console node out of the suite. They are listed with the other closed items in §4.
 
 ---
 
@@ -115,12 +77,10 @@ gives up that property.
 
 | ID | Type | Priority | Item | Where |
 |----|------|----------|------|-------|
-| R5-1 | Issue | **P3** | `RestConsoleStateTest`'s javadoc promises a test isolation the class does not have | `RestConsoleStateTest` |
-| R5-2 | Issue | **P3** | The preference-writing tests leave the developer's real settings changed | `RestConsoleStateTest`, `WorkspaceWiringTest` |
 | M1 | Enhancement | **P3** | `MainWindow` is 2,777 lines; the six extraction candidates are mapped in R4 §7 | `MainWindow` |
 
 Closed since the fourth pass: R4-1, R4-2, R4-8, R4-9, R4-10, L9, L10, L11 and L12.
-Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7 and M7.
+Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7, M7, R5-1 and R5-2.
 
 ---
 
@@ -147,9 +107,11 @@ Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7 and M7.
 - R4-3's fix compares the manager's unmet set before and after the install, so one case goes
   unreported: a package reinstalled while the same dependency key is still unmet. The key is
   already in the snapshot when `resolveDependencies` re-adds it, so it reads as unchanged.
-- R5-1 and R5-2 were confirmed by reading the two test classes and by running their suites,
-  which themselves write the real nodes. The effect on a developer's settings was not
-  observed before and after a run.
+- R5-1's fix is a corrected javadoc paragraph, which no test can check. R5-2's fix is covered
+  by the suite itself: the class snapshots the console node before each test, starts from an
+  empty one and restores the developer's afterwards, and the run that shows the tests still
+  pass is the run that exercises that restore. A before-and-after comparison of a developer's
+  node across a real `mvnw test` was not made.
 - M7's fix is covered by tests that the start-up offer is asked and can be declined, and that
   tree/tab and FHIRPath state passed to the service round-trips through a workspace archive.
   The window itself was not launched, so the prompt's wording, the restored tab selection and
@@ -161,6 +123,5 @@ Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7 and M7.
 
 ## 6. Suggested order
 
-1. **R5-1 and R5-2** — a doc paragraph and a save/restore pair around the two test classes.
-2. **M1** as opportunity allows; its plan is already written and its first two steps are
+1. **M1** as opportunity allows; its plan is already written and its first two steps are
    mechanical.
