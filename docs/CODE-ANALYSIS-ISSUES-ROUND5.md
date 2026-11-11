@@ -47,7 +47,7 @@ from the fourth, and `R5-*` are new here.
 | R4-8 `closingFromAction` never cleared | P3 | Fixed 2026-11-10 — flag lasts one close |
 | R4-9 `captureAllCurrent()` NPE at start-up | P3 | Fixed 2026-11-10 — throws `IllegalStateException` |
 | R4-10 mangled console javadoc bullet | P3 | Fixed 2026-11-10 |
-| M1 `MainWindow` size | P3 | **Open in part** — 1,923 lines; R4 §7 steps 1–5a done |
+| M1 `MainWindow` size | P3 | **Open in part** — 1,271 lines; R4 §7 steps 1–5 done |
 | M7 workspace restore | P1 | Fixed 2026-11-10 — restore is offered at start-up; tree/tabs and FHIRPath state wired |
 | L9 passphrase as un-zeroable `String` | P3 | Fixed 2026-11-10 — `char[]` end to end on the session path |
 | L10 diagnostics charset | P3 | Fixed 2026-11-10 — export writes UTF-8 explicitly |
@@ -58,9 +58,9 @@ from the fourth, and `R5-*` are new here.
 
 ## 2. Outstanding findings
 
-### M1. `MainWindow` is 1,923 lines
+### M1. `MainWindow` is 1,271 lines
 
-**Enhancement — P3, started.** `ui/MainWindow.java`; 1,923 lines now (2,071 before step 5, 2,292 before step 4, 2,599 before step 3, 2,777 before the first
+**Enhancement — P3, started.** `ui/MainWindow.java`; 1,271 lines now (1,923 before the editor core moved, 2,071 before the file operations, 2,292 before step 4, 2,599 before step 3, 2,777 before the first
 split step, 2,705 at `448f7fe`, 2,693 in the fourth pass). R4 §7's order is being followed:
 
 - **Step 1 done** — `AboutDialog` (174 lines) took the dialog, its logo cache, its link
@@ -82,14 +82,16 @@ split step, 2,705 at `448f7fe`, 2,693 in the fourth pass). R4 §7's order is bei
   plus the two callbacks that stay in the window: persist the server list, refresh menu state.
   The document seam became its own file, `DocumentPort` (eight methods), because steps 3 and 4
   need the same one.
-- **Step 5a done** — `DocumentSession` (213 lines) took open, open sample, save, save as and
-  export, with the last-directory memo. It needs the shared port plus two window callbacks
-  (report a failure, refresh the title), so the dirty flag and the asterisk still change in one
-  place.
-- **Steps 5b and 6 unstarted** — the editor core (`display`, `refreshAfterEdit`, the undo
-  stack, `closeResource`) and the menu factory. R4 §7 asks for a launched session before the
-  editor core moves, because the dirty flag, undo depth, asterisk and tree rebuild order all sit
-  in it; that half was deliberately left for such a session rather than moved blind.
+- **Step 5 done** — `DocumentSession` (985 lines) owns the document: the loaded resource, its
+  origin, the displayed Bundle entry, the label, the tree selection, the undo history, the view
+  rendering (`display`, `refreshTree`, `displayBundleEntry`, `updateDocumentViews`,
+  `refreshAfterEdit`), the element edits, the source-apply path, `closeResource` and the
+  unsaved-changes prompt. `MainWindow` keeps the views because `buildLayout` builds them and
+  hands them over once through `DocumentViews`; the session is also the `DocumentPort` the
+  server classes talk to, so the anonymous port implementation is gone. File operations moved
+  with it, which collapsed the earlier 5a/5b split into one class.
+- **Step 6 unstarted** — the menu factory, which R4 §7 puts last because the menu items are
+  enable-state fields read by `updateEditActions`.
 
 ---
 
@@ -103,7 +105,7 @@ Both findings this pass added are fixed: R5-1's javadoc now states the real-node
 
 | ID | Type | Priority | Item | Where |
 |----|------|----------|------|-------|
-| M1 | Enhancement | **P3** | `MainWindow` is 1,923 lines; `AboutDialog`, `IgPackageActions`, `ServerResourceActions`, `ServerScreens` and the file half of `DocumentSession` extracted; the editor core and the menu factory left per R4 §7 | `MainWindow` |
+| M1 | Enhancement | **P3** | `MainWindow` is 1,271 lines; `AboutDialog`, `IgPackageActions`, `ServerResourceActions`, `ServerScreens` and `DocumentSession` extracted; only the menu factory left per R4 §7 | `MainWindow` |
 
 Closed since the fourth pass: R4-1, R4-2, R4-8, R4-9, R4-10, L9, L10, L11 and L12.
 Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7, M7, R5-1 and R5-2.
@@ -142,11 +144,15 @@ Closed since this pass was written: R4-3, R4-4, R4-5, R4-6, R4-7, M7, R5-1 and R
   tree/tab and FHIRPath state passed to the service round-trips through a workspace archive.
   The window itself was not launched, so the prompt's wording, the restored tab selection and
   the restored expressions were not seen on screen.
-- R4 §7's line spans are from the fourth pass and have not been re-measured against 1,923
+- R4 §7's line spans are from the fourth pass and have not been re-measured against 1,271
   lines; the M7 wiring and the two split steps have moved every region after the fields.
-- M1's first four steps are compile-checked only. R4 §7 asks for one manual launch per slice,
-  and no window was opened,so neither the About dialog, the Implementation Guide menu, nor the save/patch/delete/conflict
-  paths were seen after the moves, and no server dialog (manager, plugins, search, open, SMART workbench, connection, operation, REST or scripting) was opened, nor was a file opened, saved or exported through `DocumentSession`.
+- M1's steps were checked at three levels: `test-compile` after every slice, the full suite
+  (1,039 tests, 0 failures) after the editor-core move, and one real launch of the window on
+  this machine with a sample file passed on the command line — it started, loaded the sample
+  through the new session and stayed up for 25 seconds with no stack trace. Interaction is not
+  covered: no edit, undo, delete, source apply or Save As was performed, so the dirty flag,
+  undo depth, asterisk and tree rebuild order are still unobserved, as are the About and
+  Implementation Guide dialogs and the nine server dialogs.
 
 ---
 

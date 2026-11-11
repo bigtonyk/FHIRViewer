@@ -5,8 +5,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,13 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.hl7.fhir.instance.model.api.IBase;
-import org.hl7.fhir.instance.model.api.IBaseReference;
 import org.hl7.fhir.instance.model.api.IBaseResource;
-import org.hl7.fhir.instance.model.api.IPrimitiveType;
 
-import com.spiraleyes.fhirviewer.fhir.ElementProperty;
-import com.spiraleyes.fhirviewer.model.BundleEntryInfo;
-import com.spiraleyes.fhirviewer.model.ElementInfo;
 import com.spiraleyes.fhirviewer.model.LoadedResource;
 import com.spiraleyes.fhirviewer.model.ResourceFormat;
 import com.spiraleyes.fhirviewer.model.ResourceNode;
@@ -77,7 +70,6 @@ import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TextField;
-import javafx.scene.control.TextInputDialog;
 import javafx.scene.control.ToolBar;
 import javafx.scene.control.Tooltip;
 import javafx.scene.control.TreeItem;
@@ -101,9 +93,6 @@ public class MainWindow {
 
     private static final Logger logger = LoggerFactory.getLogger(MainWindow.class);
     private static final String APPLICATION_TITLE = "FHIR Resource Viewer";
-    private static final String READY_STATUS = "Ready. Use File > Open to load a FHIR JSON or XML resource.";
-    /** How many edits can be undone; older snapshots are dropped. */
-    private static final int MAX_UNDO_DEPTH = 20;
 
     private final Stage stage;
 
@@ -242,13 +231,6 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                 ".fhirviewer", "smart-launches.properties");
     }
 
-    /**
-     * Snapshots of the loaded resource taken before every edit, newest first. Undo shows
-     * a snapshot again as the loaded resource, so the resource object is replaced rather
-     * than mutated back; the depth is capped so a long editing session cannot grow
-     * without bound.
-     */
-    private final Deque<IBaseResource> undoStack = new ArrayDeque<>();
 
     private final TabPane structureTabs = new TabPane();
     private final TabPane documentTabs = new TabPane();
@@ -265,7 +247,6 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
             new CheckMenuItem("Show elements that are not populated");
 
     /** The node currently selected in the resource tree, if any. */
-    private ResourceNode selectedNode;
 
     private final TextField treeSearchField = new TextField();
     private final MenuButton themeMenu = new MenuButton("Theme");
@@ -319,23 +300,6 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         }
     }
 
-    /** The resource loaded from a file or sample. */
-    private LoadedResource loadedResource;
-    /** The resource currently shown: the loaded resource or one of its Bundle entries. */
-    private IBaseResource displayedResource;
-    private String displayedLabel = "";
-    /** When a Bundle entry is being displayed, the entry it came from. */
-    private BundleEntryInfo displayedEntry;
-    /**
-     * Where the displayed resource came from on a FHIR server, or {@code null} when it
-     * came from a file, a sample or the clipboard.
-     *
-     * <p>This is deliberately not part of {@link LoadedResource}, which is file-shaped and
-     * whose {@code sourcePath} means a path on disk. Holding it here, next to
-     * {@code displayedResource}, keeps the file-open paths untouched while still letting
-     * "Save to FHIR Server" know the type, id and version it must write.
-     */
-    private ServerOrigin displayedOrigin;
 
     /**
      * True while the window is being closed by an action that has already asked about
@@ -360,68 +324,85 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
                 this::showFailure,
                 this::refreshProfileChoices,
                 workspaceActions::markWorkspaceChanged);
-        // One port over this window's document state, shared by the extracted classes: they
-        // show a resource, ask before replacing it and hand out its JSON, and nothing else
-        // about the document leaves this class (R4 §7).
-        DocumentPort document = new DocumentPort() {
+        // The document session owns the loaded resource, its origin, the selection and the
+        // edit history; the views stay here because buildLayout builds them. It is also the
+        // DocumentPort the server classes talk to (R4 §7).
+        DocumentViews documentViews = new DocumentViews() {
             @Override
-            public IBaseResource resource() {
-                return displayedResource;
+            public ResourceTreeView tree() {
+                return treeView;
             }
 
             @Override
-            public ServerOrigin origin() {
-                return displayedOrigin;
+            public DetailsView details() {
+                return detailsView;
             }
 
             @Override
-            public LoadedResource loaded() {
-                return loadedResource;
+            public JsonView json() {
+                return jsonView;
             }
 
             @Override
-            public String label() {
-                return displayedLabel;
+            public XmlView xml() {
+                return xmlView;
             }
 
             @Override
-            public void show(LoadedResource resource, ServerOrigin origin) {
-                display(resource, origin);
+            public PrettyView pretty() {
+                return prettyView;
             }
 
             @Override
-            public boolean confirmDiscard(String action) {
-                return confirmUnsavedChanges(action);
+            public StatusView status() {
+                return statusView;
             }
 
             @Override
-            public String currentJson() {
-                return currentResourceJson();
+            public BundleView bundle() {
+                return bundleView;
             }
 
             @Override
-            public void close() {
-                closeResource();
+            public FhirPathView fhirPath() {
+                return fhirPathView;
             }
 
             @Override
-            public void showValidation(ValidationReport report) {
-                statusView.showValidation(report);
+            public TabPane documentTabs() {
+                return documentTabs;
             }
 
             @Override
-            public void busy(boolean busy) {
-                setBusy(busy);
+            public TabPane structureTabs() {
+                return structureTabs;
+            }
+
+            @Override
+            public Tab treeTab() {
+                return treeTab;
+            }
+
+            @Override
+            public Tab prettyTab() {
+                return prettyTab;
+            }
+
+            @Override
+            public boolean showUnpopulated() {
+                return showUnpopulated.isSelected();
             }
         };
+        this.documentSession = new DocumentSession(stage, fhirService, editorService,
+                sourceEditorService, themeManager, documentViews, this::setStatus,
+                this::showFailure, this::updateWindowTitle, this::updateEditActions,
+                this::refreshProfileChoices, this::setBusy);
         this.serverResourceActions = new ServerResourceActions(stage, coordinator, serverService,
-                serverManager, themeManager, this::setStatus, document);
+                serverManager, themeManager, this::setStatus, documentSession);
         this.serverScreens = new ServerScreens(stage, serverService, serverManager, fhirService,
                 themeManager, searchMemory, capabilitiesCache, serverPassphrase, this::setStatus,
                 this::persistServers, this::updateEditActions, serverResourceActions::serverFor,
-                MainWindow::pluginSettingsFile, MainWindow::smartLaunchFile, document);
-        this.documentSession = new DocumentSession(stage, fhirService, this::setStatus,
-                this::showFailure, this::updateWindowTitle, document);
+                MainWindow::pluginSettingsFile, MainWindow::smartLaunchFile, documentSession);
         loadSavedServers();
         buildLayout();
         // The workspace the previous session had open. Without this the window held a
@@ -439,7 +420,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         // Closing the window is the last chance to save an edited resource.
         stage.setOnCloseRequest(event -> {
             if (!closingFromAction
-                    && (!confirmUnsavedChanges("closing the window")
+                    && (!documentSession.confirmDiscard("closing the window")
                             || !workspaceActions.closeDecision())) {
                 event.consume();
                 return;
@@ -512,8 +493,8 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         // selected entry (issue: "back to Resource Tree shows only the last entry").
         structureTabs.getSelectionModel().selectedItemProperty().addListener(
                 (observable, previous, selected) -> {
-                    if (selected == treeTab && displayedEntry != null) {
-                        displayBundleEntry(null);
+                    if (selected == treeTab && documentSession.showingEntry()) {
+                        documentSession.displayBundleEntry(null);
                     }
                 });
 
@@ -566,7 +547,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
 
         undoButton.getStyleClass().add("button-ghost");
         undoButton.setTooltip(new Tooltip("Undo the last change made to the resource."));
-        undoButton.setOnAction(event -> undoEdit());
+        undoButton.setOnAction(event -> documentSession.undoEdit());
 
         HBox leftActions = new HBox(8, openButton, saveButton, undoButton, validateButton);
         leftActions.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
@@ -628,7 +609,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         exportXml.setOnAction(event -> documentSession.export(ResourceFormat.XML));
 
         MenuItem close = new MenuItem("Close");
-        close.setOnAction(event -> closeResource());
+        close.setOnAction(event -> documentSession.close());
         MenuItem exit = new MenuItem("Exit");
         exit.setOnAction(event -> closeWindow());
 
@@ -667,13 +648,13 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     private Menu buildEditMenu() {
         undoMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Z"));
 
-        undoMenuItem.setOnAction(event -> undoEdit());
+        undoMenuItem.setOnAction(event -> documentSession.undoEdit());
 
         addChildMenuItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Shift+A"));
-        addChildMenuItem.setOnAction(event -> addChildToSelection(selectedNode));
+        addChildMenuItem.setOnAction(event -> documentSession.addChildToSelection(documentSession.selected()));
 
         deleteMenuItem.setAccelerator(KeyCombination.keyCombination("Delete"));
-        deleteMenuItem.setOnAction(event -> deleteSelectedNode());
+        deleteMenuItem.setOnAction(event -> documentSession.deleteSelectedNode());
 
         return new Menu("Edit", null, undoMenuItem, new SeparatorMenuItem(), addChildMenuItem, deleteMenuItem);
     }
@@ -701,7 +682,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         MenuItem collapseAll = new MenuItem("Collapse All");
         collapseAll.setOnAction(event -> treeView.collapseAll());
 
-        showUnpopulated.setOnAction(event -> refreshTree());
+        showUnpopulated.setOnAction(event -> documentSession.refreshTree());
 
         Menu themesMenu = new Menu("Theme");
         themesMenu.getItems().setAll(themeMenuItems());
@@ -833,29 +814,17 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     private void wireInteractions() {
-        detailsView.setOnValueEdited(this::applyValueEdit);
-        detailsView.setOnElementAdded(this::addElementToSelection);
-        detailsView.setOnChildAddRequested(this::addChildToSelection);
-        detailsView.setOnElementDeleted(node -> deleteNode(node, true));
-        jsonView.setOnApplyRequested(this::applyJsonSource);
-        xmlView.setOnApplyRequested(this::applyXmlSource);
+        detailsView.setOnValueEdited(documentSession::applyValueEdit);
+        detailsView.setOnElementAdded(documentSession::addElementToSelection);
+        detailsView.setOnChildAddRequested(documentSession::addChildToSelection);
+        detailsView.setOnElementDeleted(node -> documentSession.deleteNode(node, true));
+        jsonView.setOnApplyRequested(documentSession::applyJsonSource);
+        xmlView.setOnApplyRequested(documentSession::applyXmlSource);
         fhirPathView.setExpressionEvaluator(
-                expression -> fhirService.evaluateFHIRPath(currentTarget(), expression));
-        treeView.setOnNodeSelected(node -> {
-            selectedNode = node;
-            detailsView.show(node);
-            updateEditActions();
-            // Show the pretty detail of the selected element, the same way
-            // selecting a Bundle entry shows the detail of that entry.
-            if (node != null && displayedResource != null) {
-                prettyView.show(fhirService.buildPrettyView(displayedResource, node));
-                prettyView.scrollToElement(node);
-            }
-            jsonView.scrollToElement(node);
-            xmlView.scrollToElement(node);
-        });
-        treeView.setOnReferenceActivated(this::navigateToReference);
-        bundleView.setOnEntrySelected(this::displayBundleEntry);
+                expression -> fhirService.evaluateFHIRPath(documentSession.currentTarget(), expression));
+        treeView.setOnNodeSelected(documentSession::select);
+        treeView.setOnReferenceActivated(documentSession::navigateToReference);
+        bundleView.setOnEntrySelected(documentSession::displayBundleEntry);
         // Selecting a validation message highlights the element it refers to.
         statusView.setOnIssueSelected(this::locateIssueInTree);
     }
@@ -866,55 +835,12 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
      * requested while a tab was hidden would otherwise be lost.
      */
     private void resyncDocumentViews() {
-        if (selectedNode == null) {
+        if (documentSession.selected() == null) {
             return;
         }
-        prettyView.scrollToElement(selectedNode);
-        jsonView.scrollToElement(selectedNode);
-        xmlView.scrollToElement(selectedNode);
-    }
-
-    /**
-     * Navigates a double clicked tree element when it is a FHIR Reference whose
-     * target exists in the loaded data set: the matching Bundle entry is shown.
-     */
-    private void navigateToReference(ResourceNode node) {
-        if (node == null
-                || node.getElementInfo().getKind() != ElementInfo.Kind.REFERENCE
-                || loadedResource == null || !loadedResource.isBundle()) {
-            return;
-        }
-        String target = referenceTarget(node.getValueText());
-        if (target == null) {
-            return;
-        }
-        for (BundleEntryInfo entry : flattenEntries(fhirService.bundleEntries(loadedResource.getResource()))) {
-            if (target.equalsIgnoreCase(entry.displayName())) {
-                displayBundleEntry(entry);
-                return;
-            }
-        }
-        setStatus("The referenced resource " + target + " is not part of the loaded Bundle.");
-    }
-
-    /** Extracts <code>Type/id</code> from a rendered reference value. */
-    private static String referenceTarget(String valueText) {
-        if (valueText == null || valueText.isBlank()) {
-            return null;
-        }
-        java.util.regex.Matcher matcher =
-                java.util.regex.Pattern.compile("([A-Za-z]+/[A-Za-z0-9\\-.]{1,64})").matcher(valueText);
-        return matcher.find() ? matcher.group(1) : null;
-    }
-
-    /** All entries of the Bundle, including nested Bundle-in-Bundle entries. */
-    private static List<BundleEntryInfo> flattenEntries(List<BundleEntryInfo> entries) {
-        List<BundleEntryInfo> all = new java.util.ArrayList<>();
-        for (BundleEntryInfo entry : entries) {
-            all.add(entry);
-            all.addAll(flattenEntries(entry.childEntries()));
-        }
-        return all;
+        prettyView.scrollToElement(documentSession.selected());
+        jsonView.scrollToElement(documentSession.selected());
+        xmlView.scrollToElement(documentSession.selected());
     }
 
     /** Builds one menu item per available theme. */
@@ -959,137 +885,13 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         }
     }
 
-    /** Displays a freshly loaded resource in every view. */
-    private void display(LoadedResource resource) {
-        display(resource, null);
-    }
-
-    /**
-     * Displays a resource and records where it came from.
-     *
-     * <p>A {@code null} origin means "not from a server", which is the case for every
-     * file, sample and clipboard load. Clearing it on those paths is what stops a
-     * resource read from a server from being written back to that server after the user
-     * opens an unrelated file.
-     */
-    private void display(LoadedResource resource, ServerOrigin origin) {
-        loadedResource = resource;
-        displayedResource = resource.getResource();
-        displayedLabel = resource.getDisplayName();
-        displayedOrigin = origin;
-        selectedNode = null;
-        // A different resource starts a new editing history.
-        undoStack.clear();
-
-        displayedEntry = null;
-        ResourceNode tree = fhirService.buildTree(resource, showUnpopulated.isSelected());
-        treeView.show(tree);
-        detailsView.showNothingSelected();
-        updateDocumentViews();
-        statusView.clearValidation();
-        updateBundleView();
-
-        documentTabs.getSelectionModel().select(prettyTab);
-        structureTabs.getSelectionModel().select(treeTab);
-
-        setStatus("Loaded " + resource.getSourceName()
-                + " - " + resource.getDisplayName()
-                + " (" + resource.getFormat().getDisplayName()
-                + ", " + countNodes(tree) + " elements shown)");
-        refreshProfileChoices();
-        updateWindowTitle();
-    }
-
-    /** Rebuilds the tree for the currently displayed resource (used by the View menu toggle). */
-    private void refreshTree() {
-        if (loadedResource == null) {
-            return;
-        }
-        String selectedPath = selectedNode == null ? null : selectedNode.getPath();
-        if (displayedEntry == null) {
-            treeView.show(fhirService.buildTree(loadedResource, showUnpopulated.isSelected()));
-        } else {
-            treeView.show(fhirService.buildTree(displayedEntry, showUnpopulated.isSelected()));
-        }
-        // Keep the element the user was looking at selected.
-        treeView.selectPath(selectedPath);
-    }
-
-    /** Shows the whole Bundle, or one of its entries, in every view. */
-    private void displayBundleEntry(BundleEntryInfo entry) {
-        if (loadedResource == null) {
-            return;
-        }
-        selectedNode = null;
-        if (entry == null) {
-            displayedEntry = null;
-            displayedResource = loadedResource.getResource();
-            displayedLabel = loadedResource.getDisplayName();
-            treeView.show(fhirService.buildTree(loadedResource, showUnpopulated.isSelected()));
-            updateDocumentViews();
-            detailsView.showNothingSelected();
-            setStatus("Showing the Bundle resource itself: " + displayedLabel);
-            refreshProfileChoices();
-            updateWindowTitle();
-            return;
-        }
-        if (!entry.hasResource()) {
-            setStatus("Bundle entry [" + entry.index() + "] contains no resource to display.");
-            return;
-        }
-        displayedEntry = entry;
-        displayedResource = entry.resource();
-        displayedLabel = entry.displayName();
-        treeView.show(fhirService.buildTree(entry, showUnpopulated.isSelected()));
-        updateDocumentViews();
-        detailsView.showNothingSelected();
-        documentTabs.getSelectionModel().select(prettyTab);
-        setStatus("Showing Bundle entry [" + entry.index() + "] " + entry.displayName());
-        refreshProfileChoices();
-        updateWindowTitle();
-    }
-
-    private void updateBundleView() {
-        if (loadedResource == null || !loadedResource.isBundle()) {
-            bundleView.clear();
-            return;
-        }
-        List<BundleEntryInfo> entries = fhirService.bundleEntries(loadedResource.getResource());
-        bundleView.showBundle(entries, loadedResource.getDisplayName());
-    }
-
-    private void updateDocumentViews() {
-        if (displayedResource == null) {
-            prettyView.showNothing();
-            jsonView.showNothing();
-            xmlView.showNothing();
-            fhirPathView.recalculate();
-            return;
-        }
-        prettyView.show(displayedEntry == null
-                ? fhirService.buildPrettyView(loadedResource)
-                : fhirService.buildPrettyView(displayedEntry));
-        jsonView.show(fhirService.toJson(displayedResource));
-        xmlView.show(fhirService.toXml(displayedResource));
-        // The FHIRPath entries are evaluated against the resource that just changed,
-        // so their results stay in step with the tree, the Pretty View and JSON/XML.
-        fhirPathView.recalculate();
-    }
-
-    private int countNodes(ResourceNode node) {
-        int count = 1;
-        for (ResourceNode child : node.getChildren()) {
-            count += countNodes(child);
-        }
-        return count;
-    }
     // ------------------------------------------------------------------
     // Editing
     // ------------------------------------------------------------------
 
     /** Creates a new, empty resource of a type chosen by the user. */
     private void newResource() {
-        if (!confirmUnsavedChanges("starting a new resource")) {
+        if (!documentSession.confirmDiscard("starting a new resource")) {
             return;
         }
         ChoiceDialog<String> dialog = new ChoiceDialog<>("Patient", templateFactory.resourceTypeNames());
@@ -1105,11 +907,11 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         try {
             IBaseResource resource = templateFactory.createEmpty(chosen.get());
             LoadedResource created = new LoadedResource(resource, ResourceFormat.JSON, chosen.get(), null);
-            display(created);
+            documentSession.show(created, null);
             // Every element of a new resource is empty, so list them all: that is what
             // makes the resource editable in the tree and the Details tab.
             showUnpopulated.setSelected(true);
-            refreshTree();
+            documentSession.refreshTree();
             created.markDirty();
             updateWindowTitle();
             setStatus("New " + chosen.get() + " created. Select an element in the tree, enter a value in the"
@@ -1118,371 +920,6 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
             showFailure("Could not create a new " + chosen.get(), e);
         }
     }
-    /**
-     * Applies an edited value to the element selected in the tree.
-     *
-     * @param node the element that was edited
-     * @param text the text the user entered
-     */
-    private void applyValueEdit(ResourceNode node, String text) {
-        IBaseResource target = currentTarget();
-        if (node == null || target == null) {
-            setStatus("Select an element in the resource tree first.");
-            return;
-        }
-        String path = node.getElementInfo().getPath();
-        IBaseResource snapshot = pushUndoSnapshot();
-        try {
-            if (node.getElementInfo().getKind() == ElementInfo.Kind.REFERENCE) {
-                editorService.setReference(target, path, referenceValue(text));
-            } else {
-                editorService.setPrimitive(target, path, text);
-            }
-            refreshAfterEdit(path);
-            setStatus("Updated " + path + " of " + displayedLabel + ".");
-        } catch (RuntimeException e) {
-            discardUndoSnapshot(snapshot);
-            showFailure("Could not update " + path, e);
-        }
-    }
-
-    /** Adds a new entry to the repeating element selected in the tree. */
-    private void addElementToSelection(ResourceNode node) {
-        IBaseResource target = currentTarget();
-        if (node == null || target == null) {
-            setStatus("Select a repeating element in the resource tree first.");
-            return;
-        }
-        String path = node.getElementInfo().getPath();
-        IBaseResource snapshot = pushUndoSnapshot();
-        try {
-            int existing = editorService.valueCount(target, path);
-            editorService.addElement(target, path);
-            // The new entry is the last one of the repeating element, so select it: its
-            // value can then be filled in straight away.
-            refreshAfterEdit(path + "[" + existing + "]", path);
-            setStatus("Added a new " + node.getElementInfo().getName() + " entry to " + displayedLabel + ".");
-        } catch (RuntimeException e) {
-            discardUndoSnapshot(snapshot);
-            showFailure("Could not add a " + node.getElementInfo().getName() + " entry", e);
-        }
-    }
-
-    /**
-     * Opens the dialog that lists the child elements the FHIR resource definition
-     * allows under the element selected in the tree, then adds the picked element.
-     * A primitive element is asked for an initial value right after it is added.
-     */
-    private void addChildToSelection(ResourceNode node) {
-        IBaseResource target = currentTarget();
-        if (node == null || target == null) {
-            setStatus("Select an element in the resource tree first.");
-            return;
-        }
-        String parentPath = addableParentPath(node);
-        List<ElementProperty> children;
-        try {
-            children = editorService.childElements(target, parentPath);
-        } catch (RuntimeException e) {
-            showFailure("Could not list the child elements of " + parentPath, e);
-            return;
-        }
-        if (children.isEmpty()) {
-            setStatus("The FHIR definition has no child element that can be added to " + parentPath + ".");
-            return;
-        }
-        AddChildDialog dialog = new AddChildDialog(parentPath, children);
-        dialog.initOwner(stage);
-        applyDialogTheme(dialog.getDialogPane());
-        Optional<ElementProperty> picked = dialog.showAndWait();
-        if (picked.isEmpty()) {
-            return;
-        }
-        addChildElement(target, parentPath, picked.get());
-    }
-
-    /**
-     * The path the Add child dialog works on. A repeating element without an entry
-     * yet, such as {@code Patient.telecom} with no values, receives its first entry
-     * first, so the dialog lists the children the new entry can take. A repeating
-     * element with entries works on the last entry, matching the way the tree
-     * groups the entries of a repeating element.
-     */
-    private String addableParentPath(ResourceNode node) {
-        String path = node.getElementInfo().getPath();
-        IBaseResource target = currentTarget();
-        if (target == null) {
-            return path;
-        }
-        boolean repeatingGroup = node.getElementInfo().getKind() == ElementInfo.Kind.COMPLEX
-                && node.getElementInfo().isRepeating()
-                && !path.endsWith("]");
-        if (!repeatingGroup) {
-            return path;
-        }
-        int entries = editorService.valueCount(target, path);
-        if (entries > 0) {
-            return path + "[" + (entries - 1) + "]";
-        }
-        IBaseResource snapshot = pushUndoSnapshot();
-        try {
-            editorService.addElement(target, path);
-            refreshAfterEdit(path + "[0]", path);
-            return path + "[0]";
-        } catch (RuntimeException e) {
-            discardUndoSnapshot(snapshot);
-            return path;
-        }
-    }
-
-    /** Adds the child element the user picked in the Add child dialog. */
-    private void addChildElement(IBaseResource target, String parentPath, ElementProperty child) {
-        String childPath = parentPath + "." + child.name();
-        IBaseResource snapshot = pushUndoSnapshot();
-        try {
-            editorService.addNode(target, parentPath, child.name());
-            // A new entry of a repeating element is addressed with its index, exactly
-            // the way the tree names it, so the value can be filled in straight away.
-            String newPath = child.isRepeating()
-                    ? childPath + "[" + (editorService.valueCount(target, childPath) - 1) + "]"
-                    : childPath;
-            promptForInitialValue(target, newPath, child);
-            refreshAfterEdit(newPath, childPath, parentPath);
-            setStatus("Added " + newPath + " to " + displayedLabel + ".");
-        } catch (RuntimeException e) {
-            discardUndoSnapshot(snapshot);
-            showFailure("Could not add " + childPath, e);
-        }
-    }
-
-    /**
-     * Asks for an initial value right after a primitive or reference element was
-     * added, so the new element is not left empty. An empty answer keeps the
-     * element as it is; complex elements continue in the tree instead.
-     */
-    private void promptForInitialValue(IBaseResource target, String newPath, ElementProperty child) {
-        IBase added = editorService.resolveElement(target, newPath);
-        boolean reference = added instanceof IBaseReference;
-        if (!reference && !(added instanceof IPrimitiveType<?>)) {
-            return;
-        }
-        TextInputDialog dialog = new TextInputDialog();
-        dialog.initOwner(stage);
-        dialog.setTitle(APPLICATION_TITLE);
-        dialog.setHeaderText((reference ? "Reference target for " : "Initial value for ") + newPath);
-        dialog.setContentText(reference
-                ? "Target, for example Practitioner/123 (empty keeps the element without a target):"
-                : "Value (empty keeps the element without a value):");
-        applyDialogTheme(dialog.getDialogPane());
-        Optional<String> value = dialog.showAndWait();
-        if (value.isEmpty() || value.get().isBlank()) {
-            return;
-        }
-        try {
-            if (reference) {
-                editorService.setReference(target, newPath, referenceValue(value.get()));
-            } else {
-                editorService.setPrimitive(target, newPath, value.get());
-            }
-        } catch (RuntimeException e) {
-            showFailure("Could not set the value of " + newPath, e);
-        }
-    }
-
-    /** Deletes the element selected in the tree, asking for confirmation first. */
-    private void deleteSelectedNode() {
-        deleteNode(selectedNode, true);
-    }
-
-    /**
-     * Deletes the given element from the displayed resource.
-     *
-     * @param confirm when {@code true} a confirmation is shown for elements that
-     *                remove more than a single value
-     */
-    private void deleteNode(ResourceNode node, boolean confirm) {
-        IBaseResource target = currentTarget();
-        if (node == null || target == null) {
-            setStatus("Select an element in the resource tree first.");
-            return;
-        }
-        if (node.getParent() == null) {
-            setStatus("The resource itself cannot be deleted; use File > Close instead.");
-            return;
-        }
-        String path = node.getElementInfo().getPath();
-        if (confirm && !confirmRemoval(node, path)) {
-            return;
-        }
-        IBaseResource snapshot = pushUndoSnapshot();
-        try {
-            editorService.deleteNode(target, path);
-            String parentPath = node.getParent().getElementInfo().getPath();
-            refreshAfterEdit(parentPath, path);
-            setStatus("Deleted " + path + " from " + displayedLabel + ".");
-        } catch (RuntimeException e) {
-            discardUndoSnapshot(snapshot);
-            showFailure("Could not delete " + path, e);
-        }
-    }
-
-    /** Asks before deleting an element that removes a whole subtree of values. */
-    private boolean confirmRemoval(ResourceNode node, String path) {
-        if (node.getChildren().isEmpty()) {
-            return true;
-        }
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-        alert.initOwner(stage);
-        alert.setTitle(APPLICATION_TITLE);
-        alert.setHeaderText("Delete " + path + "?");
-        alert.setContentText("This removes the element with its "
-                + (countNodes(node) - 1) + " child elements from " + displayedLabel
-                + ". The change can be undone.");
-        applyDialogTheme(alert.getDialogPane());
-        Optional<ButtonType> answer = alert.showAndWait();
-        return answer.isPresent() && answer.get() == ButtonType.OK;
-    }
-
-    /** The resource the tree and the document tabs currently show, or {@code null}. */
-    private IBaseResource currentTarget() {
-        return loadedResource == null ? null : displayedResource;
-    }
-
-    /**
-     * The same resource as JSON, for the REST console's body copy; {@code null} when
-     * nothing is open.
-     */
-    private String currentResourceJson() {
-        IBaseResource resource = currentTarget();
-        return resource == null ? null : fhirService.toJson(resource);
-    }
-
-    /**
-     * The reference target inside an entered value. The tree renders a reference as
-     * <code>Type/id (display)</code>, so a trailing display is dropped before the value is
-     * written; a plain <code>Type/id</code> or an absolute URL is used as entered.
-     */
-    private static String referenceValue(String text) {
-        String value = text == null ? "" : text.trim();
-        int display = value.indexOf(" (");
-        return display > 0 ? value.substring(0, display).trim() : value;
-    }
-
-    /**
-     * Marks the resource as changed and rebuilds every view for it. The first path that
-     * still exists in the rebuilt tree is selected again, so an edit does not lose the
-     * user's place.
-     */
-    private void refreshAfterEdit(String... pathsToSelect) {
-        if (loadedResource == null) {
-            return;
-        }
-        loadedResource.markDirty();
-        treeView.show(displayedEntry == null
-                ? fhirService.buildTree(loadedResource, showUnpopulated.isSelected())
-                : fhirService.buildTree(displayedEntry, showUnpopulated.isSelected()));
-        // The documents are rebuilt before the selection is restored, because selecting
-        // a node renders the element view of that node.
-        updateDocumentViews();
-        if (displayedEntry == null) {
-            // While an entry is displayed the Bundle navigator must keep naming that entry,
-            // so it is only rebuilt when the whole Bundle is shown.
-            updateBundleView();
-        }
-        statusView.clearValidation();
-        for (String path : pathsToSelect) {
-            if (treeView.selectPath(path)) {
-                break;
-            }
-        }
-        updateWindowTitle();
-    }
-
-    /** Records the state of the resource before an edit, so the edit can be undone. */
-    private IBaseResource pushUndoSnapshot() {
-        if (loadedResource == null) {
-            return null;
-        }
-        IBaseResource snapshot = editorService.cloneResource(loadedResource.getResource());
-        undoStack.push(snapshot);
-        while (undoStack.size() > MAX_UNDO_DEPTH) {
-            undoStack.removeLast();
-        }
-        updateEditActions();
-        return snapshot;
-    }
-
-    /** Forgets a snapshot when the edit it was taken for failed. */
-    private void discardUndoSnapshot(IBaseResource snapshot) {
-        if (snapshot != null) {
-            undoStack.remove(snapshot);
-            updateEditActions();
-        }
-    }
-
-    /** Restores the resource as it was before the last edit. */
-    private void undoEdit() {
-        if (undoStack.isEmpty() || loadedResource == null) {
-            setStatus("There is nothing to undo.");
-            return;
-        }
-        Deque<IBaseResource> remaining = new ArrayDeque<>(undoStack);
-        IBaseResource snapshot = remaining.pop();
-        LoadedResource restored = new LoadedResource(
-                snapshot,
-                loadedResource.getFormat(),
-                loadedResource.getSourceName(),
-                null,
-                loadedResource.getSourcePath());
-        // Every snapshot is the state before one edit, so popping the last one restores
-        // exactly what was loaded from disk.
-        if (remaining.isEmpty()) {
-            restored.markClean();
-        } else {
-            restored.markDirty();
-        }
-        display(restored);
-        undoStack.clear();
-        undoStack.addAll(remaining);
-        updateEditActions();
-        setStatus(remaining.isEmpty()
-                ? "Undid every change; " + restored.getDisplayName() + " matches the saved resource again."
-                : "Undid the last change to " + restored.getDisplayName() + ".");
-    }
-
-    /**
-     * Asks what to do about unsaved changes before an action replaces or closes the
-     * loaded resource.
-     *
-     * @return {@code true} when the action may continue
-     */
-    private boolean confirmUnsavedChanges(String action) {
-        if (loadedResource == null || !loadedResource.isDirty()) {
-            return true;
-        }
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-        alert.initOwner(stage);
-        alert.setTitle(APPLICATION_TITLE);
-        alert.setHeaderText("Unsaved changes");
-        alert.setContentText("Save the changes to " + loadedResource.getDisplayName() + " before " + action + "?");
-        applyDialogTheme(alert.getDialogPane());
-
-        ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);
-        ButtonType discard = new ButtonType("Discard", ButtonBar.ButtonData.NO);
-        ButtonType cancel = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
-        alert.getButtonTypes().setAll(save, discard, cancel);
-
-        Optional<ButtonType> choice = alert.showAndWait();
-        if (choice.isEmpty() || choice.get() == cancel) {
-            return false;
-        }
-        if (choice.get() == save) {
-            // Saving can still be cancelled (Save As), so only continue when it worked.
-            return documentSession.save() && loadedResource != null && !loadedResource.isDirty();
-        }
-        return true;
-    }
-
     private void newWorkspace() {
         workspaceActions.newWorkspace();
     }
@@ -1500,7 +937,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     private void closeWindow() {
-        if (!confirmUnsavedChanges("exiting") || !workspaceActions.closeDecision()) {
+        if (!documentSession.confirmDiscard("exiting") || !workspaceActions.closeDecision()) {
             return;
         }
         // The close request handler runs inside stage.close() and must not ask about the
@@ -1577,7 +1014,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     // Validation, export and window helpers
     // ------------------------------------------------------------------
     private void validateDisplayedResource() {
-        if (displayedResource == null) {
+        if (documentSession.resource() == null) {
             setStatus("Nothing to validate. Open a FHIR resource first.");
             return;
         }
@@ -1586,10 +1023,10 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         String against = choice == null || choice.canonical().isEmpty()
                 ? ""
                 : " against " + choice.label();
-        setStatus("Validating " + displayedLabel + against + " ...");
+        setStatus("Validating " + documentSession.label() + against + " ...");
         setBusy(true);
         try {
-            ValidationReport report = fhirService.validate(displayedResource, canonical);
+            ValidationReport report = fhirService.validate(documentSession.resource(), canonical);
             statusView.showValidation(report);
         } finally {
             setBusy(false);
@@ -1605,7 +1042,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         ProfileChoice previous = profileChoice.getValue();
         List<ProfileChoice> choices = new java.util.ArrayList<>();
         choices.add(new ProfileChoice("Automatic (meta.profile)", ""));
-        String resourceType = displayedResource == null ? null : displayedResource.fhirType();
+        String resourceType = documentSession.resource() == null ? null : documentSession.resource().fhirType();
         if (resourceType != null && !resourceType.isEmpty()) {
             choices.add(new ProfileChoice("FHIR R4 " + resourceType,
                     ValidationService.BASE_DEFINITION_ONLY));
@@ -1664,95 +1101,6 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         }
         return candidates.stream().filter(value -> !value.isBlank()).toList();
     }
-    /** Applies the text of the JSON editor to the current resource. */
-    private void applyJsonSource(String text) {
-        applySourceText(text, ResourceFormat.JSON);
-    }
-
-    /** Applies the text of the XML editor to the current resource. */
-    private void applyXmlSource(String text) {
-        applySourceText(text, ResourceFormat.XML);
-    }
-
-    /**
-     * Parses and validates edited source text, then replaces the current resource.
-     *
-     * <p>On failure nothing is replaced: the error is shown, the edited text is left
-     * intact for correction, and the tree, Pretty View, FHIRPath results and
-     * serialized views keep showing the current resource.</p>
-     */
-    private void applySourceText(String text, ResourceFormat format) {
-        if (loadedResource == null || currentTarget() == null) {
-            setStatus("Nothing to apply. Open a FHIR resource first.");
-            return;
-        }
-        // Recorded before the parse so a successful replacement can be undone.
-        IBaseResource snapshot = pushUndoSnapshot();
-        Deque<IBaseResource> history = new ArrayDeque<>(undoStack);
-        try {
-            String sourceName = loadedResource.getSourceName() == null
-                    ? displayedLabel + "." + format.getExtension()
-                    : loadedResource.getSourceName();
-            SourceEditorService.AppliedSource applied = sourceEditorService.apply(text, format, sourceName);
-            replaceCurrentResource(applied, format);
-            restoreUndoHistory(history);
-        } catch (RuntimeException e) {
-            restoreUndoHistory(history);
-            discardUndoSnapshot(snapshot);
-            showFailure("Could not apply the edited " + format.getDisplayName(), e);
-        }
-    }
-
-    /**
-     * Swaps the loaded resource for a parsed replacement and refreshes every view
-     * from it. The caller keeps the editing history, so applying source text can be
-     * undone like any other edit.
-     */
-    private void replaceCurrentResource(SourceEditorService.AppliedSource applied, ResourceFormat editedFormat) {
-        IBaseResource replacement = applied.resource();
-        LoadedResource next = new LoadedResource(
-                replacement,
-                applied.format(),
-                loadedResource.getSourceName(),
-                sourceEditorService.serialize(replacement, applied.format()),
-                loadedResource.getSourcePath());
-        next.markDirty();
-        // display() rebuilds the tree, the Pretty View, the serialized views, the
-        // Bundle navigator and the title from the replacement resource.
-        display(next);
-        setStatus("Applied the edited " + editedFormat.getDisplayName() + " to "
-                + next.getDisplayName() + " (" + applied.report().getSummary() + ").");
-    }
-
-    /** Puts back the editing history that {@link #display} resets when it reloads a view. */
-    private void restoreUndoHistory(Deque<IBaseResource> history) {
-        undoStack.clear();
-        undoStack.addAll(history);
-        updateEditActions();
-    }
-
-    /** The default file name for an export, for example <code>Patient-123.json</code>. */    private void closeResource() {
-        if (!confirmUnsavedChanges("closing the resource")) {
-            return;
-        }
-        loadedResource = null;
-        displayedResource = null;
-        displayedEntry = null;
-        displayedLabel = "";
-        selectedNode = null;
-        undoStack.clear();
-        treeView.show(null);
-        prettyView.showNothing();
-        jsonView.showNothing();
-        xmlView.showNothing();
-        fhirPathView.recalculate();
-        detailsView.showNothingSelected();
-        statusView.clearValidation();
-        bundleView.clear();
-        setStatus(READY_STATUS);
-        updateWindowTitle();
-    }
-
     private void showUserGuide() {
         UserGuideDialog dialog = new UserGuideDialog(themeManager);
         dialog.initOwner(stage);
@@ -1832,21 +1180,21 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     private void updateWindowTitle() {
-        if (displayedResource == null) {
+        if (documentSession.resource() == null) {
             stage.setTitle(APPLICATION_TITLE);
         } else {
             // The asterisk is the usual "there are unsaved changes" marker.
-            boolean dirty = loadedResource != null && loadedResource.isDirty();
-            stage.setTitle(APPLICATION_TITLE + " - " + displayedLabel + (dirty ? " *" : ""));
+            boolean dirty = documentSession.loaded() != null && documentSession.loaded().isDirty();
+            stage.setTitle(APPLICATION_TITLE + " - " + documentSession.label() + (dirty ? " *" : ""));
         }
         updateEditActions();
     }
 
     /** Enables Save and Undo only when there is something for them to act on. */
     private void updateEditActions() {
-        boolean loaded = loadedResource != null;
-        boolean canUndo = !undoStack.isEmpty();
-        boolean hasSelection = loaded && selectedNode != null;
+        boolean loaded = documentSession.loaded() != null;
+        boolean canUndo = !!documentSession.canUndo();
+        boolean hasSelection = loaded && documentSession.selected() != null;
         saveMenuItem.setDisable(!loaded);
         saveAsMenuItem.setDisable(!loaded);
         saveButton.setDisable(!loaded);
@@ -1854,7 +1202,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         undoButton.setDisable(!canUndo);
         addChildMenuItem.setDisable(!hasSelection);
         // The resource itself cannot be deleted, only the elements inside it.
-        deleteMenuItem.setDisable(!hasSelection || selectedNode.getParent() == null);
+        deleteMenuItem.setDisable(!hasSelection || documentSession.selected().getParent() == null);
         updateServerActions();
     }
 
@@ -1867,7 +1215,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
      * actually saved, since there is no id to address it by otherwise.</p>
      */
     private void updateServerActions() {
-        boolean fromServer = displayedOrigin != null && displayedOrigin.isSaved();
+        boolean fromServer = documentSession.origin() != null && documentSession.origin().isSaved();
         boolean hasServer = !serverManager.servers().isEmpty();
         if (refreshFromServerItem != null) {
             refreshFromServerItem.setDisable(!fromServer);
@@ -1888,7 +1236,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
             // A resource to write and somewhere to write it to. A resource with no
             // origin is still offered: a file or a sample can be pushed to a server, and
             // that is a create rather than an update.
-            saveToServerItem.setDisable(displayedResource == null || !hasServer);
+            saveToServerItem.setDisable(documentSession.resource() == null || !hasServer);
         }
     }
 
