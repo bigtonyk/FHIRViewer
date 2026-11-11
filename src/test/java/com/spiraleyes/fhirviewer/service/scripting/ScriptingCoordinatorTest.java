@@ -51,7 +51,12 @@ class ScriptingCoordinatorTest {
         AtomicReference<ScriptRunResult> first = new AtomicReference<>();
         CountDownLatch finished = new CountDownLatch(1);
 
-        coordinator.run("Thread.sleep(30000);", result -> {
+        // Five minutes rather than thirty seconds. With a sleep as long as the wait below, a
+        // passing run proved nothing about Stop: the snippet could have finished on its own
+        // at the very instant the await expired, which is how this test failed once under a
+        // loaded suite. At five minutes the only thing that can end the run inside the
+        // timeout is stop().
+        coordinator.run("Thread.sleep(300000);", result -> {
             first.set(result);
             finished.countDown();
         });
@@ -68,8 +73,14 @@ class ScriptingCoordinatorTest {
         assertTrue(second.get().first(ScriptRunResult.Kind.ERROR).text().contains("already running"),
                 "the refusal must say a script is already running: " + second.get().entries());
 
+        long stoppedAt = System.nanoTime();
         coordinator.stop();
-        assertTrue(finished.await(30, TimeUnit.SECONDS), "stop must end the first run");
+        assertTrue(finished.await(30, TimeUnit.SECONDS),
+                "stop must end the first run, which otherwise sleeps for five minutes");
+        long takenMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - stoppedAt);
+        assertTrue(takenMillis < TimeUnit.SECONDS.toMillis(10),
+                "stop took " + takenMillis + " ms to end a run with five minutes to go, so "
+                        + "something other than stop ended it");
         assertEquals(ScriptRunResult.Status.STOPPED, first.get().status());
     }
 
