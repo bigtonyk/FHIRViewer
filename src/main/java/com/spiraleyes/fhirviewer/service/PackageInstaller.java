@@ -5,8 +5,10 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Logger;
 
 import com.spiraleyes.fhirviewer.model.IgPackageInfo;
@@ -90,9 +92,38 @@ public class PackageInstaller {
         }
     }
 
-    /** A dependency-resolved installation plan. */
+    /**
+     * Two requirements for the same package id that name different versions.
+     *
+     * <p>Only one version of a package can be installed, so the requirement that
+     * was planned first wins. Recording the other one keeps the mismatch visible:
+     * without it the requirement vanishes and resurfaces later as a "missing
+     * dependency" for a package the user never named.</p>
+     */
+    public record VersionConflict(String packageId, String plannedVersion,
+            String plannedRequiredBy, String requestedVersion, String requestedBy) {
+
+        /**
+         * For example {@code example.dep: 2.1.0 will be installed (required by
+         * example.ig), not 3.0.0 (required by example.other)}.
+         */
+        public String describe() {
+            return packageId + ": " + plannedVersion + " will be installed (required by "
+                    + requirer(plannedRequiredBy) + "), not " + requestedVersion
+                    + " (required by " + requirer(requestedBy) + ")";
+        }
+
+        private static String requirer(String requiredBy) {
+            return requiredBy == null || requiredBy.isBlank() ? "your request" : requiredBy;
+        }
+    }
+
+    /**
+     * A dependency-resolved installation plan, plus any requirement that named a
+     * different version of a package another requirement already claimed.
+     */
     public record InstallPlan(String rootPackageId, String rootVersion,
-            List<PlannedPackage> packages) {
+            List<PlannedPackage> packages, List<VersionConflict> conflicts) {
 
         public List<PlannedPackage> toInstall() {
             return packages.stream()
@@ -116,15 +147,21 @@ public class PackageInstaller {
             List<PlannedPackage> deps = dependencies();
             if (deps.isEmpty()) {
                 sb.append("\n\nNo additional dependencies are required.");
-                return sb.toString();
-            }
-            sb.append("\n\nDependencies:");
-            for (PlannedPackage dependency : deps) {
-                sb.append("\n- ").append(dependency.packageId());
-                if (dependency.version() != null && !dependency.version().isBlank()) {
-                    sb.append(' ').append(dependency.version());
+            } else {
+                sb.append("\n\nDependencies:");
+                for (PlannedPackage dependency : deps) {
+                    sb.append("\n- ").append(dependency.packageId());
+                    if (dependency.version() != null && !dependency.version().isBlank()) {
+                        sb.append(' ').append(dependency.version());
+                    }
+                    sb.append(" (").append(dependency.status().getDisplayName()).append(')');
                 }
-                sb.append(" (").append(dependency.status().getDisplayName()).append(')');
+            }
+            if (!conflicts.isEmpty()) {
+                sb.append("\n\nVersion conflicts:");
+                for (VersionConflict conflict : conflicts) {
+                    sb.append("\n- ").append(conflict.describe());
+                }
             }
             return sb.toString();
         }
@@ -190,6 +227,7 @@ public class PackageInstaller {
      */
     public InstallPlan plan(String packageId, String requestedVersion) {
         Map<String, PlannedPackage> planned = new LinkedHashMap<>();
+        List<VersionConflict> conflicts = new ArrayList<>();
         List<String[]> queue = new ArrayList<>();
         queue.add(new String[] { packageId, requestedVersion, "" });
         while (!queue.isEmpty()) {
@@ -197,7 +235,9 @@ public class PackageInstaller {
             String id = request[0];
             String version = request[1];
             String requiredBy = request[2];
-            if (planned.containsKey(id)) {
+            PlannedPackage alreadyPlanned = planned.get(id);
+            if (alreadyPlanned != null) {
+                recordConflict(conflicts, alreadyPlanned, version, requiredBy);
                 continue;
             }
             if (IgPackageManager.isCoreProvided(id)) {
@@ -223,14 +263,39 @@ public class PackageInstaller {
                 String dependencyVersion = hash < 0
                         ? ""
                         : dependencyKey.substring(hash + 1).trim();
-                if (!dependencyId.isEmpty() && !planned.containsKey(dependencyId)) {
+                if (dependencyId.isEmpty()) {
+                    continue;
+                }
+                PlannedPackage plannedDependency = planned.get(dependencyId);
+                if (plannedDependency == null) {
                     queue.add(new String[] { dependencyId, dependencyVersion, id });
+                } else {
+                    recordConflict(conflicts, plannedDependency, dependencyVersion, id);
                 }
             }
         }
         List<PlannedPackage> packages = new ArrayList<>(planned.values());
         String rootVersion = packages.isEmpty() ? "" : packages.get(0).version();
-        return new InstallPlan(packageId, rootVersion, packages);
+        return new InstallPlan(packageId, rootVersion, packages, conflicts);
+    }
+
+    /**
+     * Records a repeat requirement that names a different version than the one
+     * already planned. A blank request asks for any version and is compatible.
+     */
+    private static void recordConflict(List<VersionConflict> conflicts,
+            PlannedPackage planned, String requestedVersion, String requiredBy) {
+        if (planned.status() == Status.CORE_PROVIDED
+                || requestedVersion == null || requestedVersion.isBlank()) {
+            return; // a core-supplied package has no version to install
+        }
+        String requested = requestedVersion.trim();
+        String plannedVersion = planned.version() == null ? "" : planned.version();
+        if (requested.equals(plannedVersion)) {
+            return;
+        }
+        conflicts.add(new VersionConflict(planned.packageId(), plannedVersion,
+                planned.requiredBy(), requested, requiredBy));
     }
 
     /** Declared dependencies of a downloaded package file. */
@@ -264,6 +329,10 @@ public class PackageInstaller {
     public InstallResult install(InstallPlan plan) {
         List<String> installed = new ArrayList<>();
         List<String> failures = new ArrayList<>();
+        // Unmet dependencies are manager-wide state, so only the ones this install
+        // added are its failures: a gap an earlier install left behind must not be
+        // reported against a package the user just added successfully.
+        Set<String> unmetBefore = new LinkedHashSet<>(packageManager.getUnmetDependencies());
         for (PlannedPackage planned : plan.toInstall()) {
             String label = planned.packageId() + " " + planned.version();
             try {
@@ -276,7 +345,9 @@ public class PackageInstaller {
             }
         }
         for (String unmet : packageManager.getUnmetDependencies()) {
-            failures.add("missing dependency " + unmet);
+            if (!unmetBefore.contains(unmet)) {
+                failures.add("missing dependency " + unmet);
+            }
         }
         return new InstallResult(installed, failures);
     }
