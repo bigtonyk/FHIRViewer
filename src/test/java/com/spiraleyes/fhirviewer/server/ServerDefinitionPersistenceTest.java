@@ -298,6 +298,32 @@ class ServerDefinitionPersistenceTest {
     }
 
     @Test
+    @DisplayName("An index too large for an int is ordered, not rejected")
+    void overLargeBlockIndexIsOrderedNotRejected() throws IOException {
+        // The index is only a label, and the class already survives a bad block. A number
+        // that does not fit in an int used to throw out of read() and abort start-up.
+        Path file = directory.resolve("servers.properties");
+        Files.writeString(file, """
+                server.10.name=Ten
+                server.10.baseUrl=http://ten.example/fhir
+                server.2.name=Two
+                server.2.baseUrl=http://two.example/fhir
+                server.99999999999999999999.name=Huge
+                server.99999999999999999999.baseUrl=http://huge.example/fhir
+                server.1.name=One
+                server.1.baseUrl=http://one.example/fhir
+                """);
+
+        FhirServerManager manager = new FhirServerManager();
+
+        assertEquals(4, manager.load(file),
+                "a hand-edited index must not cost the user the other servers");
+        assertEquals(List.of("One", "Two", "Ten", "Huge"),
+                manager.servers().stream().map(FhirServerConfiguration::name).toList(),
+                "blocks must come back in numeric order whatever the index length");
+    }
+
+    @Test
     @DisplayName("The definitions file never contains a password")
     void definitionsFileHoldsNoSecret() throws IOException, SecretBoxException {
         Path file = directory.resolve("server-definitions.properties");

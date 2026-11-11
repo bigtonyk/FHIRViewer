@@ -41,7 +41,7 @@ from the fourth, and `R5-*` are new here.
 | R4-2 registry file name unsanitised | P2 | Fixed 2026-11-10 — id/version validated, download path checked |
 | R4-3 unmet dependencies misattributed | P3 | Fixed 2026-11-10 — an install reports only the gaps it added |
 | R4-4 planner drops version conflicts | P3 | Fixed 2026-11-10 — the losing requirement is reported before installing |
-| R4-5 over-large block index aborts start-up | P3 | **Open** — see §2 |
+| R4-5 over-large block index aborts start-up | P3 | Fixed 2026-11-10 — indices are ordered without parsing |
 | R4-6 package layer logs through JUL | P3 | **Open** — see §2 |
 | R4-7 writer NPEs for a parentless target | P3 | **Open** — see §2 |
 | R4-8 `closingFromAction` never cleared | P3 | Fixed 2026-11-10 — flag lasts one close |
@@ -57,24 +57,6 @@ from the fourth, and `R5-*` are new here.
 ---
 
 ## 2. Outstanding findings
-
-### R4-5. A hand-edited server file can abort start-up with `NumberFormatException`
-
-**Bug — P3.** `server/ServerDefinitionStore:220`.
-
-```java
-ordered.sort(Comparator.comparingInt(Integer::parseInt));
-```
-
-The index is checked to be digits (`:215`) but not to be an `int`, so an index such as
-`server.99999999999999999999.name=…` throws `NumberFormatException` out of `blockIndices()`,
-`parse()` and `read()`. `FhirServerManager.load` catches `IOException` only, and
-`MainWindow.loadSavedServers` does not catch at all, so the window constructor fails — a
-file the class elsewhere goes out of its way to survive (one bad block is skipped, not
-fatal) crashes the application instead.
-
-**Fix:** skip an index that does not parse as an `int`, or sort numerically by length and
-then lexicographically so no parse is needed.
 
 ### R4-6. Two logging systems, and the package layer's half reaches nobody
 
@@ -190,7 +172,6 @@ gives up that property.
 
 | ID | Type | Priority | Item | Where |
 |----|------|----------|------|-------|
-| R4-5 | Bug | **P3** | An over-large numeric block index throws `NumberFormatException` out of `read()` and aborts start-up | `ServerDefinitionStore:220` |
 | R4-7 | Bug | **P3** | `WorkspaceArchiveWriter` NPEs for a relative target with no parent; the status line then says "Failed to save workspace: null" | `WorkspaceArchiveWriter:20-21` |
 | R4-6 | Issue | **P3** | Package/IG layer still logs through `java.util.logging`, which a packaged build never shows | `IgPackageManager`, `PackageInstaller`, `PackageRegistryService`, `NpmPackageReader` |
 | R5-1 | Issue | **P3** | `RestConsoleStateTest`'s javadoc promises a test isolation the class does not have | `RestConsoleStateTest` |
@@ -199,7 +180,7 @@ gives up that property.
 | M1 | Enhancement | **P3** | `MainWindow` is 2,705 lines; the six extraction candidates are mapped in R4 §7 | `MainWindow` |
 
 Closed since the fourth pass: R4-1, R4-2, R4-8, R4-9, R4-10, L9, L10, L11 and L12.
-Closed since this pass was written: R4-3 and R4-4.
+Closed since this pass was written: R4-3, R4-4 and R4-5.
 
 ---
 
@@ -210,10 +191,13 @@ Closed since this pass was written: R4-3 and R4-4.
   not reproduced: no malformed properties file and no relative save target without a parent
   was created for this pass.
 - R4-3's fix is covered by two tests in `PackageInstallerTest` — a stale manager-wide gap is
-  ignored, a gap the install itself creates is still reported — and R4-4's by two more: a
+  ignored, a gap the install itself creates is still reported —  and R4-4's by two more: a
   diamond that names two versions records one conflict, a diamond that agrees on one version
   records none. Both messages reach the user through `InstallResult.describe()` and
   `InstallPlan.describe()`, which the tests assert on; neither alert window was rendered.
+- R4-5's fix is covered by loading a hand-written file whose highest block index has twenty
+  digits, which also pins the numeric ordering across index lengths; the window that loads it
+  at start-up was not launched.
 - R4-3's fix compares the manager's unmet set before and after the install, so one case goes
   unreported: a package reinstalled while the same dependency key is still unmet. The key is
   already in the snapshot when `resolveDependencies` re-adds it, so it reads as unchanged.
@@ -229,8 +213,9 @@ Closed since this pass was written: R4-3 and R4-4.
 
 ## 6. Suggested order
 
-1. **R4-5 and R4-7** — both small, both user-visible, and both in paths other callers already
-   guard; a start-up crash and an unreadable save failure are the worst pair left.
+1. **R4-7** — small, user-visible, and in a path two other writers already guard; a save that
+   fails with an `NullPointerException` the status line renders as "null" is the worst thing
+   left.
 2. **R5-1 and R5-2** — a doc paragraph and a save/restore pair around the two test classes.
 3. **R4-6 as each file is touched**, rather than as a sweep.
 4. **M7**, then **M1** as opportunity allows; M1's plan is already written and its first two

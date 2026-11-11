@@ -200,6 +200,10 @@ public final class ServerDefinitionStore {
      * read as a server named after a URL. Sorting is numeric rather than textual because
      * {@code Properties} is itself unordered: blocks 1, 2 and 10 must not come back as
      * 1, 10, 2.</p>
+     *
+     * <p>The index is only a label, so one too large for an {@code int} is ordered like any
+     * other rather than rejected: a hand-edited file must not cost the user every server in
+     * it, which is what parsing here used to do.</p>
      */
     private static Set<String> blockIndices(Properties properties) {
         Set<String> found = new LinkedHashSet<>();
@@ -217,7 +221,11 @@ public final class ServerDefinitionStore {
             }
         }
         List<String> ordered = new ArrayList<>(found);
-        ordered.sort(Comparator.comparingInt(Integer::parseInt));
+        // Numeric order without parsing: every index is made of digits, so the longer one is
+        // the larger number and equal lengths compare correctly as text. Integer.parseInt
+        // threw for an index such as 99999999999999999999 and took start-up with it.
+        ordered.sort(Comparator.comparingInt(String::length)
+                .thenComparing(Comparator.<String>naturalOrder()));
         return new LinkedHashSet<>(ordered);
     }
 
