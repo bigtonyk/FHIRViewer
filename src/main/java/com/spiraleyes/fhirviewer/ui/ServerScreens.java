@@ -19,7 +19,6 @@ import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchStore;
 import com.spiraleyes.fhirviewer.service.FhirService;
 
-import javafx.scene.control.DialogPane;
 import javafx.stage.Stage;
 
 /**
@@ -92,7 +91,7 @@ final class ServerScreens {
                 new ServerCredentialSaver(
                         new PluginSettingsStore(pluginSettingsFile.get()), serverPassphrase));
         dialog.initOwner(owner);
-        themeDialog(dialog.getDialogPane());
+        DialogTheme.apply(dialog.getDialogPane(), themeManager);
         dialog.showAndWait();
 
         ServerManagerDialog.Result result = dialog.result();
@@ -120,7 +119,7 @@ final class ServerScreens {
                 new SmartLaunchStore(smartLaunchFile.get()),
                 new SmartFhirAccess(serverService.registry()));
         dialog.initOwner(owner);
-        themeDialog(dialog.getDialogPane());
+        DialogTheme.apply(dialog.getDialogPane(), themeManager);
         dialog.showAndWait();
 
         SmartLaunchDialog.Result result = dialog.result();
@@ -216,11 +215,13 @@ final class ServerScreens {
                     outcome.resourceType(),
                     outcome.resourceId(),
                     ServerResourceActions.versionOf(outcome.resource()));
+            // No raw text: what the server sent is not kept, and the server's name is not
+            // resource text - passing it here is what put a label where FHIR text belongs.
             LoadedResource loaded = new LoadedResource(
                     outcome.resource(),
                     ResourceFormat.JSON,
                     outcome.resourceType() + "/" + outcome.resourceId(),
-                    OpenFromServerDialog.serverLabel(outcome.server()));
+                    null);
             document.show(loaded, origin);
         });
     }
@@ -335,9 +336,4 @@ final class ServerScreens {
         }
     }
 
-    /** Gives a dialog the same stylesheets as the main window, so it follows the theme. */
-    private void themeDialog(DialogPane pane) {
-        pane.getStylesheets().addAll(themeManager.stylesheets());
-        pane.setPrefWidth(620);
-    }
 }

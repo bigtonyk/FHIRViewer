@@ -139,7 +139,10 @@ public final class ScriptingSession implements AutoCloseable {
         if (stopPending) {
             stopPending = false;
             stoppedRunId = myRun;
-        } else {
+        } else if (stoppedRunId != myRun) {
+            // Do not clear a stop that landed while this check was running: it wrote its own
+            // run id after seeing this run's, and clearing it here threw that Stop away and
+            // let the snippet run to completion. Only a stop that is already spent is cleared.
             stoppedRunId = 0;
         }
         try {

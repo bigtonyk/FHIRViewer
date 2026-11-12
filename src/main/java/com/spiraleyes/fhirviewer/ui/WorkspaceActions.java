@@ -8,7 +8,6 @@ import java.util.function.Predicate;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
-import javafx.scene.control.DialogPane;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
@@ -257,7 +256,7 @@ final class WorkspaceActions {
         alert.setTitle(APPLICATION_TITLE);
         alert.setHeaderText("Unsaved workspace");
         alert.setContentText("The workspace has changes that have not been saved to a workspace file.");
-        style(alert.getDialogPane());
+        DialogTheme.apply(alert.getDialogPane(), themeManager);
 
         ButtonType save = new ButtonType("Save Workspace", ButtonBar.ButtonData.YES);
         ButtonType discard = new ButtonType("Discard", ButtonBar.ButtonData.NO);
@@ -288,7 +287,7 @@ final class WorkspaceActions {
         alert.setTitle(APPLICATION_TITLE);
         alert.setHeaderText("Reopen the last workspace?");
         alert.setContentText("The previous session had \"" + name + "\" open.");
-        style(alert.getDialogPane());
+        DialogTheme.apply(alert.getDialogPane(), themeManager);
 
         ButtonType restore = new ButtonType("Reopen Workspace", ButtonBar.ButtonData.YES);
         ButtonType startEmpty = new ButtonType("Start Without It", ButtonBar.ButtonData.NO);
@@ -296,9 +295,4 @@ final class WorkspaceActions {
         return alert.showAndWait().filter(restore::equals).isPresent();
     }
 
-    /** Same stylesheets and width as the window's other dialogs, so it follows the theme. */
-    private void style(DialogPane pane) {
-        pane.getStylesheets().addAll(themeManager.stylesheets());
-        pane.setPrefWidth(620);
-    }
 }

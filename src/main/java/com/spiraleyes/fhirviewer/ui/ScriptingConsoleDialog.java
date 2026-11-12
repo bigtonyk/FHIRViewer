@@ -51,7 +51,7 @@ import com.spiraleyes.fhirviewer.server.FhirServerService;
  * and Run/Stop/Reset/Open/Save/Save As/Example/Clear Output are the content of
  * the job, not decoration around it. The dialog themes and sizes itself, the
  * way {@link UserGuideDialog} does, instead of going through
- * {@code applyDialogTheme}: that helper pins every dialog it touches to 620px,
+ * {@code DialogTheme.apply}: that helper pins every dialog it touches to 620px,
  * and a scripting workspace at 620px is a form the panels collide in.</p>
  *
  * <p><b>Scripts are ordinary Java and are not sandboxed.</b> The first Run —

@@ -95,9 +95,14 @@ method should say why it does not.
 
 ### R6-3. `LoadedResource.rawText` is write-only, and the server paths put a label in it
 
-**Bug — P3, latent.** `ServerResourceActions` constructs `LoadedResource` twice with the server
+**Bug — P3, latent. Fixed 2026-11-12.** The three server paths that passed a label as raw text
+(`ServerResourceActions` after a write and after a reload, and `ServerScreens.open`) now pass
+`null`: a server copy has no loaded text, and the field's contract says so. `ServerSearchDialog`
+already did. The original finding, as written:
+
+`ServerResourceActions` constructed `LoadedResource` twice with the server
 label in the fourth argument, which is `rawText` and not `sourceName`: lines 188-190 (after a
-write) and 253-255 (after a reload) pass `OpenFromServerDialog.serverLabel(target)` where the
+write) and 253-255 (after a reload) passed `OpenFromServerDialog.serverLabel(target)` where the
 serialized text belongs. `LoadedResource`'s constructor is
 `(resource, format, sourceName, rawText[, sourcePath])` (`model/LoadedResource:39-47`), and
 `getRawText()` at line 74 is read only by `FhirServiceTest:108` asserting it is not null. So
@@ -123,8 +128,10 @@ chapter's stylesheets and setting `prefWidth(620)`. `MainWindow` and `WorkspaceA
 the same two lines under their own names. A change to how dialogs are themed (a new stylesheet,
 a different width, a dark-mode-only adjustment) has to be made in five places, and the fifth is
 where the fixed 620 conflicts with dialogs that set their own width (Server Status asks for 720,
-the operation runner for 1040, Add child sizes itself around a 430 x 360 list). No behaviour is
-wrong today that this pass measured; the cost is that the pin cannot be re-tuned once.
+the operation runner for 1040, Add child sizes itself around a 430 x 360 list). **Fixed 2026-11-12.** All five copies now call one `ui/DialogTheme.apply(pane, themeManager)`,
+which owns the stylesheet list and the 620 px constant, and the two inline pairs in `MainWindow`
+that the finding counted go through it as well. The pin can now be re-tuned in one place, which
+is the point: whether 620 is the right width remains a separate question from the duplication.
 
 ### R6-6. The window's title rule is reachable only through a static on `MainWindow`
 
@@ -187,6 +194,16 @@ apply a pending stop to the run that registers and clear it when that run ends -
 cannot leak into the next run either. `ScriptingCoordinatorTest.stopDuringStartUpIsHonoured`
 hammers the window ten times and then proves a normal run still completes.
 
+A third window was an ordering bug in the session's own check: a Stop that wrote its run id
+while the run was reading the flag was then overwritten by the run's `else` branch clearing it,
+so the retry saw nothing to do after one early call. The run now leaves a stop that names it in
+place, and only clears a stop that is already spent.
+
+After the fix the full suite failed once more, this time on the test's own thirty-second wait:
+under a loaded JVM `JShell.create` can outlast it, so the worker was still initialising the
+engine when the await expired. Both timing tests now warm the session first, so they measure
+Stop rather than engine start-up.
+
 Measured against a scratch JShell, one `stop()` call is not reliable on its own either: with a
 snippet sleeping for a minute it left the snippet running in one case out of three, and
 repeating the call ended every attempt in under 210 ms. `ScriptingSession.stop` therefore
@@ -221,9 +238,10 @@ interrupt a later run and the Stop button still returns immediately.
 1. **R6-1** — done on 2026-11-11 (see above). It was the only finding here a user could hit in
    ordinary use: edit, undo, then try to save back to the server.
 2. **R6-2** — done on 2026-11-11 (see above); the dialog result type now carries the origin.
-3. **R6-3** after that: either supply the serialized text or make the parameter absent, so the
-   field cannot be filled with the wrong thing again.
-4. **R6-4**, **R6-5**, **R6-6** as hygiene, together with any further `MainWindow` work.
+3. **R6-3** — done on 2026-11-12 (see above). The parameter is absent on the server paths, so
+   the field cannot be filled with the wrong thing again.
+4. **R6-4** and **R6-6** as hygiene, together with any further `MainWindow` work (**R6-5** was
+   fixed on 2026-11-12).
 5. **R6-7** needs a decision before R6-8 or R6-9 are worth touching: wire the suite runner to a
    console, or delete the package. If it is wired, fix the classification first - a suite report
    that calls a runtime exception a failed assertion is worse than no report.

@@ -27,6 +27,17 @@ class ScriptingCoordinatorTest {
         coordinator.close();
     }
 
+    /**
+     * Starts the session before a timing test begins. Without this the test's wait also covers
+     * {@code JShell.create}, which under a loaded full suite can take longer than the wait - so
+     * the test would time out on engine start-up rather than on the Stop it is about.
+     */
+    private void warmUp() throws Exception {
+        CountDownLatch ready = new CountDownLatch(1);
+        coordinator.reset(ready::countDown);
+        assertTrue(ready.await(60, TimeUnit.SECONDS), "the session did not start");
+    }
+
     @Test
     @DisplayName("Runs execute on the worker thread and deliver a result")
     void runsExecuteAndDeliverAResult() throws Exception {
@@ -48,6 +59,7 @@ class ScriptingCoordinatorTest {
     @DisplayName("A second run while one is in flight is refused immediately")
     void concurrentRunIsRefused() throws Exception {
         coordinator = new ScriptingCoordinator();
+        warmUp();
         AtomicReference<ScriptRunResult> first = new AtomicReference<>();
         CountDownLatch finished = new CountDownLatch(1);
 
@@ -88,6 +100,7 @@ class ScriptingCoordinatorTest {
     @DisplayName("A Stop that arrives while the run is still starting ends it anyway")
     void stopDuringStartUpIsHonoured() throws Exception {
         coordinator = new ScriptingCoordinator();
+        warmUp();
 
         // No wait for isRunning() here: Run returns, Stop is pressed immediately, which is
         // the window in which the worker used to lose it - it had marked the run started,

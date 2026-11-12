@@ -58,7 +58,6 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckMenuItem;
 import javafx.scene.control.ChoiceDialog;
 import javafx.scene.control.ComboBox;
-import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
@@ -727,7 +726,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         dialog.setTitle(APPLICATION_TITLE);
         dialog.setHeaderText("Create a new FHIR resource");
         dialog.setContentText("Resource type:");
-        applyDialogTheme(dialog.getDialogPane());
+        DialogTheme.apply(dialog.getDialogPane(), themeManager);
         Optional<String> chosen = dialog.showAndWait();
         if (chosen.isEmpty()) {
             return;
@@ -778,12 +777,6 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         } finally {
             closingFromAction = false;
         }
-    }
-
-    /** Gives a dialog the same stylesheets as the main window, so it follows the theme. */
-    private void applyDialogTheme(DialogPane pane) {
-        pane.getStylesheets().addAll(themeManager.stylesheets());
-        pane.setPrefWidth(620);
     }
 
     // ------------------------------------------------------------------
@@ -1080,8 +1073,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         alert.setTitle(title);
         alert.setHeaderText(null);
         alert.setContentText(message);
-        alert.getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
-        alert.getDialogPane().setPrefWidth(620);
+        DialogTheme.apply(alert.getDialogPane(), themeManager);
         alert.showAndWait();
     }
 
@@ -1097,8 +1089,7 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         alert.setHeaderText(message);
         alert.setContentText(detail);
         // Same stylesheets as the main scene, so dialogs follow the active theme.
-        alert.getDialogPane().getStylesheets().addAll(themeManager.stylesheets());
-        alert.getDialogPane().setPrefWidth(620);
+        DialogTheme.apply(alert.getDialogPane(), themeManager);
         alert.showAndWait();
     }
 

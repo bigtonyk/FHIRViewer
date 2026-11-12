@@ -30,7 +30,6 @@ import com.spiraleyes.fhirviewer.util.FileSupport;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
-import javafx.scene.control.DialogPane;
 import javafx.scene.control.TextInputDialog;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
@@ -574,7 +573,7 @@ final class DocumentSession implements DocumentPort {
         }
         AddChildDialog dialog = new AddChildDialog(parentPath, children);
         dialog.initOwner(owner);
-        themeDialog(dialog.getDialogPane());
+        DialogTheme.apply(dialog.getDialogPane(), themeManager);
         Optional<ElementProperty> picked = dialog.showAndWait();
         if (picked.isEmpty()) {
             return;
@@ -654,7 +653,7 @@ final class DocumentSession implements DocumentPort {
         dialog.setContentText(reference
                 ? "Target, for example Practitioner/123 (empty keeps the element without a target):"
                 : "Value (empty keeps the element without a value):");
-        themeDialog(dialog.getDialogPane());
+        DialogTheme.apply(dialog.getDialogPane(), themeManager);
         Optional<String> value = dialog.showAndWait();
         if (value.isEmpty() || value.get().isBlank()) {
             return;
@@ -719,7 +718,7 @@ final class DocumentSession implements DocumentPort {
         alert.setContentText("This removes the element with its "
                 + (countNodes(node) - 1) + " child elements from " + label
                 + ". The change can be undone.");
-        themeDialog(alert.getDialogPane());
+        DialogTheme.apply(alert.getDialogPane(), themeManager);
         Optional<ButtonType> answer = alert.showAndWait();
         return answer.isPresent() && answer.get() == ButtonType.OK;
     }
@@ -919,7 +918,7 @@ final class DocumentSession implements DocumentPort {
         alert.setHeaderText("Unsaved changes");
         alert.setContentText("Save the changes to " + loaded.getDisplayName()
                 + " before " + action + "?");
-        themeDialog(alert.getDialogPane());
+        DialogTheme.apply(alert.getDialogPane(), themeManager);
 
         ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);
         ButtonType discard = new ButtonType("Discard", ButtonBar.ButtonData.NO);
@@ -1004,9 +1003,4 @@ final class DocumentSession implements DocumentPort {
         return display > 0 ? value.substring(0, display).trim() : value;
     }
 
-    /** Gives a dialog the same stylesheets as the main window, so it follows the theme. */
-    private void themeDialog(DialogPane pane) {
-        pane.getStylesheets().addAll(themeManager.stylesheets());
-        pane.setPrefWidth(620);
-    }
 }

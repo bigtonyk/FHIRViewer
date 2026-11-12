@@ -16,7 +16,6 @@ import javafx.application.Platform;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
-import javafx.scene.control.DialogPane;
 import javafx.stage.Stage;
 
 /**
@@ -109,7 +108,7 @@ final class ServerResourceActions {
         SaveToServerDialog dialog = new SaveToServerDialog(serverManager.servers(), preselect,
                 origin, document.resource(), resourceType);
         dialog.initOwner(owner);
-        themeDialog(dialog.getDialogPane());
+        DialogTheme.apply(dialog.getDialogPane(), themeManager);
         SaveToServerDialog.Plan plan = dialog.showAndWait().orElse(null);
         if (plan == null) {
             return;
@@ -185,9 +184,11 @@ final class ServerResourceActions {
             return;
         }
         ServerOrigin rebased = result.origin();
+        // A server copy has no loaded text: the response body is not kept, and serializing the
+        // resource here would make the field claim to be something it is not. The server's
+        // name is not resource text either, which is what used to be passed here.
         document.show(new LoadedResource(resource, ResourceFormat.JSON,
-                rebased.resourceType() + "/" + rebased.resourceId(),
-                OpenFromServerDialog.serverLabel(target)), rebased);
+                rebased.resourceType() + "/" + rebased.resourceId(), null), rebased);
         status.accept(result.message());
     }
 
@@ -251,8 +252,7 @@ final class ServerResourceActions {
                         target.pluginId(), target.baseUrl(), origin.resourceType(),
                         origin.resourceId(), versionOf(fresh));
                 document.show(new LoadedResource(fresh, ResourceFormat.JSON,
-                        refreshed.resourceType() + "/" + refreshed.resourceId(),
-                        OpenFromServerDialog.serverLabel(target)), refreshed);
+                        refreshed.resourceType() + "/" + refreshed.resourceId(), null), refreshed);
                 status.accept("Reloaded " + refreshed.resourceType() + "/"
                         + refreshed.resourceId() + " from " + target.name() + ".");
             });
@@ -369,7 +369,7 @@ final class ServerResourceActions {
                 + " from " + target.name() + "?");
         alert.setContentText("Server: " + target.name() + "\n" + target.baseUrl()
                 + "\n\nThis removes the resource on the server. It cannot be undone from here.");
-        themeDialog(alert.getDialogPane());
+        DialogTheme.apply(alert.getDialogPane(), themeManager);
         ButtonType proceed = new ButtonType("Delete", ButtonBar.ButtonData.OK_DONE);
         alert.getButtonTypes().setAll(proceed, ButtonType.CANCEL);
         if (alert.showAndWait().filter(proceed::equals).isEmpty()) {
@@ -401,9 +401,4 @@ final class ServerResourceActions {
         worker.start();
     }
 
-    /** Gives a dialog the same stylesheets as the main window, so it follows the theme. */
-    private void themeDialog(DialogPane pane) {
-        pane.getStylesheets().addAll(themeManager.stylesheets());
-        pane.setPrefWidth(620);
-    }
 }
