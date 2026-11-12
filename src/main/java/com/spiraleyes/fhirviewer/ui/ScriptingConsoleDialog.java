@@ -97,7 +97,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private final Button exampleButton = new Button("Example");
     private final Button clearButton = new Button("Clear Output");
 
-    private final ScriptingCoordinator coordinator = new ScriptingCoordinator();
+    private final ScriptingCoordinator coordinator;
     private final List<String> stylesheets;
 
     private static File lastDirectory;
@@ -118,6 +118,20 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     public ScriptingConsoleDialog(ThemeManager themeManager,
             FhirService fhirService, FhirServerService serverService,
             FhirServerManager serverManager) {
+        this(themeManager, fhirService, serverService, serverManager, new ScriptingCoordinator());
+    }
+
+    /**
+     * Builds the console over the given coordinator, so a UI test can drive suite
+     * results the real session factory cannot produce. Package-private: production
+     * callers use the public constructor.
+     */
+    ScriptingConsoleDialog(ThemeManager themeManager, FhirService fhirService,
+            FhirServerService serverService, FhirServerManager serverManager,
+            ScriptingCoordinator coordinator) {
+        if (coordinator == null) {
+            throw new IllegalArgumentException("A scripting coordinator is required.");
+        }
         if (themeManager == null) {
             throw new IllegalArgumentException("A theme manager is required.");
         }
@@ -125,6 +139,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             throw new IllegalArgumentException("The scripting services are required.");
         }
 
+        this.coordinator = coordinator;
         bindings = new ScriptBindings(
                 new FhirApi(serverService, serverManager, WritePolicy.READ_ONLY),
                 new ViewerApi(fhirService),

@@ -2,6 +2,7 @@ package com.spiraleyes.fhirviewer.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,6 +14,7 @@ import java.util.Deque;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeAll;
@@ -23,6 +25,8 @@ import org.junit.jupiter.api.io.TempDir;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
 import com.spiraleyes.fhirviewer.service.FhirService;
+import com.spiraleyes.fhirviewer.service.scripting.FailingScriptingSessions;
+import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
 
 import javafx.application.Platform;
 import javafx.scene.Node;
@@ -31,12 +35,16 @@ import javafx.stage.Stage;
 import javafx.stage.Window;
 
 /**
- * Builds the scripting console on a real JavaFX toolkit and drives the Example button.
+ * Builds the scripting console on a real JavaFX toolkit and drives it.
  *
  * <p>A blank console is saved to a file first, which binds the buffer the same way Open
  * does, then the bundled example is loaded. The example is not that file, so the console
  * must return to the interactive session and Save must ask for a new location instead of
  * rewriting the file the example replaced.</p>
+ *
+ * <p>The suite tests press Run Tests against the real coordinator, and once against a
+ * coordinator whose session factory fails after the first case, so the partial-failure
+ * path is exercised through the dialog rather than only through the coordinator.</p>
  *
  * <p>Skipped automatically when no display is available, like {@link ServerUiSmokeTest}.</p>
  */
@@ -130,19 +138,91 @@ class ScriptingConsoleSmokeTest {
     @DisplayName("Run Tests reports counts separately and leaves verdicts out of the output")
     void runTestsReportsCountsApartFromOutput() throws Exception {
         requireToolkit();
-        AtomicReference<String> report = new AtomicReference<>();
-        AtomicReference<String> output = new AtomicReference<>();
-        AtomicReference<String> details = new AtomicReference<>();
+        SuiteOutcome outcome = runSuite("""
+                // case: passes
+                System.out.println("pass-case-output");
+                test.assertTrue(true, "this passes");
+
+                // case: fails
+                System.out.println("fail-case-output");
+                test.assertTrue(false, "expected true here");
+                """, new ScriptingCoordinator());
+
+        String reportText = outcome.report();
+        assertTrue(reportText.contains("1 passed, 1 failed"),
+                "the report should carry both counts: " + reportText);
+        assertTrue(reportText.contains("FAILED fails"),
+                "the failing case should be named in the report: " + reportText);
+        assertFalse(outcome.output().contains("FAILED"),
+                "verdicts must not leak into the output pane: " + outcome.output());
+        assertFalse(outcome.output().contains("passed"),
+                "verdicts must not leak into the output pane: " + outcome.output());
+        String detailsText = outcome.details();
+        assertTrue(detailsText.contains("pass-case-output"),
+                "the details tab should keep what the passing case printed: " + detailsText);
+        assertTrue(detailsText.contains("fail-case-output"),
+                "the details tab should keep what the failing case printed: " + detailsText);
+        assertTrue(detailsText.contains("AssertionError") && detailsText.contains("expected true here"),
+                "the details tab should carry the full failure, not just the first line: "
+                        + detailsText);
+    }
+
+    /**
+     * A session factory that fails on the second case must not cost the UI the reason,
+     * the counts of what did run, or the output the completed case produced.
+     */
+    @Test
+    @DisplayName("A suite that fails after one case still shows the reason, the counts and that case's output")
+    void failedSuiteKeepsReasonCountsAndDetails() throws Exception {
+        requireToolkit();
+        String reason = "no session for the second case";
+        SuiteOutcome outcome = runSuite("""
+                // case: passes
+                System.out.println("kept-case-output");
+                test.assertTrue(true, "this passes");
+
+                // case: never starts
+                System.out.println("never-runs");
+                """, FailingScriptingSessions.failAfterOneSession(reason));
+
+        String reportText = outcome.report();
+        assertTrue(reportText.contains(
+                        "The suite could not finish: IllegalStateException: " + reason),
+                "the report must keep the failure reason: " + reportText);
+        assertTrue(reportText.contains("1 passed, 0 failed (1 case(s)"),
+                "the report must keep the counts of the case that ran: " + reportText);
+        assertFalse(reportText.contains("FAILED"),
+                "no case failed on its own, so no FAILED line belongs in the report: " + reportText);
+
+        String detailsText = outcome.details();
+        assertTrue(detailsText.contains("The suite could not finish"),
+                "the details tab must repeat the failure reason: " + detailsText);
+        assertTrue(detailsText.contains("case: passes \u2014 PASSED"),
+                "the details tab must name the completed case: " + detailsText);
+        assertTrue(detailsText.contains("kept-case-output"),
+                "the details tab must keep what the completed case printed: " + detailsText);
+        assertFalse(detailsText.contains("never-runs"),
+                "the case that never started must not appear to have run: " + detailsText);
+        assertEquals("", outcome.output(),
+                "a suite verdict or failure must not be written to the output pane");
+    }
+
+    /**
+     * Drives one Run Tests press to completion and returns what the three surfaces show.
+     *
+     * <p>A background helper posts FX tasks: they run inside the trust dialog's nested
+     * event loop, answer the prompt, then watch the report label for the verdicts.</p>
+     */
+    private static SuiteOutcome runSuite(String source, ScriptingCoordinator coordinator)
+            throws Exception {
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReference<ProbeConsole> consoleRef = new AtomicReference<>();
+        AtomicReference<SuiteOutcome> outcome = new AtomicReference<>();
         AtomicReference<String> lastReport = new AtomicReference<>("<none>");
         AtomicBoolean trustAnswered = new AtomicBoolean();
-        java.util.concurrent.atomic.AtomicInteger fxTicks =
-                new java.util.concurrent.atomic.AtomicInteger();
+        AtomicInteger fxTicks = new AtomicInteger();
         CountDownLatch done = new CountDownLatch(1);
 
-        // A background helper posts FX tasks: they run inside the trust dialog's nested
-        // event loop, answer the prompt, then watch the report label for the verdicts.
         Thread helper = new Thread(() -> {
             while (done.getCount() > 0 && !Thread.currentThread().isInterrupted()) {
                 Platform.runLater(() -> {
@@ -157,12 +237,12 @@ class ScriptingConsoleSmokeTest {
                             trustAnswered.set(true);
                         }
                         String current = console.suiteReportForTest().getText();
-                        if (trustAnswered.get() && report.get() == null
+                        if (trustAnswered.get() && outcome.get() == null
                                 && console.suiteReportForTest().isVisible()
                                 && !current.startsWith("Running")) {
-                            report.set(console.suiteReportForTest().getText());
-                            output.set(console.outputTextForTest());
-                            details.set(console.suiteDetailsTextForTest());
+                            outcome.set(new SuiteOutcome(current,
+                                    console.outputTextForTest(),
+                                    console.suiteDetailsTextForTest()));
                             done.countDown();
                         }
                     } catch (Throwable problem) {
@@ -176,23 +256,14 @@ class ScriptingConsoleSmokeTest {
                     return;
                 }
             }
-        }, "scripting-console-smoke");
+        }, "scripting-console-suite");
         helper.setDaemon(true);
         helper.start();
 
         Platform.runLater(() -> {
             try {
-                ProbeConsole console = new ProbeConsole(directory.resolve("passed.jsh"),
-                        directory.resolve("failed.jsh"));
-                console.setEditorTextForTest("""
-                        // case: passes
-                        System.out.println("pass-case-output");
-                        test.assertTrue(true, "this passes");
-
-                        // case: fails
-                        System.out.println("fail-case-output");
-                        test.assertTrue(false, "expected true here");
-                        """);
+                ProbeConsole console = new ProbeConsole(coordinator);
+                console.setEditorTextForTest(source);
                 consoleRef.set(console);
                 // Blocks in the trust dialog's nested event loop until the helper answers it.
                 console.runTestsButtonForTest().fire();
@@ -216,23 +287,12 @@ class ScriptingConsoleSmokeTest {
         if (failure.get() != null) {
             throw new AssertionError("scripting console suite smoke test failed", failure.get());
         }
-        String reportText = report.get();
-        assertTrue(reportText.contains("1 passed, 1 failed"),
-                "the report should carry both counts: " + reportText);
-        assertTrue(reportText.contains("FAILED fails"),
-                "the failing case should be named in the report: " + reportText);
-        assertFalse(output.get().contains("FAILED"),
-                "verdicts must not leak into the output pane: " + output.get());
-        assertFalse(output.get().contains("passed"),
-                "verdicts must not leak into the output pane: " + output.get());
-        String detailsText = details.get();
-        assertTrue(detailsText.contains("pass-case-output"),
-                "the details tab should keep what the passing case printed: " + detailsText);
-        assertTrue(detailsText.contains("fail-case-output"),
-                "the details tab should keep what the failing case printed: " + detailsText);
-        assertTrue(detailsText.contains("AssertionError") && detailsText.contains("expected true here"),
-                "the details tab should carry the full failure, not just the first line: "
-                        + detailsText);
+        assertNotNull(outcome.get(), "the suite finished without showing a report");
+        return outcome.get();
+    }
+
+    /** The three places a suite result can appear. */
+    private record SuiteOutcome(String report, String output, String details) {
     }
 
     /** Presses Run Script on the trust prompt as soon as it is showing. */
@@ -265,10 +325,22 @@ class ScriptingConsoleSmokeTest {
         private int saveAsked;
 
         ProbeConsole(Path first, Path second) {
+            this(new ScriptingCoordinator(), first, second);
+        }
+
+        ProbeConsole(ScriptingCoordinator coordinator) {
+            this(coordinator, null, null);
+        }
+
+        private ProbeConsole(ScriptingCoordinator coordinator, Path first, Path second) {
             super(new ThemeManager(), new FhirService(), new FhirServerService(),
-                    new FhirServerManager());
-            targets.add(first);
-            targets.add(second);
+                    new FhirServerManager(), coordinator);
+            if (first != null) {
+                targets.add(first);
+            }
+            if (second != null) {
+                targets.add(second);
+            }
         }
 
         @Override

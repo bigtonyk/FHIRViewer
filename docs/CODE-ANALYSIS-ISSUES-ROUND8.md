@@ -17,8 +17,8 @@ Method: static reading of every file above, plus targeted test runs to confirm e
 No JavaFX window was opened during this pass; the one UI path that cannot be reached without a
 session-creation failure (R8-1) was verified through the coordinator test rather than visually.
 
-Status (2026-11-12): all four findings are fixed and covered where a test can reach them. The
-full suite is green at 1,051 tests. The fixes are uncommitted at the time of writing.
+Status (2026-11-12): all four findings are fixed; the partial-suite rendering now has a UI test
+that drives the real Run Tests button. The full suite is green at 1,052 tests.
 
 ## Priority legend
 
@@ -68,9 +68,16 @@ completed cases' output was therefore unreachable even though `SuiteCaseResult` 
 
 Fixed by always building the counts line, prepending the message when present, and always filling
 the details tab. `ScriptingCoordinatorTest.suiteSessionCreationFailureIsReported` now has its
-first case print `kept-output` and asserts the entry survives in the result; the smoke test covers
-the normal details path. The failure-path UI rendering itself has no automated test because the
-dialog's coordinator cannot be given a failing session factory.
+first case print `kept-output` and asserts the entry survives in the result.
+
+The dialog gap itself is now covered: `ScriptingConsoleDialog` has a package-private constructor
+that takes its coordinator, and the test-only `FailingScriptingSessions` helper builds a
+coordinator whose session factory succeeds once and then throws. The smoke test
+`failedSuiteKeepsReasonCountsAndDetails` presses the real Run Tests button against it and asserts
+that the report keeps the reason and `1 passed, 0 failed (1 case(s)`, that the details tab keeps
+`case: passes — PASSED` with `kept-case-output`, that the case that never started contributes
+nothing, and that the output pane stays empty. Reinstating the early return makes that test fail
+on the counts assertion.
 
 ### R8-2. A `// case:` marker without a name was folded into the previous case
 
@@ -118,9 +125,11 @@ Fixed to name both places: counts above the panes, per-case output in the Test d
 | `ScriptingCoordinatorTest` | 11 tests, 0 failures/errors/skips |
 | `TestSuiteTest` | 5 tests |
 | `SuiteCaseResultTest` | 3 tests |
-| `ScriptingConsoleSmokeTest` | 2 tests (one skipped automatically when headless) |
-| Full suite | 1,051 run, 0 failures, 0 errors, 0 skipped, exit 0 |
+| `ScriptingConsoleSmokeTest` | 3 tests (the class is skipped automatically when headless) |
+| Full suite | 1,052 run, 0 failures, 0 errors, 0 skipped, exit 0 |
 
 Red checks used during the pass: discarding `SuiteCaseResult.entries` failed the smoke test's
 details assertions; disabling the between-case stop check failed
-`stopBetweenSuiteCasesSkipsTheRest`; the nameless-marker test fails against the old parser.
+`stopBetweenSuiteCasesSkipsTheRest`; the nameless-marker test fails against the old parser; and
+the old early return in `presentSuite` fails `failedSuiteKeepsReasonCountsAndDetails` on the
+missing counts.
