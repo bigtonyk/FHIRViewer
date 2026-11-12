@@ -434,7 +434,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
         editor.setText(example);
         savedContent = example;
-        setStatus("Example loaded — press Run to execute it.");
+        // The example is not the file that was open: keep the buffer untitled so Save asks
+        // for a location instead of overwriting that file, and Run stays interactive.
+        currentFile = null;
+        updateRunModeLabel();
+        setStatus("Example loaded into an untitled buffer — press Run to execute it.");
     }
 
     /** The bundled example text, or null when the resource is missing. */
