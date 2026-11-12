@@ -152,9 +152,21 @@ public class WorkspaceRecoveryService {
     public void forgetSnapshot() {
         // Bumping the generation also disowns snapshots that are still queued or being
         // written: clearing the path alone let one finish afterwards and offer itself back.
+        Path disowned;
         synchronized (snapshotLock) {
             snapshotGeneration++;
+            disowned = lastSnapshotPath;
             lastSnapshotPath = null;
+        }
+        // A snapshot that finished before this call is already on disk. Disowning only
+        // the path left that file behind as a recovery point for a state nobody owns.
+        if (disowned != null) {
+            try {
+                Files.deleteIfExists(disowned);
+            } catch (IOException e) {
+                LOG.warn("Could not remove the forgotten snapshot {}: {}",
+                        disowned.getFileName(), e.getMessage());
+            }
         }
     }
 

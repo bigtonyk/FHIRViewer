@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
@@ -110,7 +111,7 @@ class WorkspaceRecoveryServiceTest {
     }
 
     @Test
-    @DisplayName("A snapshot queued before a save is not offered after it")
+    @DisplayName("A snapshot that finished before a save is deleted by it")
     void aSnapshotQueuedBeforeASaveIsNotOfferedAfterwards() throws Exception {
         WorkspaceService workspace = new WorkspaceService();
         workspace.newWorkspace("Edited");
@@ -120,7 +121,12 @@ class WorkspaceRecoveryServiceTest {
                 WorkspaceRecoveryService.CloseDecision.PROCEED, new AtomicBoolean());
 
         recovery.takeSnapshotNow();
+        // Wait for the file instead of racing it: the assertion is about a snapshot that
+        // already exists when the save forgets it, not about which thread ran first.
+        awaitCompletedSnapshot(recovery);
         recovery.saveCurrentArchive();
+
+        assertEquals(List.of(), snapshotFiles(), "the save must delete the snapshot it replaced");
         recovery.close();
 
         assertFalse(recovery.hasRecoverySnapshot());
@@ -144,6 +150,15 @@ class WorkspaceRecoveryServiceTest {
         assertEquals(1, snapshotFiles().size());
         assertTrue(recovery.restoreFromLastSnapshot(), "and can still be restored");
         assertTrue(workspace.isDirty(), "a restored workspace has changes to save");
+    }
+
+    /** Waits until the queued snapshot has been written and registered. */
+    private void awaitCompletedSnapshot(WorkspaceRecoveryService recovery) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!recovery.hasRecoverySnapshot() && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertTrue(recovery.hasRecoverySnapshot(), "the snapshot should reach disk before the save");
     }
 
     /** The {@code .snap} files in the recovery directory this test's service writes to. */
