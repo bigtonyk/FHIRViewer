@@ -65,8 +65,9 @@ the end of each phase.
   Phase 3 parameter contract is a model without a caller.
 - No test-runner mode: assertions are evaluated inside an ordinary run, so there are no
   pass/fail/skip counts, named checks or machine-readable results, only the snippet-level status
-  (Phase 2). The guide says saved scripts run in a fresh session; the console reuses one
-  session until Reset, which is the Phase 1 gap recorded above rather than a wording problem.
+  (Phase 2). The phase asks for a fresh context per saved-script run while the console reuses
+  one session until Reset; the guide now describes the current behaviour, so Phase 1 stays
+  partial until that requirement or the console changes.
 - No suite format, screen or report export. The scriptingrefined Phase 3 engine was deleted in
   `7724874` because nothing could start it (R6-7 in `docs/CODE-ANALYSIS-ISSUES-ROUND6.md`);
   rebuilding one must start from a saved-suite format, not a new script language.

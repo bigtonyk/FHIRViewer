@@ -78,8 +78,9 @@ String v = server.fhirVersion();
 ## Automated testing
 
 Assertions throw `AssertionError` on failure:
-`assertTrue`, `assertFalse`, `assertEquals`, `fail`. Saved tests run in a fresh
-session independent of interactive history.
+`assertTrue`, `assertFalse`, `assertEquals`, `fail`. Saved tests run in the same
+console session as typed snippets, so declarations from earlier runs are visible to
+them.
 
 ## SMART on FHIR
 
@@ -103,7 +104,9 @@ synthetic identifiers and read-only operations by default.
 
 ## Scripting automation
 
-Saved scripts run in a fresh JShell session independent of interactive history.
+Saved scripts are not given a session of their own: opening one loads its text
+into the editor, and Run evaluates it in the console's session, where state from
+earlier runs is still present. **Reset Session** discards that state.
 Use the `test` assertions to check what a script found; a failed assertion appears
 in the output as an `AssertionError` with its message, like any other exception.
 Treat every script that writes or deletes as destructive and point it at synthetic
