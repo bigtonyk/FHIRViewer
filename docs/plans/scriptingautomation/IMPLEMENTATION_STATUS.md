@@ -51,7 +51,7 @@ phase.
   and a scope-respecting `read`, never raw tokens.
 - Plugin API: server plugins advertise operations to the REST Workbench and the plugin id is
   visible to scripts through `ServerInfo`; scripts cannot call plugin operations.
-- Tests/build: full suite 1,036 tests in 107 test classes, 0 failures/errors/skips; scripting
+- Tests/build: full suite 1,037 tests in 108 test classes, 0 failures/errors/skips; scripting
   contributes 85 `@Test` methods in 11 classes under `service/scripting` and
   `service/scripting/api`.
 
@@ -59,7 +59,7 @@ phase.
 
 | Test / command | Result | Notes |
 |---|---|---|
-| `./mvnw -B -ntp test` | 1,036 run, 0 failures, 0 errors, 0 skipped (exit 0) | Run on 2026-11-12 on `workspace` after the per-run session change; includes the 85 scripting tests above. |
+| `./mvnw -B -ntp test` | 1,037 run, 0 failures, 0 errors, 0 skipped (exit 0) | Run on 2026-11-12 on `workspace` after the per-run session change and the console smoke test; includes the 85 scripting tests above. |
 | Package build | Succeeded 2026-10-21 | `mvnw -Pdist -DskipTests package` with `jdk.jshell` and `jdk.compiler` in the module list, recorded in the scriptingrefined status file; not rebuilt for this entry. |
 
 ## Known issues and deferred work

@@ -302,6 +302,31 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         statusLabel.setText(message == null || message.isBlank() ? " " : message);
     }
 
+    /** The run-mode label, for tests. */
+    Label runModeLabelForTest() {
+        return runModeLabel;
+    }
+
+    /** The Example button, for tests. */
+    Button exampleButtonForTest() {
+        return exampleButton;
+    }
+
+    /** The Save button, for tests. */
+    Button saveButtonForTest() {
+        return saveButton;
+    }
+
+    /** The buffer's file, or empty when the buffer is untitled; for tests. */
+    Optional<Path> boundFileForTest() {
+        return Optional.ofNullable(currentFile);
+    }
+
+    /** The editor's current text, for tests. */
+    String editorTextForTest() {
+        return editor.getText();
+    }
+
 
 
     // ------------------------------------------------------------------
@@ -398,8 +423,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         return true;
     }
 
-    /** The save-file chooser with the `.jsh` filter preselected. */
-    private Path chooseSaveLocation() {
+    /**
+     * The save-file chooser with the `.jsh` filter preselected. Protected so a UI smoke test
+     * can answer it with a temporary path instead of opening a native dialog.
+     */
+    protected Path chooseSaveLocation() {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Save script");
         chooser.setInitialFileName(currentFile == null ? "untitled.jsh"

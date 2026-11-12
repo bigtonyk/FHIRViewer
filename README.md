@@ -175,7 +175,7 @@ hard-coded**.
 
 ## Tests
 
-`mvn test` runs the JUnit 5 suite, which holds 107 test classes. The table below names
+`mvn test` runs the JUnit 5 suite, which holds 108 test classes. The table below names
 the ones covering the core path; the rest sit in the same tree, under `server/rest`,
 `server/smart`, `ui`, `service/scripting` and `workspace`. The two UI suites need a
 display and skip themselves when no graphics environment is available, which is why CI
