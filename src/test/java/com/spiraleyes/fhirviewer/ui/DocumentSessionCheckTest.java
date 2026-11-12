@@ -16,8 +16,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.spiraleyes.fhirviewer.model.BundleEntryInfo;
 import com.spiraleyes.fhirviewer.model.LoadedResource;
 import com.spiraleyes.fhirviewer.model.ResourceNode;
+import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.service.ResourceEditorService;
 import com.spiraleyes.fhirviewer.service.SourceEditorService;
@@ -145,6 +147,63 @@ class DocumentSessionCheckTest {
             assertNotEquals(original, harness.familyValue(),
                     "the five oldest snapshots are dropped, so exhausting the history must leave "
                             + "the fifth edit in place rather than the loaded value");
+            outcome.set("ok");
+        });
+
+        assertEquals("ok", outcome.get());
+    }
+
+    @Test
+    @DisplayName("Undo keeps the server origin, so the resource can still be written back")
+    void undoKeepsTheServerOrigin() throws Exception {
+        AtomicReference<String> outcome = new AtomicReference<>();
+
+        runOnFxThread(() -> {
+            Harness harness = new Harness(new AtomicInteger());
+            ServerOrigin origin = ServerOrigin.of("plug", "http://localhost:8080/fhir",
+                    "Patient", "sample-patient", "1");
+            harness.session.show(harness.fhirService.openSample(FhirService.SAMPLE_PATIENT), origin);
+            harness.session.applyValueEdit(harness.node(), "Changed");
+
+            harness.session.undoEdit();
+
+            assertEquals(origin, harness.session.origin(),
+                    "undoing an edit must not make a resource loaded from a server look local");
+            assertFalse(harness.session.isDirty(),
+                    "undoing the only edit must return the document to clean");
+            outcome.set("ok");
+        });
+
+        assertEquals("ok", outcome.get());
+    }
+
+    @Test
+    @DisplayName("Undo returns to the Bundle entry that was being edited")
+    void undoKeepsTheDisplayedBundleEntry() throws Exception {
+        AtomicReference<String> outcome = new AtomicReference<>();
+
+        runOnFxThread(() -> {
+            Harness harness = new Harness(new AtomicInteger());
+            harness.session.show(harness.fhirService.openSample(FhirService.SAMPLE_BUNDLE), null);
+            BundleEntryInfo observation = harness.fhirService
+                    .bundleEntries(harness.session.loaded().getResource()).stream()
+                    .filter(entry -> "Observation".equals(entry.resourceType()))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("the sample has no Observation entry"));
+            harness.session.displayBundleEntry(observation);
+            assertTrue(harness.session.showingEntry(), "the test needs an entry on screen");
+
+            harness.session.applyValueEdit(harness.nodeOnDisplayed("Observation.status"), "amended");
+            assertTrue(harness.session.isDirty(), "editing the entry must dirty the document");
+
+            harness.session.undoEdit();
+
+            assertTrue(harness.session.showingEntry(),
+                    "undo must not throw the user out of the Bundle entry they were editing");
+            assertEquals("final", harness.nodeOnDisplayed("Observation.status").getValueText(),
+                    "undo must restore the value of the entry that is shown");
+            assertFalse(harness.session.isDirty(),
+                    "undoing the only edit must return the document to clean");
             outcome.set("ok");
         });
 
@@ -279,6 +338,11 @@ class DocumentSessionCheckTest {
         /** The family-name node of the sample, found by path in a fresh tree. */
         ResourceNode node() {
             return find(fhirService.buildTree(session.loaded(), true), FAMILY_PATH);
+        }
+
+        /** A node of the resource on screen, found by path in a fresh tree. */
+        ResourceNode nodeOnDisplayed(String path) {
+            return find(fhirService.buildTree(session.resource(), true), path);
         }
 
         /** The family name the displayed resource currently holds. */

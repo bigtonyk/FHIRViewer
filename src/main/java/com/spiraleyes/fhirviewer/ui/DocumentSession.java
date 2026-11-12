@@ -866,7 +866,16 @@ final class DocumentSession implements DocumentPort {
         } else {
             restored.markDirty();
         }
-        display(restored, null);
+        // An undo is not a trip to another resource: the server origin and the Bundle entry
+        // the user is looking at both survive it. The snapshot is a clone of the whole
+        // Bundle, so the entry belongs to the resource being replaced and is found again by
+        // position and label.
+        int entryIndex = entry == null ? -1 : entry.index();
+        String entryName = entry == null ? null : entry.displayName();
+        display(restored, origin);
+        if (entryIndex >= 0) {
+            restoreDisplayedEntry(restored, entryIndex, entryName);
+        }
         undo.clear();
         undo.addAll(remaining);
         editActions.run();
@@ -874,6 +883,24 @@ final class DocumentSession implements DocumentPort {
                 ? "Undid every change; " + restored.getDisplayName()
                         + " matches the saved resource again."
                 : "Undid the last change to " + restored.getDisplayName() + ".");
+    }
+
+    /**
+     * Returns to the Bundle entry that was displayed before an undo. The snapshot is a clone
+     * of the Bundle, so the entry object is not part of it; it is found again by position and
+     * label. An entry that the undo removed leaves the whole Bundle on screen, which is where
+     * {@link #display} puts the user.
+     */
+    private void restoreDisplayedEntry(LoadedResource restored, int index, String displayName) {
+        for (BundleEntryInfo candidate
+                : flattenEntries(fhirService.bundleEntries(restored.getResource()))) {
+            if (candidate.index() == index
+                    && candidate.displayName().equals(displayName)
+                    && candidate.hasResource()) {
+                displayBundleEntry(candidate);
+                return;
+            }
+        }
     }
 
     /**
