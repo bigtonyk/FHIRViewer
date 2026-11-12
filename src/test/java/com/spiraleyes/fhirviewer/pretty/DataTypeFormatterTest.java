@@ -82,6 +82,20 @@ class DataTypeFormatterTest {
     }
 
     @Test
+    @DisplayName("Unknown systems are shown for codings and quantities alike")
+    void showsUnknownSystems() {
+        Coding coding = new Coding("http://example.org/race", "white", "White");
+        Quantity quantity = new Quantity()
+                .setValue(new BigDecimal("72"))
+                .setUnit("beats/minute")
+                .setSystem("http://example.org/units")
+                .setCode("/min");
+
+        assertEquals("White (example.org/race white)", summarize(coding));
+        assertEquals("72 beats/minute (example.org/units /min)", summarize(quantity));
+    }
+
+    @Test
     @DisplayName("CodeableConcept prefers its text over its codings")
     void summarizesCodeableConceptWithText() {
         CodeableConcept concept = new CodeableConcept();

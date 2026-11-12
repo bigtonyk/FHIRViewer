@@ -88,7 +88,7 @@ references after the tags are removed, so an escaped angle bracket stays text.
 
 ### R7-3. Unknown terminology systems are dropped for Coding and printed for Quantity
 
-**Consistency - P3.** `summarizeCoding` (lines 182-190) deliberately hides a system that is not
+**Consistency - P3. Fixed 2026-11-12.** `summarizeCoding` (lines 182-190) deliberately hides a system that is not
 one of the four known ones, keeping only the display or the bare code. `summarizeQuantity`
 (lines 214-216) does the opposite: it strips the scheme and prints the remainder, so a unit from
 an unregistered system reads as `example.org/units (… )`.
@@ -97,8 +97,12 @@ Two consequences follow. The same policy question is answered two ways in one cl
 whose system is local loses the only thing that distinguishes it: two nested CodeableConcepts
 with code `A1` from different systems render identically, while the top-level section view -
 which shows System and Code as rows - does not. The comment above the Coding branch explains the
-noise it is avoiding, but the quantity branch has no matching comment, which is how the split
-went unnoticed.
+noise it is avoiding, but the quantity branch has no matching comment, which is how the split went unnoticed.
+
+Fixed by choosing the policy that keeps the information: `summarizeCoding` now always includes
+the system, shortened the same way Quantity shortens it, so `Coding("http://example.org/race",
+"white", "White")` reads `White (example.org/race white)`.
+`DataTypeFormatterTest.showsUnknownSystems` checks both datatypes.
 
 ### R7-4. A focused primitive is titled with its datatype
 

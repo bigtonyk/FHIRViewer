@@ -177,18 +177,11 @@ public final class DataTypeFormatter {
     }
 
     private String summarizeCoding(IBase coding) {
+        // The system is shown whether or not it is well known: without it two
+        // codings with the same code from different systems read identically.
+        String inParens = joinNonBlank(
+                friendlySystemName(firstText(coding, "system")), firstText(coding, "code"));
         String display = firstText(coding, "display");
-        String code = firstText(coding, "code");
-        String systemLabel = friendlySystemName(firstText(coding, "system"));
-        // Only well known systems are shown with their code; unknown canonical
-        // URLs would add noise without helping a human reader.
-        if (systemLabel == null || !SYSTEM_NAMES.containsValue(systemLabel)) {
-            if (display != null && !display.isBlank()) {
-                return display;
-            }
-            return code == null ? "" : code;
-        }
-        String inParens = joinNonBlank(systemLabel, code);
         if (inParens.isBlank()) {
             return display == null ? "" : display;
         }

@@ -211,7 +211,8 @@ class PrettyModelBuilderTest {
 
         assertEquals("Alice Grey", requireRow(contact.rows(), "Name").value());
         assertEquals("+1-555-0111 (phone work)", requireRow(contact.rows(), "Telecom").value());
-        assertEquals("Administration", requireRow(contact.rows(), "Purpose").value());
+        assertEquals("Administration (terminology.hl7.org/CodeSystem/v2-0131 ADMIN)",
+                requireRow(contact.rows(), "Purpose").value());
     }
 
     @Test
@@ -229,7 +230,8 @@ class PrettyModelBuilderTest {
                 new PrettyModelBuilder(FhirContextFactory.r4ModelAdapter()).build(patient);
 
         PrettyBlock section = requireBlock(document.sections(), "Patient Race");
-        assertEquals("Race = White", requireRow(section.rows(), "Extension 1").value());
+        assertEquals("Race = White (example.org/race white)",
+                requireRow(section.rows(), "Extension 1").value());
         assertEquals("Text = White", requireRow(section.rows(), "Extension 2").value());
     }
 
