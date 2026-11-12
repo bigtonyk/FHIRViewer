@@ -14,17 +14,17 @@ import java.util.function.Consumer;
 
 import javafx.application.Platform;
 import javafx.geometry.Insets;
-import javafx.geometry.Orientation;
+import javafx.geometry.Pos;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
-import javafx.scene.control.Separator;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
-import javafx.scene.layout.HBox;
+import javafx.scene.control.Tooltip;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
@@ -79,6 +79,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private final TextArea output = new TextArea();
     private final Label statusLabel = new Label();
     private final Button runButton = new Button("Run");
+    private final Label runModeLabel = new Label();
     private final Button stopButton = new Button("Stop");
     private final Button resetButton = new Button("Reset Session");
     private final Button openButton = new Button("Open\u2026");
@@ -133,10 +134,17 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         statusLabel.setWrapText(true);
         statusLabel.setMaxWidth(Double.MAX_VALUE);
         setStatus("Ready. Write a script, then press Run.");
-        HBox toolbar = new HBox(8, runButton, stopButton, resetButton, 
-                new Separator(Orientation.VERTICAL), openButton, saveButton, saveAsButton, 
-                new Separator(Orientation.VERTICAL), exampleButton, 
-                new Separator(Orientation.VERTICAL), clearButton);
+        runModeLabel.getStyleClass().add("app-subtitle");
+        runModeLabel.setTooltip(new Tooltip("A saved script runs in a fresh JShell session"
+                + " and leaves nothing behind; the unsaved editor keeps the interactive"
+                + " session until Reset Session."));
+        updateRunModeLabel();
+        // A FlowPane, not an HBox: nine controls plus the mode label are wider than the
+        // 820px minimum dialog, and an HBox would squeeze the buttons or clip the label
+        // instead of moving the overflow to a second row.
+        FlowPane toolbar = new FlowPane(8, 8, runButton, runModeLabel, stopButton,
+                resetButton, openButton, saveButton, saveAsButton, exampleButton, clearButton);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
         openButton.setOnAction(event -> onOpen());
         saveButton.setOnAction(event -> onSave(false));
         saveAsButton.setOnAction(event -> onSave(true));
@@ -268,6 +276,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         };
     }
 
+    /** Names the session the next Run will use, so a saved buffer cannot look interactive. */
+    private void updateRunModeLabel() {
+        runModeLabel.setText(currentFile == null
+                ? "Run: interactive session"
+                : "Run: fresh session (saved script)");
+    }
+
     private void appendRaw(String line) {
         output.appendText(line + "\n");
         output.positionCaret(output.getLength());
@@ -356,6 +371,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         editor.setText(content);
         savedContent = content;
         currentFile = file.toPath();
+        updateRunModeLabel();
         trustAcknowledged = false;
         setStatus("Opened " + file.getName() + " — running will ask for trust again.");
     }
@@ -377,6 +393,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
         savedContent = editor.getText();
         currentFile = target;
+        updateRunModeLabel();
         setStatus("Saved " + target.getFileName() + ".");
         return true;
     }
