@@ -106,16 +106,17 @@ the system, shortened the same way Quantity shortens it, so `Coding("http://exam
 
 ### R7-4. A focused primitive is titled with its datatype
 
-**Usability - P3.** `PrettyModelBuilder.build(IBase element, String elementName)` (lines 112-124)
+**Usability - P3. Fixed 2026-11-12.** `PrettyModelBuilder.build(IBase element, String elementName)` (lines 112-124)
 sets the document's resource type to `element.fhirType()`, and `PrettyView.headerNode` renders
 that as the page title. Selecting `Patient.birthDate` therefore opens a document headed
 "date", and selecting `Patient.name[0].given` opens one headed "string". The element the user
 selected appears only as the row label ("Birth Date"), and the datatype - a term the view exists
 to hide - becomes the most prominent text on the page.
 
-The behaviour is pinned by tests (`assertEquals("string", document.resourceType())`), so it is
-deliberate rather than accidental; it is listed because the header is the first thing a reader
-sees and it names the wrong thing.
+Fixed by titling a focused primitive with its element name (`Birth Date`, and `Given` for a
+repeated primitive group) and leaving the datatype to complex values, where it is the useful
+identity; `Patient.name[0]` still reads `HumanName`. `PrettyModelBuilderTest.primitiveNodeIsTitledWithItsElementName` covers the case,
+and the two focused-primitive tests that pinned the old title now assert the element name.
 
 ### R7-5. A new document keeps the old scroll position
 

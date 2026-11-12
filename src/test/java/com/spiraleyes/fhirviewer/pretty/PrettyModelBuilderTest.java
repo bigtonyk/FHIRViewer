@@ -259,8 +259,17 @@ class PrettyModelBuilderTest {
     void primitiveNodeBecomesSingleRow() {
         PrettyDocument document = focusedDocument("patient.json", "Patient.name[0].family");
 
-        assertEquals("string", document.resourceType());
+        assertEquals("Family", document.resourceType());
         assertEquals("Smith", requireRow(document.rows(), "Family").value());
+    }
+
+    @Test
+    @DisplayName("A focused primitive is titled with the element name, not the datatype")
+    void primitiveNodeIsTitledWithItsElementName() {
+        PrettyDocument document = focusedDocument("patient.json", "Patient.birthDate");
+
+        assertEquals("Birth Date", document.resourceType());
+        assertEquals("1974-12-25", requireRow(document.rows(), "Birth Date").value());
     }
 
     @Test
@@ -292,7 +301,7 @@ class PrettyModelBuilderTest {
     void primitiveGroupNodeJoinsValues() {
         PrettyDocument document = focusedDocument("patient.json", "Patient.name[0].given");
 
-        assertEquals("string", document.resourceType());
+        assertEquals("Given", document.resourceType());
         assertEquals("John, Jacob", requireRow(document.rows(), "Given").value());
     }
 

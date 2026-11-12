@@ -119,8 +119,11 @@ public final class PrettyModelBuilder {
         } else {
             renderInto(body, element, 0);
         }
+        // A primitive is titled after the element the reader selected; its datatype
+        // ("string", "date") is vocabulary this view exists to hide.
+        String title = element instanceof IPrimitiveType<?> ? friendly(elementName) : element.fhirType();
         return new PrettyDocument(
-                element.fhirType(),
+                title,
                 null,
                 List.of(),
                 body.rows(),
@@ -168,8 +171,13 @@ public final class PrettyModelBuilder {
                         index + 1, 1, elementName));
             }
         }
+        // Primitive repeats are titled by element, like a focused primitive; only a
+        // repeating complex value shows its datatype.
+        String title = first instanceof IPrimitiveType<?>
+                ? friendly(elementName)
+                : property.typeCode();
         return new PrettyDocument(
-                property.typeCode(),
+                title,
                 null,
                 List.of(),
                 body.rows(),
