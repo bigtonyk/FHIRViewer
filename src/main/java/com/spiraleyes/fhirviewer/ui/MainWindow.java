@@ -1001,20 +1001,8 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     private void updateWindowTitle() {
-        if (documentSession.resource() == null) {
-            stage.setTitle(APPLICATION_TITLE);
-        } else {
-            stage.setTitle(titleFor(documentSession.label(), documentSession.isDirty()));
-        }
+        stage.setTitle(documentSession.windowTitle());
         updateEditActions();
-    }
-
-    /**
-     * The window title for a displayed resource: its label, with the asterisk that marks
-     * unsaved changes. Named here so the rule the window shows can be asserted directly.
-     */
-    static String titleFor(String label, boolean dirty) {
-        return APPLICATION_TITLE + " - " + label + (dirty ? " *" : "");
     }
 
     /** Enables Save and Undo only when there is something for them to act on. */

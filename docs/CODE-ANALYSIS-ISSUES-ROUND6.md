@@ -113,8 +113,15 @@ of FHIR.
 
 ### R6-4. `openPath` replaces the document without asking about unsaved changes
 
-**Convention — P3.** `ui/DocumentSession`: `openFile()` guards with `confirmUnsavedChanges`
-(line 355) and so does `openSample()` (line 383), but `openPath()` at line 377 does not. Its two
+**Convention — P3. Fixed 2026-11-12.** `openPath` now asks before it replaces the document;
+`openFile` keeps its earlier question before the chooser and calls an unguarded private
+variant, so the user is asked once, not twice. No test was written: the guard is a modal alert,
+exactly like the `openFile` guard beside it, which has never had one either.
+
+The original finding, as written:
+
+`ui/DocumentSession`: `openFile()` guarded with `confirmUnsavedChanges`
+(line 355) and so did `openSample()` (line 383), but `openPath()` at line 377 did not. Its two
 callers are the guarded `openFile()` and `MainWindow.openOnStartup`, which runs before anything
 can be dirty, so no edit is lost today. The guard is a rule at the call sites rather than an
 invariant of the method that replaces the document - the same shape as the `captureAllCurrent()`
@@ -135,7 +142,11 @@ is the point: whether 620 is the right width remains a separate question from th
 
 ### R6-6. The window's title rule is reachable only through a static on `MainWindow`
 
-**Hygiene — P3.** `MainWindow.titleFor(label, dirty)` was made package-private so
+**Hygiene — P3. Fixed 2026-11-12.** The rule is now `DocumentSession.windowTitle()`, beside
+the label and dirty flag it reads; `MainWindow.updateWindowTitle` only shows it, and
+`DocumentSessionCheckTest` asserts the session's own title. The original finding, as written:
+
+`MainWindow.titleFor(label, dirty)` was made package-private so
 `DocumentSessionCheckTest` can assert the exact title the window shows, which is right; but the
 rule now lives on the class M1 exists to shrink, and `DocumentSession` owns the inputs
 (`label()`, `isDirty()`) while `MainWindow` owns the output. A `DocumentTitle` value or a method
@@ -240,8 +251,8 @@ interrupt a later run and the Stop button still returns immediately.
 2. **R6-2** — done on 2026-11-11 (see above); the dialog result type now carries the origin.
 3. **R6-3** — done on 2026-11-12 (see above). The parameter is absent on the server paths, so
    the field cannot be filled with the wrong thing again.
-4. **R6-4** and **R6-6** as hygiene, together with any further `MainWindow` work (**R6-5** was
-   fixed on 2026-11-12).
+4. **R6-6** — done on 2026-11-12 (see above), which closes every `MainWindow`-shaped hygiene
+   item from this pass (**R6-4** and **R6-5** went with it).
 5. **R6-7** needs a decision before R6-8 or R6-9 are worth touching: wire the suite runner to a
    console, or delete the package. If it is wired, fix the classification first - a suite report
    that calls a runtime exception a failed assertion is worse than no report.

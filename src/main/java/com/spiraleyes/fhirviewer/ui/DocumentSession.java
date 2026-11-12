@@ -52,6 +52,9 @@ import javafx.stage.Stage;
  */
 final class DocumentSession implements DocumentPort {
 
+    /** The application name in the window title; the window shows this text, not its own. */
+    private static final String APPLICATION_TITLE = "FHIR Resource Viewer";
+
     private static final String READY_STATUS =
             "Ready. Use File > Open to load a FHIR JSON or XML resource.";
     /** How many edits can be undone; older snapshots are dropped. */
@@ -370,10 +373,27 @@ final class DocumentSession implements DocumentPort {
             return;
         }
         lastDirectory = file.getParentFile();
-        openPath(file.toPath());
+        // Already asked above, before the chooser: picking a file only to be turned back is
+        // the worse order.
+        openPathWithoutAsking(file.toPath());
     }
 
+    /**
+     * Opens a resource file, asking about unsaved changes first when one is loaded.
+     *
+     * <p>The guard lives here as well as in the menu path, because this is the method that
+     * replaces the document: a caller that forgets to ask - the command line does, by
+     * running before anything can be dirty - must not be able to discard edits silently.</p>
+     */
     void openPath(Path path) {
+        if (!confirmUnsavedChanges("opening another resource")) {
+            return;
+        }
+        openPathWithoutAsking(path);
+    }
+
+    /** Replaces the document with a file; the caller has already settled unsaved changes. */
+    private void openPathWithoutAsking(Path path) {
         runWithWaitCursor("Loading " + FileSupport.fileName(path) + " ...",
                 () -> display(fhirService.openFile(path), null));
     }
@@ -970,6 +990,21 @@ final class DocumentSession implements DocumentPort {
     /** The selected node, or {@code null}. */
     ResourceNode selected() {
         return selected;
+    }
+
+    /**
+     * The window title: the application name, then the displayed resource's label with the
+     * asterisk that marks unsaved changes.
+     *
+     * <p>The rule lives with the state it reads - {@link #label()} and {@link #isDirty()} -
+     * rather than on the window that shows it, so the exact title can be asserted without
+     * building a window.</p>
+     */
+    String windowTitle() {
+        if (loaded == null) {
+            return APPLICATION_TITLE;
+        }
+        return APPLICATION_TITLE + " - " + label + (isDirty() ? " *" : "");
     }
 
     /** Whether a Bundle entry rather than the whole Bundle is displayed. */

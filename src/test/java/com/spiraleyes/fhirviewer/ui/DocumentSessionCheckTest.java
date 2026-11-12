@@ -86,8 +86,7 @@ class DocumentSessionCheckTest {
 
             assertFalse(harness.session.isDirty(),
                     "a freshly loaded sample must not look edited");
-            String cleanTitle = MainWindow.titleFor(harness.session.label(),
-                    harness.session.isDirty());
+            String cleanTitle = harness.session.windowTitle();
             assertFalse(cleanTitle.endsWith("*"),
                     "the title of an unedited resource must not carry an asterisk: " + cleanTitle);
             assertTrue(cleanTitle.contains(harness.session.label()),
@@ -98,8 +97,7 @@ class DocumentSessionCheckTest {
 
             assertTrue(harness.session.isDirty(),
                     "editing a value must mark the document, or Save and the asterisk both lie");
-            String dirtyTitle = MainWindow.titleFor(harness.session.label(),
-                    harness.session.isDirty());
+            String dirtyTitle = harness.session.windowTitle();
             assertTrue(dirtyTitle.endsWith(" *"),
                     "the title must mark unsaved changes: " + dirtyTitle);
             assertTrue(editCallbacks.get() > 0,
@@ -113,8 +111,8 @@ class DocumentSessionCheckTest {
                     "undoing the only edit must return the document to clean");
             assertFalse(harness.session.canUndo(), "the history should be empty again");
             assertEquals(original, harness.familyValue(), "undo must restore the value");
-            assertFalse(MainWindow.titleFor(harness.session.label(), harness.session.isDirty())
-                    .endsWith("*"), "the asterisk must go when the document is clean again");
+            assertFalse(harness.session.windowTitle().endsWith("*"),
+                    "the asterisk must go when the document is clean again");
             failure.set("ok");
         });
 
