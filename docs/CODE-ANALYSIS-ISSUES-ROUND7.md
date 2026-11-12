@@ -16,6 +16,11 @@ Method: static reading of every file above. Line numbers are from `7724874`, whe
 suite was green (1,028 tests). No fix was made and no JavaFX window was opened during this
 pass.
 
+Status (2026-11-12): all six findings are fixed and covered by tests. Each finding below carries
+the test that pins it; the full suite is green at 1,035 tests. Nothing from this pass is still
+open, and the fixes landed in `b22bcbf`, `35a84c1`, `1b903bb`, `7a53577`, `4715285`, `1fcae27`
+and `cd01561`.
+
 ## Priority legend
 
 | Priority | Meaning |
@@ -144,6 +149,9 @@ Fixed by treating an index outside the populated values as an unresolvable path,
 callers take the existing fallback to the whole document.
 `PrettyModelBuilderTest.outOfRangePathShowsTheWholeDocument` builds a node whose path names
 `identifier[4]` on a patient with two identifiers and checks the full document comes back.
+That covers `resolveElement`; `PrettyModelBuilderTest.outOfRangeGroupPathShowsTheWholeDocument`
+(`cd01561`) covers `resolveProperty` with a repeating-primitive group node whose path is
+`Patient.name[7].given`, so both resolvers have a test that fails with the clamp put back.
 
 ## 3. Limitations
 
