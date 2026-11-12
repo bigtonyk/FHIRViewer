@@ -48,6 +48,9 @@ class WorkspaceWiringTest {
     private String originalHome;
     private Map<String, String> savedPreferences;
 
+    /** Every actions object this test built, so its recovery thread can be stopped. */
+    private final List<WorkspaceActions> openedActions = new ArrayList<>();
+
     @BeforeEach
     void isolateTheRun() throws Exception {
         originalHome = System.getProperty("user.home");
@@ -64,6 +67,12 @@ class WorkspaceWiringTest {
 
     @AfterEach
     void restoreTheRun() throws Exception {
+        // Close the recovery services these tests built: each owns a snapshot thread that can
+        // still write into the temp home while JUnit is deleting it.
+        for (WorkspaceActions actions : openedActions) {
+            actions.close();
+        }
+
         Preferences node = workspacePreferences();
         node.clear();
         savedPreferences.forEach((key, value) -> node.put(key, value));
@@ -204,7 +213,7 @@ class WorkspaceWiringTest {
         return archive;
     }
 
-    private static WorkspaceActions actionsFor(WorkspaceService service, List<String> messages) {
+    private WorkspaceActions actionsFor(WorkspaceService service, List<String> messages) {
         return actionsFor(service, messages, name -> true);
     }
 
@@ -212,9 +221,12 @@ class WorkspaceWiringTest {
      * Actions whose start-up restore question is answered by the test: the production prompt is
      * modal, so a headless run supplies the answer instead of showing it.
      */
-    private static WorkspaceActions actionsFor(WorkspaceService service, List<String> messages,
+    private WorkspaceActions actionsFor(WorkspaceService service, List<String> messages,
             Predicate<String> restore) {
-        return new WorkspaceActions(null, service, new ThemeManager(), messages::add, restore);
+        WorkspaceActions actions =
+                new WorkspaceActions(null, service, new ThemeManager(), messages::add, restore);
+        openedActions.add(actions);
+        return actions;
     }
 
     private static Preferences workspacePreferences() throws Exception {
