@@ -12,6 +12,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeAll;
@@ -24,6 +25,10 @@ import com.spiraleyes.fhirviewer.server.FhirServerService;
 import com.spiraleyes.fhirviewer.service.FhirService;
 
 import javafx.application.Platform;
+import javafx.scene.Node;
+import javafx.scene.control.Button;
+import javafx.stage.Stage;
+import javafx.stage.Window;
 
 /**
  * Builds the scripting console on a real JavaFX toolkit and drives the Example button.
@@ -50,12 +55,20 @@ class ScriptingConsoleSmokeTest {
         }
         try {
             Platform.startup(STARTED::countDown);
-            STARTED.await(30, TimeUnit.SECONDS);
         } catch (IllegalStateException alreadyStarted) {
             // Another UI test class started the toolkit first; that is the state wanted.
+            STARTED.countDown();
         } catch (Throwable toolkitProblem) {
             TOOLKIT_FAILURE.set(toolkitProblem);
+            return;
         }
+        if (!STARTED.await(30, TimeUnit.SECONDS)) {
+            TOOLKIT_FAILURE.set(new IllegalStateException("The JavaFX toolkit did not start."));
+            return;
+        }
+        // The trust prompt is the only window this class shows. Without this, closing it
+        // would trigger the toolkit's default implicit exit before the suite result arrives.
+        Platform.runLater(() -> Platform.setImplicitExit(false));
     }
 
     /**
@@ -107,6 +120,123 @@ class ScriptingConsoleSmokeTest {
         if (failure.get() != null) {
             throw new AssertionError("scripting console smoke test failed", failure.get());
         }
+    }
+
+    /**
+     * Runs a two-case buffer through the real Run Tests button, answers the trust
+     * prompt, and checks the counts land in the report label rather than the output.
+     */
+    @Test
+    @DisplayName("Run Tests reports counts separately and leaves verdicts out of the output")
+    void runTestsReportsCountsApartFromOutput() throws Exception {
+        requireToolkit();
+        AtomicReference<String> report = new AtomicReference<>();
+        AtomicReference<String> output = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicReference<ProbeConsole> consoleRef = new AtomicReference<>();
+        AtomicReference<String> lastReport = new AtomicReference<>("<none>");
+        AtomicBoolean trustAnswered = new AtomicBoolean();
+        java.util.concurrent.atomic.AtomicInteger fxTicks =
+                new java.util.concurrent.atomic.AtomicInteger();
+        CountDownLatch done = new CountDownLatch(1);
+
+        // A background helper posts FX tasks: they run inside the trust dialog's nested
+        // event loop, answer the prompt, then watch the report label for the verdicts.
+        Thread helper = new Thread(() -> {
+            while (done.getCount() > 0 && !Thread.currentThread().isInterrupted()) {
+                Platform.runLater(() -> {
+                    try {
+                        fxTicks.incrementAndGet();
+                        ProbeConsole console = consoleRef.get();
+                        if (console == null) {
+                            return;
+                        }
+                        lastReport.set(console.suiteReportForTest().getText());
+                        if (!trustAnswered.get() && acknowledgeTrustPrompt()) {
+                            trustAnswered.set(true);
+                        }
+                        String current = console.suiteReportForTest().getText();
+                        if (trustAnswered.get() && report.get() == null
+                                && console.suiteReportForTest().isVisible()
+                                && !current.startsWith("Running")) {
+                            report.set(console.suiteReportForTest().getText());
+                            output.set(console.outputTextForTest());
+                            done.countDown();
+                        }
+                    } catch (Throwable problem) {
+                        failure.compareAndSet(null, problem);
+                        done.countDown();
+                    }
+                });
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException interrupted) {
+                    return;
+                }
+            }
+        }, "scripting-console-smoke");
+        helper.setDaemon(true);
+        helper.start();
+
+        Platform.runLater(() -> {
+            try {
+                ProbeConsole console = new ProbeConsole(directory.resolve("passed.jsh"),
+                        directory.resolve("failed.jsh"));
+                console.setEditorTextForTest("""
+                        // case: passes
+                        test.assertTrue(true, "this passes");
+
+                        // case: fails
+                        test.assertTrue(false, "expected true here");
+                        """);
+                consoleRef.set(console);
+                // Blocks in the trust dialog's nested event loop until the helper answers it.
+                console.runTestsButtonForTest().fire();
+            } catch (Throwable problem) {
+                failure.compareAndSet(null, problem);
+                done.countDown();
+            }
+        });
+
+        boolean finished;
+        try {
+            finished = done.await(60, TimeUnit.SECONDS);
+        } finally {
+            // Every path stops the helper: a timed-out test must not keep posting FX tasks
+            // into the UI test classes that run after it.
+            helper.interrupt();
+        }
+        assertTrue(finished, () -> "the suite run did not finish"
+                + "; trust=" + trustAnswered.get() + "; fx ticks=" + fxTicks.get()
+                + "; report=[" + lastReport.get() + "]");
+        if (failure.get() != null) {
+            throw new AssertionError("scripting console suite smoke test failed", failure.get());
+        }
+        String reportText = report.get();
+        assertTrue(reportText.contains("1 passed, 1 failed"),
+                "the report should carry both counts: " + reportText);
+        assertTrue(reportText.contains("FAILED fails"),
+                "the failing case should be named in the report: " + reportText);
+        assertFalse(output.get().contains("FAILED"),
+                "verdicts must not leak into the output pane: " + output.get());
+        assertFalse(output.get().contains("passed"),
+                "verdicts must not leak into the output pane: " + output.get());
+    }
+
+    /** Presses Run Script on the trust prompt as soon as it is showing. */
+    private static boolean acknowledgeTrustPrompt() {
+        for (Window window : Window.getWindows()) {
+            if (window instanceof Stage stage && stage.isShowing()
+                    && "Run this script?".equals(stage.getTitle())) {
+                for (Node node : stage.getScene().getRoot().lookupAll(".button")) {
+                    if (node instanceof Button button && "Run Script".equals(button.getText())) {
+                        button.fire();
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private static void requireToolkit() {

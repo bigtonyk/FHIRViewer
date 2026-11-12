@@ -18,7 +18,7 @@
 |---|---|---|
 | 1. Interactive console and saved `.jsh` files | Complete | Coordinator race fixed; unit tests pass; packaging module list updated |
 | 2. FHIRViewer scripting API and write policy | Complete | fhir/viewer/validation/server/log facades |
-| 3. Automated testing and repeatable workflows | Not started | Only the `TestApi` assertion facade exists, exposed by the console; the suite engine (`service/scripting/testing`) was deleted in `7724874` because nothing could start it (R6-7 in `docs/CODE-ANALYSIS-ISSUES-ROUND6.md`). Suite format, screen, per-run server selection, progress/cancel and report export are all still to build. |
+| 3. Automated testing and repeatable workflows | In progress | Initial slice: `service/scripting/testing` parses `// case:` suites, `ScriptingCoordinator.runSuite` runs each case sequentially in a fresh `ScriptingSession` (stop interrupts the current case and skips the rest), and `SuiteRunResult` reports passed/failed counts that the console shows above the output pane. The earlier engine was deleted in `7724874` because nothing could start it (R6-7 in `docs/CODE-ANALYSIS-ISSUES-ROUND6.md`). Still to build: per-check counts and names, skip/error verdicts, a suite screen, explicit target-server selection, progress reporting and report export. |
 | 4. SMART on FHIR integration | Complete | SmartApi |
 | 5. Advanced scripting and batch workflows | In progress | ScriptParameter and partial collections/reporting |
 | 6. Scripting API documentation | Complete | docs/scripting/Scripting-Guide.md |

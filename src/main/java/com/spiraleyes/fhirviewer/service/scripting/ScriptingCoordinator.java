@@ -1,6 +1,8 @@
 package com.spiraleyes.fhirviewer.service.scripting;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
@@ -11,6 +13,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
+import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteCaseResult;
+import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteRunResult;
+import com.spiraleyes.fhirviewer.service.scripting.testing.TestCase;
+import com.spiraleyes.fhirviewer.service.scripting.testing.TestSuite;
 
 /**
  * Owns one {@link ScriptingSession} and serializes every call to it on a
@@ -112,6 +118,94 @@ public final class ScriptingCoordinator implements AutoCloseable {
     public void runInFreshSession(String source, ScriptBindings bindings,
             Consumer<ScriptRunResult> onDone) {
         submit(source, bindings, onDone, true);
+    }
+
+    /**
+     * Runs every case of a suite on the worker thread, each in a session of its own.
+     *
+     * <p>Isolation is per case, exactly as {@link #runInFreshSession} is per saved
+     * script: a case cannot see a declaration from the case before it, so a suite
+     * is repeatable regardless of the interactive session's history. The
+     * interactive session is untouched. Cases run sequentially on the same worker,
+     * so a suite and a Run can never interleave.</p>
+     *
+     * <p>Stop is best effort: it interrupts the current case, and the remaining
+     * cases are not started, which the result reports as {@code cancelled}.</p>
+     *
+     * @param suite    the cases to run; never {@code null}
+     * @param bindings the script API objects, or {@code null} for none
+     * @param onDone   receives the counts and per-case verdicts on the worker thread
+     */
+    public void runSuite(TestSuite suite, ScriptBindings bindings,
+            Consumer<SuiteRunResult> onDone) {
+        Objects.requireNonNull(suite, "suite");
+        Objects.requireNonNull(onDone, "onDone");
+        if (closed.get()) {
+            onDone.accept(SuiteRunResult.refused(suite.name(),
+                    "The scripting session is closed. Close and reopen the console to run again."));
+            return;
+        }
+        if (!running.compareAndSet(false, true)) {
+            onDone.accept(SuiteRunResult.refused(suite.name(),
+                    "A script is already running \u2014 wait for it to finish, or press Stop."));
+            return;
+        }
+        try {
+            worker.execute(() -> {
+                workerThread = Thread.currentThread();
+                Instant started = Instant.now();
+                List<SuiteCaseResult> cases = new ArrayList<>();
+                boolean cancelled = false;
+                String message = "";
+                try {
+                    cancelled = stoppedBeforeStart();
+                    if (!cancelled) {
+                        for (TestCase testCase : suite.cases()) {
+                            ScriptingSession current = sessionForRun(true);
+                            if (current == null) {
+                                cancelled = true;
+                                break;
+                            }
+                            ScriptRunResult result;
+                            try {
+                                result = current.run(testCase.source(), bindings);
+                            } catch (RuntimeException problem) {
+                                result = ScriptRunResult.failed(
+                                        "The script could not be run: "
+                                                + problem.getClass().getSimpleName()
+                                                + (problem.getMessage() == null ? ""
+                                                        : ": " + problem.getMessage()));
+                            } finally {
+                                endSessionRun();
+                                closeQuietly(current);
+                            }
+                            cases.add(SuiteCaseResult.from(testCase.name(), result));
+                            if (result.status() == ScriptRunResult.Status.STOPPED) {
+                                cancelled = true;
+                                break;
+                            }
+                        }
+                    }
+                } catch (RuntimeException | Error problem) {
+                    // A failure while starting a case session must still end the run: the
+                    // console would otherwise say "Running" forever.
+                    message = "The suite could not finish: " + problem.getClass().getSimpleName()
+                            + (problem.getMessage() == null ? "" : ": " + problem.getMessage());
+                } finally {
+                    synchronized (runGate) {
+                        stopRequested.set(false);
+                    }
+                    running.set(false);
+                    workerThread = null;
+                    onDone.accept(new SuiteRunResult(suite.name(), cases,
+                            Duration.between(started, Instant.now()), cancelled, message));
+                }
+            });
+        } catch (RejectedExecutionException racedClose) {
+            running.set(false);
+            onDone.accept(SuiteRunResult.refused(suite.name(),
+                    "The scripting session was closed before the suite could start."));
+        }
     }
 
     /**

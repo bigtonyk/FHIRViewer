@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -13,6 +14,10 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteRunResult;
+import com.spiraleyes.fhirviewer.service.scripting.testing.TestCase;
+import com.spiraleyes.fhirviewer.service.scripting.testing.TestSuite;
 
 /**
  * Tests {@link ScriptingCoordinator} threading and lifecycle without starting
@@ -102,6 +107,36 @@ class ScriptingCoordinatorTest {
         return result.entries().stream().anyMatch(entry ->
                 entry.kind() == ScriptRunResult.Kind.DIAGNOSTIC
                         || entry.kind() == ScriptRunResult.Kind.EXCEPTION);
+    }
+
+    @Test
+    @DisplayName("Suite cases run in fresh sessions and count passes and failures")
+    void suiteCasesAreIsolated() throws Exception {
+        coordinator = new ScriptingCoordinator();
+        TestSuite suite = new TestSuite("checks.jsh", List.of(
+                new TestCase("declares", "int suiteProbe = 1;"),
+                new TestCase("redeclares", "int suiteProbe = 2;"),
+                new TestCase("sees nothing earlier", "suiteProbe"),
+                new TestCase("prints", "System.out.println(\"ok\");")));
+
+        AtomicReference<SuiteRunResult> received = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+        coordinator.runSuite(suite, null, result -> {
+            received.set(result);
+            done.countDown();
+        });
+
+        assertTrue(done.await(120, TimeUnit.SECONDS), "the suite must finish");
+        SuiteRunResult result = received.get();
+        assertNotNull(result);
+        assertEquals(4, result.total());
+        assertEquals(3, result.passedCount(),
+                "a case must not inherit the previous case's declarations: " + result.cases());
+        assertEquals(1, result.failedCount());
+        assertEquals("sees nothing earlier", result.cases().get(2).name());
+        assertFalse(result.cases().get(2).passed());
+        assertTrue(result.cases().get(2).detail().contains("suiteProbe"),
+                "the failure should name the symbol: " + result.cases().get(2).detail());
     }
 
     @Test

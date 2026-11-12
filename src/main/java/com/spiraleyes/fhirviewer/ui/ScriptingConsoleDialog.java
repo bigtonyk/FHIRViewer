@@ -32,6 +32,9 @@ import javafx.stage.FileChooser;
 import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptRunResult;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
+import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteCaseResult;
+import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteRunResult;
+import com.spiraleyes.fhirviewer.service.scripting.testing.TestSuite;
 import com.spiraleyes.fhirviewer.service.scripting.api.FhirApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.LogApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
@@ -80,6 +83,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private final Label statusLabel = new Label();
     private final Button runButton = new Button("Run");
     private final Label runModeLabel = new Label();
+    private final Button runTestsButton = new Button("Run Tests");
+    private final Label suiteReport = new Label();
     private final Button stopButton = new Button("Stop");
     private final Button resetButton = new Button("Reset Session");
     private final Button openButton = new Button("Open\u2026");
@@ -139,12 +144,21 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 + " and leaves nothing behind; the unsaved editor keeps the interactive"
                 + " session until Reset Session."));
         updateRunModeLabel();
-        // A FlowPane, not an HBox: nine controls plus the mode label are wider than the
+        runTestsButton.setTooltip(new Tooltip("Runs each // case: block as a test in a session"
+                + " of its own; the counts appear above the output pane."));
+        suiteReport.getStyleClass().add("app-subtitle");
+        suiteReport.setWrapText(true);
+        suiteReport.setMaxWidth(Double.MAX_VALUE);
+        suiteReport.setManaged(false);
+        suiteReport.setVisible(false);
+        // A FlowPane, not an HBox: the controls plus the mode label are wider than the
         // 820px minimum dialog, and an HBox would squeeze the buttons or clip the label
         // instead of moving the overflow to a second row.
-        FlowPane toolbar = new FlowPane(8, 8, runButton, runModeLabel, stopButton,
-                resetButton, openButton, saveButton, saveAsButton, exampleButton, clearButton);
+        FlowPane toolbar = new FlowPane(8, 8, runButton, runTestsButton, runModeLabel,
+                stopButton, resetButton, openButton, saveButton, saveAsButton, exampleButton,
+                clearButton);
         toolbar.setAlignment(Pos.CENTER_LEFT);
+        runTestsButton.setOnAction(event -> onRunTests());
         openButton.setOnAction(event -> onOpen());
         saveButton.setOnAction(event -> onSave(false));
         saveAsButton.setOnAction(event -> onSave(true));
@@ -158,7 +172,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         split.setOrientation(javafx.geometry.Orientation.VERTICAL);
         split.setDividerPositions(0.55);
 
-        VBox content = new VBox(8, toolbar, split, statusLabel);
+        VBox content = new VBox(8, toolbar, suiteReport, split, statusLabel);
         content.setPadding(new Insets(12));
         content.setPrefWidth(1180);
         content.setPrefHeight(640);
@@ -213,6 +227,74 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         } else {
             coordinator.run(source, bindings, done);
         }
+    }
+
+    /**
+     * Parses the buffer as a suite and runs every case in its own session.
+     *
+     * <p>Counts go to the dedicated report label rather than the output pane, so a
+     * reader can tell a failed check from what the script printed. Nothing runs
+     * without the same trust acknowledgement as an ordinary Run.</p>
+     */
+    private void onRunTests() {
+        if (coordinator.isRunning()) {
+            return;
+        }
+        TestSuite suite;
+        try {
+            suite = TestSuite.parse(suiteName(), editor.getText());
+        } catch (IllegalArgumentException unreadable) {
+            showSuiteReport("Could not read tests: " + unreadable.getMessage());
+            setStatus("Could not read tests: " + unreadable.getMessage());
+            return;
+        }
+        if (!ensureTrust()) {
+            return;
+        }
+        setBusy(true);
+        showSuiteReport("Running " + suite.cases().size() + " test case(s) \u2026");
+        setStatus("Running " + suite.cases().size() + " test case(s) \u2026");
+        coordinator.runSuite(suite, bindings, result -> Platform.runLater(() -> {
+            setBusy(false);
+            presentSuite(result);
+        }));
+    }
+
+    /** Shows the suite counts and every failure line, apart from console output. */
+    private void presentSuite(SuiteRunResult result) {
+        if (!result.message().isBlank()) {
+            showSuiteReport(result.message());
+            setStatus(result.message());
+            return;
+        }
+        StringBuilder report = new StringBuilder("Tests: ")
+                .append(result.passedCount()).append(" passed, ")
+                .append(result.failedCount()).append(" failed (")
+                .append(result.total()).append(" case(s), ")
+                .append(result.elapsed().toMillis()).append(" ms)");
+        if (result.cancelled()) {
+            report.append(" \u2014 stopped");
+        }
+        for (SuiteCaseResult testCase : result.cases()) {
+            if (!testCase.passed()) {
+                report.append('\n').append("FAILED ").append(testCase.name())
+                        .append(": ").append(testCase.detail());
+            }
+        }
+        String text = report.toString();
+        showSuiteReport(text);
+        setStatus(text.lines().findFirst().orElse(text));
+    }
+
+    private void showSuiteReport(String text) {
+        suiteReport.setText(text);
+        suiteReport.setManaged(true);
+        suiteReport.setVisible(true);
+    }
+
+    /** The suite name shown in the report: the file name, or "buffer" when untitled. */
+    private String suiteName() {
+        return currentFile == null ? "buffer" : currentFile.getFileName().toString();
     }
 
     /** Asks the running script to stop; the run's own result lands when it ends. */
@@ -290,6 +372,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     private void setBusy(boolean busy) {
         runButton.setDisable(busy);
+        runTestsButton.setDisable(busy);
         resetButton.setDisable(busy);
         openButton.setDisable(busy);
         saveButton.setDisable(busy);
@@ -325,6 +408,26 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     /** The editor's current text, for tests. */
     String editorTextForTest() {
         return editor.getText();
+    }
+
+    /** Replaces the editor text, for tests. */
+    void setEditorTextForTest(String text) {
+        editor.setText(text);
+    }
+
+    /** The Run Tests button, for tests. */
+    Button runTestsButtonForTest() {
+        return runTestsButton;
+    }
+
+    /** The suite report label, for tests. */
+    Label suiteReportForTest() {
+        return suiteReport;
+    }
+
+    /** The output pane's text, for tests. */
+    String outputTextForTest() {
+        return output.getText();
     }
 
 

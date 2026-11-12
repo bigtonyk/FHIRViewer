@@ -84,6 +84,21 @@ Assertions throw `AssertionError` on failure:
 session per run, so declarations from earlier runs or other scripts are not
 visible to them.
 
+### Suites
+
+A buffer can hold several cases. A line whose only content is `// case: name`
+starts a case, and everything up to the next marker is that case's source. A
+buffer without markers is one case named after the file. Text before the first
+marker is refused rather than treated as a shared setup, because every case
+takes a fresh session and could not use it anyway.
+
+**Run Tests** runs every case in its own JShell session and shows the passed and
+failed counts on a separate line above the output, so a verdict is never mixed
+into what a script printed. A case passes only when it finishes with no compile
+errors, exceptions or assertion failures; a failure does not stop the remaining
+cases, and each failing case is named with its first diagnostic. Like Run, the
+first execution asks for the trust acknowledgement.
+
 ## SMART on FHIR
 
 ```java
