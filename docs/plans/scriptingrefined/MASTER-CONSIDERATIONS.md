@@ -24,8 +24,8 @@ Before coding, inspect Java/Maven versions, modules, packages, `module-info.java
 
 ## 4. Execution model: interactive and saved workflows
 - **Interactive console:** persistent JShell state until Reset Session; intended for exploration, troubleshooting, and one-off operations.
-- **Saved workflow:** saved `.jsh` source, optional metadata/parameters, explicit target server/session, and a structured execution result. Each workflow run should use a fresh JShell session by default so previous console variables cannot affect results.
-- Keep the interactive session separate from workflow/test execution. Never execute a saved script merely because it is opened, selected, imported, or loaded at startup.
+- **Saved workflow:** saved `.jsh` source, optional metadata/parameters, explicit target server/session, and a structured execution result. Runs use the console's single JShell session, so declarations from earlier runs are visible to them; Reset Session is how a user starts clean. Per-run sessions are not implemented, and no document or UI may claim a run is isolated.
+- Do not present workflow/test execution as separate from the interactive session: it uses the same session today. Never execute a saved script merely because it is opened, selected, imported, or loaded at startup.
 - Support explicit Run, Stop/Cancel where feasible, Reset Session, Open, Save/Save As, Clear Output, and execution status.
 - Use JShell source analysis to split complete snippets in the interactive editor. Do not treat JShell as a conventional `.java` file runner.
 - Serialize calls within a JShell session. Use a dedicated worker and never block the JavaFX Application Thread.
@@ -33,7 +33,7 @@ Before coding, inspect Java/Maven versions, modules, packages, `module-info.java
 
 ## 5. Suggested architecture
 - **Scripting UI:** editor, toolbar, console, diagnostics, run status, saved-script browser, parameters, and results.
-- **Scripting coordinator:** owns JShell lifecycle, session isolation, execution queue, output capture, cancellation, and cleanup.
+- **Scripting coordinator:** owns the JShell lifecycle (one session reused until reset), execution queue, output capture, cancellation, and cleanup.
 - **Script API facade:** deliberately exposed objects such as `fhir`, `viewer`, `validation`, `server`, `log`, and later `test` and `smart`.
 - **Adapters:** connect facades to existing services without exposing JavaFX controllers, credential stores, or application internals.
 - **Write policy service:** centralizes permission checks, confirmation prompts, operation classification, and audit-safe summaries.
@@ -88,7 +88,7 @@ JShell executes Java code and is **not a security sandbox**. Code may read files
 
 ## 10. Incremental automation scope
 - **Early:** interactive troubleshooting, one-off reads/searches, resource inspection, validation, and safe UI display.
-- **Middle:** repeatable tests with assertions, isolated runs, test summaries, and exported reports.
+- **Middle:** repeatable tests with assertions, runs whose starting session is stated, test summaries, and exported reports.
 - **Later:** parameterized workflows and batch resource processing/transformation with progress, cancellation where feasible, per-item results, failure policy, and bounded concurrency (sequential by default).
 - Scheduling, headless/CLI execution, concurrent writes, and unattended production automation are future design decisions, not implicit Phase 5 requirements.
 
@@ -100,7 +100,7 @@ JShell executes Java code and is **not a security sandbox**. Code may read files
 - Document platform-specific limitations.
 
 ## 12. Testing and phase completion
-For each phase, run existing build/tests, add focused tests, preserve existing behavior, report only tests actually run, and update `IMPLEMENTATION-STATUS.md`. Include tests for UI responsiveness, session isolation, write-policy enforcement, confirmation cancellation, secret redaction, and cross-platform packaging as relevant. Do not mark a phase complete until its acceptance criteria are met. Do not silently implement later-phase features.
+For each phase, run existing build/tests, add focused tests, preserve existing behavior, report only tests actually run, and update `IMPLEMENTATION-STATUS.md`. Include tests for UI responsiveness, the session lifecycle (one session, replaced by Reset), write-policy enforcement, confirmation cancellation, secret redaction, and cross-platform packaging as relevant. Do not mark a phase complete until its acceptance criteria are met. Do not silently implement later-phase features.
 
 ## 13. Non-goals unless separately approved
 - Full IDE/debugger or full language-server support.
