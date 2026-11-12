@@ -301,6 +301,45 @@ class PrettyModelBuilderTest {
     }
 
     @Test
+    @DisplayName("A group node with an out-of-range parent index falls back to the whole document")
+    void outOfRangeGroupPathShowsTheWholeDocument() {
+        LoadedResource loaded = service.openSample("/fhir/patient.json");
+        ResourceNode root = new ResourceNode("Patient", ElementInfo.builder()
+                .path("Patient")
+                .name("Patient")
+                .kind(ElementInfo.Kind.RESOURCE)
+                .build());
+        // A group node for a repeating primitive, whose parent index names no name.
+        ResourceNode group = new ResourceNode("given", ElementInfo.builder()
+                .path("Patient.name[7].given")
+                .name("given")
+                .typeCode("string")
+                .cardinality(0, Integer.MAX_VALUE)
+                .kind(ElementInfo.Kind.PRIMITIVE)
+                .build());
+        group.addChild(new ResourceNode("[0]", ElementInfo.builder()
+                .path("Patient.name[7].given[0]")
+                .name("given")
+                .typeCode("string")
+                .kind(ElementInfo.Kind.PRIMITIVE)
+                .build()));
+        group.addChild(new ResourceNode("[1]", ElementInfo.builder()
+                .path("Patient.name[7].given[1]")
+                .name("given")
+                .typeCode("string")
+                .kind(ElementInfo.Kind.PRIMITIVE)
+                .build()));
+        root.addChild(group);
+
+        PrettyDocument document = service.buildPrettyView(loaded.getResource(), group);
+
+        assertEquals("Patient", document.resourceType(),
+                "a group path whose parent index does not exist must not resolve another name");
+        assertEquals("Smith", requireRow(
+                requireBlock(document.sections(), "Name 1").rows(), "Family").value());
+    }
+
+    @Test
     @DisplayName("A complex tree node shows the element's own detail")
     void complexNodeShowsElementDetail() {
         PrettyDocument document = focusedDocument("patient.json", "Patient.name[0]");
