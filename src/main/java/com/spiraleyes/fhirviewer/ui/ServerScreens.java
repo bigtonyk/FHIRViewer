@@ -160,7 +160,13 @@ final class ServerScreens {
         dialog.showAndWait();
     }
 
-    /** Searches a configured FHIR server and shows the picked resource in the viewer. */
+    /**
+     * Searches a configured FHIR server and shows the picked resource in the viewer.
+     *
+     * <p>The result keeps the server it came from, so the server actions stay available for
+     * it exactly as they are for a resource opened by type and id. Without that, a resource
+     * found by search could be viewed but never refreshed or saved back.</p>
+     */
     void search() {
         // Nothing configured yet: the natural next step is adding one.
         ensureConfigured();
@@ -170,13 +176,13 @@ final class ServerScreens {
         ServerSearchDialog dialog = new ServerSearchDialog(serverService, serverManager,
                 fhirService, themeManager, searchMemory, capabilitiesCache);
         dialog.initOwner(owner);
-        dialog.showAndWait().ifPresent(resource -> {
+        dialog.showAndWait().ifPresent(picked -> {
             if (!document.confirmDiscard("displaying a resource from a server")) {
                 return;
             }
-            document.show(resource, null);
-            status.accept("Showing " + resource.getDisplayName() + " ("
-                    + resource.getSourceName() + ").");
+            document.show(picked.resource(), picked.origin());
+            status.accept("Showing " + picked.resource().getDisplayName() + " ("
+                    + picked.resource().getSourceName() + ").");
         });
     }
 

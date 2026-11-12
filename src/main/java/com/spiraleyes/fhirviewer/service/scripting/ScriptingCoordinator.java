@@ -50,8 +50,12 @@ public final class ScriptingCoordinator implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
     /** Set by {@link #stop()} and consumed by the worker it is aimed at. */
     private final AtomicBoolean stopRequested = new AtomicBoolean();
-    /** True only while the session is executing a snippet, never between submission and start. */
-    private volatile boolean runStarted;
+    /**
+     * True only while {@link ScriptingSession#run} is on the worker's stack, so
+     * {@link #stop()} knows whether there is a session to interrupt. Guarded by
+     * {@link #runGate}.
+     */
+    private boolean sessionRunActive;
     /** Closes the hand-off window between {@link #stop()} and the worker's start-up. */
     private final Object runGate = new Object();
     /** Created lazily on the worker; read by {@link #stop()} from other threads. */
@@ -119,21 +123,21 @@ public final class ScriptingCoordinator implements AutoCloseable {
             worker.execute(() -> {
                 workerThread = Thread.currentThread();
                 ScriptRunResult result;
-                if (stoppedBeforeStart()) {
+                ScriptingSession current = stoppedBeforeStart() ? null : sessionForRun();
+                if (current == null) {
                     // Stop raced the worker's start-up: nothing ran, and saying so is
                     // more honest than calling the snippet and pretending it was cut short.
-                    result = new ScriptRunResult(ScriptRunResult.Status.STOPPED,
-                            List.of(), 0, Duration.ZERO);
+                    result = stoppedBeforeAnythingRan();
                 } else {
                     try {
-                        result = session().run(source, bindings);
+                        result = current.run(source, bindings);
                     } catch (RuntimeException problem) {
                         result = ScriptRunResult.failed(
                                 "The script could not be run: " + problem.getClass().getSimpleName()
                                         + (problem.getMessage() == null ? ""
                                                 : ": " + problem.getMessage()));
                     } finally {
-                        runStarted = false;
+                        endSessionRun();
                     }
                 }
                 // A Stop that arrived after the run ended must not colour the next one.
@@ -160,12 +164,42 @@ public final class ScriptingCoordinator implements AutoCloseable {
      */
     private boolean stoppedBeforeStart() {
         synchronized (runGate) {
-            boolean stopped = stopRequested.getAndSet(false);
-            if (!stopped) {
-                runStarted = true;
-            }
-            return stopped;
+            return stopRequested.getAndSet(false);
         }
+    }
+
+    /**
+     * Creates the session and arms the run, so a Stop that arrives while the session is
+     * still being built cannot be lost.
+     *
+     * <p>This is the window the class used to lose a Stop in: the worker had marked itself
+     * started, {@link #stop()} therefore did not set its before-start flag, no session
+     * existed to interrupt yet, and the snippet then ran to completion with the Stop already
+     * spent. The flag is now read again after the session exists, so a Stop in that window
+     * either is seen here (this returns {@code null}) or finds an armed session and reaches
+     * it through {@link ScriptingSession#stop()}.</p>
+     */
+    private ScriptingSession sessionForRun() {
+        ScriptingSession current = session();
+        synchronized (runGate) {
+            if (stopRequested.getAndSet(false)) {
+                return null;
+            }
+            sessionRunActive = true;
+            return current;
+        }
+    }
+
+    /** Disarms the run once the session returned, so a later Stop targets nothing. */
+    private void endSessionRun() {
+        synchronized (runGate) {
+            sessionRunActive = false;
+        }
+    }
+
+    /** The result of a run that never started because a Stop beat it. */
+    private static ScriptRunResult stoppedBeforeAnythingRan() {
+        return new ScriptRunResult(ScriptRunResult.Status.STOPPED, List.of(), 0, Duration.ZERO);
     }
 
     /**
@@ -180,7 +214,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
         boolean interruptRun;
         synchronized (runGate) {
             stopRequested.set(true);
-            interruptRun = runStarted;
+            interruptRun = sessionRunActive;
         }
         if (interruptRun) {
             ScriptingSession current = session;

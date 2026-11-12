@@ -76,9 +76,16 @@ and the cap and the clean-at-the-bottom rule behave as `DocumentSessionCheckTest
 
 ### R6-2. A resource found by server search can never be written back
 
-**Gap — P3, possibly deliberate.** `ui/ServerScreens`, `search()` at lines 173-177 shows the
-resource the dialog returned with `null` origin, while `open()` at lines 200-218 deliberately
-attaches one, with a comment saying a later "Save to FHIR Server" needs the type, id and version.
+**Gap — P3. Fixed 2026-11-11.** `ServerSearchDialog` now returns a `Picked` record carrying
+the `LoadedResource` and the `ServerOrigin` built from the server, type, id and version, and
+`ServerScreens.search` shows the pick with that origin. A result the server sent without an id
+deliberately gets no origin, because an origin with no id means "create" and a search hit must
+not become a new resource on save. `ServerSearchResultTest` covers both cases. The original
+defect, as written:
+
+`ui/ServerScreens`, `search()` at lines 173-177 showed the resource the dialog returned with
+`null` origin, while `open()` at lines 200-218 deliberately attaches one, with a comment saying
+a later "Save to FHIR Server" needs the type, id and version.
 The difference is not only at the call: `ServerSearchDialog extends Dialog<LoadedResource>`
 (`ServerSearchDialog:47`), and `LoadedResource` has no origin field, so the server that produced
 the result is gone before the caller sees it. The consequence matches the intent stated in
@@ -160,6 +167,32 @@ Errors, Skipped and Duration, so a run the user stopped reads as an unexplained 
 `toJson` writes `cancelled` (line 47) but not `cancelledCount()` or `allPassed()`, so the two
 formats report different facts; whichever is kept, they should agree.
 
+### R6-10. A Stop pressed while a run was starting could be lost
+
+**Bug — P2. Fixed 2026-11-12.** Found by the verification of R6-2, not by reading: the full
+suite failed `ScriptingCoordinatorTest.concurrentRunIsRefused` with "stop must end the first
+run" after a thirty-second wait, while the same class passed on its own.
+
+`ScriptingCoordinator` marked a run started before the `ScriptingSession` existed, and
+`stop()` in that window did neither of the two things that could end the run: it skipped
+`session.stop()` because the session was still `null`, and its before-start flag was never
+read again because the worker had already passed it. The five-minute snippet then ran with
+the Stop spent. The session had a second, smaller window of the same kind: a Stop could land
+before the run registered its id, be recorded against the previous run, and be discarded as
+stale.
+
+The fix reads the stop flag again after the session exists (`ScriptingCoordinator.sessionForRun`)
+and arms the session there, calls the session only while that run is armed, and has the session
+apply a pending stop to the run that registers and clear it when that run ends - so the stop
+cannot leak into the next run either. `ScriptingCoordinatorTest.stopDuringStartUpIsHonoured`
+hammers the window ten times and then proves a normal run still completes.
+
+Measured against a scratch JShell, one `stop()` call is not reliable on its own either: with a
+snippet sleeping for a minute it left the snippet running in one case out of three, and
+repeating the call ended every attempt in under 210 ms. `ScriptingSession.stop` therefore
+retries it on a daemon thread, bounded at about 800 ms and guarded by the run id, so it cannot
+interrupt a later run and the Stop button still returns immediately.
+
 ## 3. Limitations
 
 - Static reading plus the earlier toolkit walkthrough. No dialog was opened during this pass,
@@ -171,8 +204,10 @@ formats report different facts; whichever is kept, they should agree.
   user-visible failure was reproduced.
 - R6-2 may be intended. It is listed because the code says nothing either way, and the two
   neighbouring methods that drop an origin both explain themselves.
-- The scripting package's threading was read, not stressed: the concurrency tests exercise
-  refusal and stop, but no sustained-load or repeated-reset run was made for this pass.
+- The scripting package's threading was read rather than stress-tested, with one exception:
+  the stop path (R6-10) is covered by `stopDuringStartUpIsHonoured`, six consecutive runs of
+  `ScriptingCoordinatorTest` and a clean full suite. No sustained-load or repeated-reset run
+  was made for the rest of the package.
 - R6-7 is why R6-8 and R6-9 were established by reading rather than by running a suite: the
   runner has no path from the application, so no user-visible reproduction exists. If the
   subsystem is wired up, the classification needs a real test before it is trusted.
@@ -185,8 +220,7 @@ formats report different facts; whichever is kept, they should agree.
 
 1. **R6-1** — done on 2026-11-11 (see above). It was the only finding here a user could hit in
    ordinary use: edit, undo, then try to save back to the server.
-2. **R6-2** next, because it decides an API shape: if search should return an origin, the dialog
-   result type changes and `ServerScreens.search` follows.
+2. **R6-2** — done on 2026-11-11 (see above); the dialog result type now carries the origin.
 3. **R6-3** after that: either supply the serialized text or make the parameter absent, so the
    field cannot be filled with the wrong thing again.
 4. **R6-4**, **R6-5**, **R6-6** as hygiene, together with any further `MainWindow` work.

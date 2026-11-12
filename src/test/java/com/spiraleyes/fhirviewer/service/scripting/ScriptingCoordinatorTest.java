@@ -85,6 +85,41 @@ class ScriptingCoordinatorTest {
     }
 
     @Test
+    @DisplayName("A Stop that arrives while the run is still starting ends it anyway")
+    void stopDuringStartUpIsHonoured() throws Exception {
+        coordinator = new ScriptingCoordinator();
+
+        // No wait for isRunning() here: Run returns, Stop is pressed immediately, which is
+        // the window in which the worker used to lose it - it had marked the run started,
+        // no session existed to interrupt yet, and the snippet then slept for five minutes.
+        for (int attempt = 0; attempt < 10; attempt++) {
+            CountDownLatch finished = new CountDownLatch(1);
+            AtomicReference<ScriptRunResult> result = new AtomicReference<>();
+            coordinator.run("Thread.sleep(300000);", stopped -> {
+                result.set(stopped);
+                finished.countDown();
+            });
+            coordinator.stop();
+
+            assertTrue(finished.await(20, TimeUnit.SECONDS),
+                    "attempt " + attempt + ": Stop did not end a run with five minutes to go");
+            assertEquals(ScriptRunResult.Status.STOPPED, result.get().status(),
+                    "attempt " + attempt + ": the run must report that it was stopped");
+        }
+
+        // A Stop consumed by one run must not end the next one.
+        CountDownLatch ran = new CountDownLatch(1);
+        AtomicReference<ScriptRunResult> after = new AtomicReference<>();
+        coordinator.run("1 + 1", result -> {
+            after.set(result);
+            ran.countDown();
+        });
+        assertTrue(ran.await(30, TimeUnit.SECONDS), "the run after a Stop must still finish");
+        assertEquals(ScriptRunResult.Status.COMPLETED, after.get().status(),
+                "a Stop that ended an earlier run must not end the next one");
+    }
+
+    @Test
     @DisplayName("Reset between runs starts a fresh session")
     void resetClearsStateBetweenRuns() throws Exception {
         coordinator = new ScriptingCoordinator();
