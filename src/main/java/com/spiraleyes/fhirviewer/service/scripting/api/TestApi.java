@@ -4,9 +4,9 @@ package com.spiraleyes.fhirviewer.service.scripting.api;
  * Assertion API exposed to scripts as {@code test}.
  *
  * <p>Every assertion throws {@link AssertionError} on failure, so a script can
- * either let JShell report it (the run is then a failed test) or catch it
- * itself. The runner distinguishes an {@code AssertionError} (a failed
- * assertion) from any other throwable (an error).</p>
+ * either let JShell report it or catch it itself. The console shows the
+ * {@code AssertionError} with its message, named as such, so a reader can tell a
+ * failed check from any other exception.</p>
  */
 public final class TestApi {
 

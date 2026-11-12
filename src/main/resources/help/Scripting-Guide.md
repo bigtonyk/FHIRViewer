@@ -103,9 +103,12 @@ synthetic identifiers and read-only operations by default.
 
 ## Scripting automation
 
-Saved scripts and test suites run in a fresh JShell session independent of
-interactive history. Use `test` assertions; results are reported as passed/failed
-with a summary. Destructive tests must be clearly marked and use synthetic data.
+Saved scripts run in a fresh JShell session independent of interactive history.
+Use the `test` assertions to check what a script found; a failed assertion appears
+in the output as an `AssertionError` with its message, like any other exception.
+Treat every script that writes or deletes as destructive and point it at synthetic
+data. There is no suite runner in the viewer: run a workflow by opening its script
+and pressing Run.
 
 ## API reference details
 

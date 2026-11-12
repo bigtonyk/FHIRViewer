@@ -10,7 +10,8 @@ REST layers those passes only touched in passing.
 Scope: `ui/DocumentSession`, `ui/DocumentPort`, `ui/DocumentViews`, `ui/MainMenuFactory`,
 `ui/ServerScreens`, `ui/ServerResourceActions`, `ui/IgPackageActions`, `ui/AboutDialog`,
 `service/scripting/ScriptingCoordinator`, `service/scripting/ScriptingSession`,
-`service/scripting/api/*`, `service/scripting/testing/*`, `model/LoadedResource`, and targeted
+`service/scripting/api/*`, `service/scripting/testing/*` (deleted afterwards, see R6-7),
+`model/LoadedResource`, and targeted
 searches across `server/rest` and `server/smart`.
 
 Method: static reading of the files above, targeted searches for exception swallowing, raw
@@ -45,9 +46,8 @@ one daemon worker; `ScriptingSession`'s stop flags and shell are `volatile`, the
 hand-off is gated, and `close()` is idempotent), and charset use in file I/O (every
 `Files.readString`/`writeString` in `src/main` names `StandardCharsets.UTF_8`, `FileSupport`
 centralises the rest, and every `new Thread(...)` in `src/main` sets a daemon thread except the
-recovery scheduler, which is deliberately non-daemon). The report exporter writes both formats
-with `StandardCharsets.UTF_8`, and `ScriptTestRunner` really does create one `ScriptingSession`
-per test (line 14) and close it in a `finally`, so the isolation its javadoc promises holds.
+recovery scheduler, which is deliberately non-daemon). The suite runner read during this pass
+has since been deleted under R6-7, so nothing it promised is still claimed.
 
 ## 2. Outstanding findings
 
@@ -155,18 +155,28 @@ rather than as a defect: nothing is miscabled.
 
 ### R6-7. The test-suite subsystem has no caller in the application
 
-**Dead code - P2.** Nothing in `src/main` outside `service/scripting/testing` refers to it: no
-import, no constructor, no button. The only coverage is `TestReportExporterTest` (four tests,
-76 lines, exercising JSON and HTML output); `TestSuiteRunner`, `ScriptTestRunner`, `TestSuite`,
-`TestCase`, `TestProgressListener` and `ConfirmationHandler` have no test and no production use.
-That is eleven classes, about 340 lines, compiled and shipped for a feature the UI never
-reaches. Either the wiring was lost (there is no console or dialog that builds a `TestSuite`)
-or the feature was abandoned before it was connected; either way the package is the only part
-of the scripting area a user cannot touch, and the next two findings are latent for that reason.
+**Resolved by deletion - 2026-11-12.** Nothing in `src/main` outside the package referred to it:
+no import, no constructor, no button. It was tested - `ScriptTestRunnerTest`, `TestSuiteRunnerTest`
+and `TestReportExporterTest`, 329 lines between them - but no user could reach it, because the
+half `PHASE-3-AUTOMATED-TESTING.md` asks for beside the engine was never built: a saved-suite
+format and metadata (item 2), a screen that chooses the target server per run (item 10), and
+report export (item 9). Supplying those in a defect pass would mean inventing a suite definition
+format, which `PHASE-5-ADVANCED-SCRIPTING.md` rules out, and a "run the buffer as one test"
+button would be a feature in name only.
+
+The eleven classes and their three test classes were deleted. The user guide no longer promises
+suite results - it says that a failing assertion is an `AssertionError` in the output and that a
+workflow is run by opening its script and pressing Run - and `TestApi`'s javadoc no longer
+describes a runner that cannot be called. Keeping a tested engine nobody can start is worse than
+removing it: both of the next two findings were defects in code no user ran, and git history
+keeps the work for the day Phase 3 is built properly.
 
 ### R6-8. Test outcomes are classified by searching message text
 
-**Bug - P2, latent.** `ScriptTestRunner` decides FAILED versus ERROR by substring
+**Closed with the code - 2026-11-12.** Deleted under R6-7 before any user could reach it. This
+is kept as the record of what the engine did.
+
+`ScriptTestRunner` decided FAILED versus ERROR by substring
 (`ScriptTestRunner:27-28`): an entry text containing `AssertionError` or `expected` makes the
 test FAILED, anything else ERROR. Both directions are wrong. A JShell assertion failure does
 render as `java.lang.AssertionError`, but a plain runtime exception whose message says
@@ -179,7 +189,10 @@ before it throws is reported with the printed line as its message.
 
 ### R6-9. The HTML report omits the cancelled count the result tracks
 
-**Hygiene - P3.** `TestSuiteResult` exposes `cancelledCount()` and the stylesheet styles
+**Closed with the code - 2026-11-12.** Deleted under R6-7. This is kept as the record of what
+the reports did.
+
+`TestSuiteResult` exposed `cancelledCount()` and the stylesheet styled
 `.CANCELLED`, but `TestReportExporter.toHtml` (lines 74-79) prints only Total, Passed, Failed,
 Errors, Skipped and Duration, so a run the user stopped reads as an unexplained short total.
 `toJson` writes `cancelled` (line 47) but not `cancelledCount()` or `allPassed()`, so the two
@@ -236,9 +249,10 @@ interrupt a later run and the Stop button still returns immediately.
   the stop path (R6-10) is covered by `stopDuringStartUpIsHonoured`, six consecutive runs of
   `ScriptingCoordinatorTest` and a clean full suite. No sustained-load or repeated-reset run
   was made for the rest of the package.
-- R6-7 is why R6-8 and R6-9 were established by reading rather than by running a suite: the
-  runner has no path from the application, so no user-visible reproduction exists. If the
-  subsystem is wired up, the classification needs a real test before it is trusted.
+- R6-8 and R6-9 were established by reading, not by running: the runner had no path from the
+  application. Both went with the deleted package. A future Phase 3 implementation should treat
+  them as requirements it must not repeat - classify outcomes from the event kind, and report
+  the cancelled count in both formats.
 - `pretty/` (`PrettyModelBuilder`, `DataTypeFormatter`, 818 lines) is named in no pass's
   documented scope either. It was not read here; it is the obvious subject of a seventh pass.
 - `server/rest` and `server/smart` were searched, not read: the searches covered exception
@@ -253,6 +267,7 @@ interrupt a later run and the Stop button still returns immediately.
    the field cannot be filled with the wrong thing again.
 4. **R6-6** — done on 2026-11-12 (see above), which closes every `MainWindow`-shaped hygiene
    item from this pass (**R6-4** and **R6-5** went with it).
-5. **R6-7** needs a decision before R6-8 or R6-9 are worth touching: wire the suite runner to a
-   console, or delete the package. If it is wired, fix the classification first - a suite report
-   that calls a runtime exception a failed assertion is worse than no report.
+5. **R6-7** — decided on 2026-11-12: the package was deleted, which closed R6-8 and R6-9 with
+   it. Phase 3 of the scripting plan describes the suite format, server selection and report
+   export that would make the engine usable; that is a feature to build deliberately, not one to
+   hang off the console at the end of a defect pass.
