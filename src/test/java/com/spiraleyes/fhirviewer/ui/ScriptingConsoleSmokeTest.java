@@ -138,33 +138,36 @@ class ScriptingConsoleSmokeTest {
     @DisplayName("Run Tests reports counts separately and leaves verdicts out of the output")
     void runTestsReportsCountsApartFromOutput() throws Exception {
         requireToolkit();
-        SuiteOutcome outcome = runSuite("""
-                // case: passes
-                System.out.println("pass-case-output");
-                test.assertTrue(true, "this passes");
+        try (ScriptingCoordinator coordinator = new ScriptingCoordinator()) {
+            SuiteOutcome outcome = runSuite("""
+                    // case: passes
+                    System.out.println("pass-case-output");
+                    test.assertTrue(true, "this passes");
 
-                // case: fails
-                System.out.println("fail-case-output");
-                test.assertTrue(false, "expected true here");
-                """, new ScriptingCoordinator());
+                    // case: fails
+                    System.out.println("fail-case-output");
+                    test.assertTrue(false, "expected true here");
+                    """, coordinator);
 
-        String reportText = outcome.report();
-        assertTrue(reportText.contains("1 passed, 1 failed"),
-                "the report should carry both counts: " + reportText);
-        assertTrue(reportText.contains("FAILED fails"),
-                "the failing case should be named in the report: " + reportText);
-        assertFalse(outcome.output().contains("FAILED"),
-                "verdicts must not leak into the output pane: " + outcome.output());
-        assertFalse(outcome.output().contains("passed"),
-                "verdicts must not leak into the output pane: " + outcome.output());
-        String detailsText = outcome.details();
-        assertTrue(detailsText.contains("pass-case-output"),
-                "the details tab should keep what the passing case printed: " + detailsText);
-        assertTrue(detailsText.contains("fail-case-output"),
-                "the details tab should keep what the failing case printed: " + detailsText);
-        assertTrue(detailsText.contains("AssertionError") && detailsText.contains("expected true here"),
-                "the details tab should carry the full failure, not just the first line: "
-                        + detailsText);
+            String reportText = outcome.report();
+            assertTrue(reportText.contains("1 passed, 1 failed"),
+                    "the report should carry both counts: " + reportText);
+            assertTrue(reportText.contains("FAILED fails"),
+                    "the failing case should be named in the report: " + reportText);
+            assertFalse(outcome.output().contains("FAILED"),
+                    "verdicts must not leak into the output pane: " + outcome.output());
+            assertFalse(outcome.output().contains("passed"),
+                    "verdicts must not leak into the output pane: " + outcome.output());
+            String detailsText = outcome.details();
+            assertTrue(detailsText.contains("pass-case-output"),
+                    "the details tab should keep what the passing case printed: " + detailsText);
+            assertTrue(detailsText.contains("fail-case-output"),
+                    "the details tab should keep what the failing case printed: " + detailsText);
+            assertTrue(detailsText.contains("AssertionError")
+                            && detailsText.contains("expected true here"),
+                    "the details tab should carry the full failure, not just the first line: "
+                            + detailsText);
+        }
     }
 
     /**
@@ -176,35 +179,39 @@ class ScriptingConsoleSmokeTest {
     void failedSuiteKeepsReasonCountsAndDetails() throws Exception {
         requireToolkit();
         String reason = "no session for the second case";
-        SuiteOutcome outcome = runSuite("""
-                // case: passes
-                System.out.println("kept-case-output");
-                test.assertTrue(true, "this passes");
+        try (ScriptingCoordinator coordinator =
+                FailingScriptingSessions.failAfterOneSession(reason)) {
+            SuiteOutcome outcome = runSuite("""
+                    // case: passes
+                    System.out.println("kept-case-output");
+                    test.assertTrue(true, "this passes");
 
-                // case: never starts
-                System.out.println("never-runs");
-                """, FailingScriptingSessions.failAfterOneSession(reason));
+                    // case: never starts
+                    System.out.println("never-runs");
+                    """, coordinator);
 
-        String reportText = outcome.report();
-        assertTrue(reportText.contains(
-                        "The suite could not finish: IllegalStateException: " + reason),
-                "the report must keep the failure reason: " + reportText);
-        assertTrue(reportText.contains("1 passed, 0 failed (1 case(s)"),
-                "the report must keep the counts of the case that ran: " + reportText);
-        assertFalse(reportText.contains("FAILED"),
-                "no case failed on its own, so no FAILED line belongs in the report: " + reportText);
+            String reportText = outcome.report();
+            assertTrue(reportText.contains("The suite could not finish at case \"never starts\":"
+                            + " IllegalStateException: " + reason),
+                    "the report must keep the failure reason and name the case: " + reportText);
+            assertTrue(reportText.contains("1 passed, 0 failed (1 case(s)"),
+                    "the report must keep the counts of the case that ran: " + reportText);
+            assertFalse(reportText.contains("FAILED"),
+                    "no case failed on its own, so no FAILED line belongs in the report: "
+                            + reportText);
 
-        String detailsText = outcome.details();
-        assertTrue(detailsText.contains("The suite could not finish"),
-                "the details tab must repeat the failure reason: " + detailsText);
-        assertTrue(detailsText.contains("case: passes \u2014 PASSED"),
-                "the details tab must name the completed case: " + detailsText);
-        assertTrue(detailsText.contains("kept-case-output"),
-                "the details tab must keep what the completed case printed: " + detailsText);
-        assertFalse(detailsText.contains("never-runs"),
-                "the case that never started must not appear to have run: " + detailsText);
-        assertEquals("", outcome.output(),
-                "a suite verdict or failure must not be written to the output pane");
+            String detailsText = outcome.details();
+            assertTrue(detailsText.contains("The suite could not finish"),
+                    "the details tab must repeat the failure reason: " + detailsText);
+            assertTrue(detailsText.contains("case: passes \u2014 PASSED"),
+                    "the details tab must name the completed case: " + detailsText);
+            assertTrue(detailsText.contains("kept-case-output"),
+                    "the details tab must keep what the completed case printed: " + detailsText);
+            assertFalse(detailsText.contains("never-runs"),
+                    "the case that never started must not appear to have run: " + detailsText);
+            assertEquals("", outcome.output(),
+                    "a suite verdict or failure must not be written to the output pane");
+        }
     }
 
     /**

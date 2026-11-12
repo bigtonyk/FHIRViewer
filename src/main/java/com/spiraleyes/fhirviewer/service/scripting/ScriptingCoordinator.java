@@ -166,10 +166,12 @@ public final class ScriptingCoordinator implements AutoCloseable {
                 List<SuiteCaseResult> cases = new ArrayList<>();
                 boolean cancelled = false;
                 String message = "";
+                String runningCase = "";
                 try {
                     cancelled = stoppedBeforeStart();
                     if (!cancelled) {
                         for (TestCase testCase : suite.cases()) {
+                            runningCase = testCase.name();
                             ScriptingSession current = sessionForRun(true);
                             if (current == null) {
                                 cancelled = true;
@@ -198,7 +200,10 @@ public final class ScriptingCoordinator implements AutoCloseable {
                 } catch (RuntimeException | Error problem) {
                     // A failure while starting a case session must still end the run: the
                     // console would otherwise say "Running" forever.
-                    message = "The suite could not finish: " + problem.getClass().getSimpleName()
+                    String where = runningCase.isBlank() ? ""
+                            : " at case \"" + runningCase + "\"";
+                    message = "The suite could not finish" + where + ": "
+                            + problem.getClass().getSimpleName()
                             + (problem.getMessage() == null ? "" : ": " + problem.getMessage());
                 } finally {
                     synchronized (runGate) {

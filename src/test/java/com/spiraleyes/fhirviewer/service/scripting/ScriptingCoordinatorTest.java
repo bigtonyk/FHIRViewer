@@ -188,6 +188,8 @@ class ScriptingCoordinatorTest {
                 "a partial suite must keep what the completed case printed: "
                         + result.cases().get(0).entries());
         assertTrue(result.message().contains("could not finish"), result.message());
+        assertTrue(result.message().contains("at case \"second\""),
+                "the failure must name the case that could not start: " + result.message());
         assertTrue(result.message().contains("no session available"), result.message());
     }
 

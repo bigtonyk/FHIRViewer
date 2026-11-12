@@ -124,7 +124,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     /**
      * Builds the console over the given coordinator, so a UI test can drive suite
      * results the real session factory cannot produce. Package-private: production
-     * callers use the public constructor.
+     * callers use the public constructor. The dialog closes the coordinator when it
+     * is hidden, so a caller must not share one with another window.
      */
     ScriptingConsoleDialog(ThemeManager themeManager, FhirService fhirService,
             FhirServerService serverService, FhirServerManager serverManager,

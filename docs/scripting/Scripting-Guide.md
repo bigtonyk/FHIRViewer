@@ -131,8 +131,8 @@ session, and **Reset Session** discards that state.
 Use the `test` assertions to check what a script found; a failed assertion appears
 in the output as an `AssertionError` with its message, like any other exception.
 Treat every script that writes or deletes as destructive and point it at synthetic
-data. There is no suite runner in the viewer: run a workflow by opening its script
-and pressing Run.
+data. Press **Run** to execute a workflow script as one buffer, or **Run Tests** to
+execute its `// case:` suites without leaving the console.
 
 ## API reference details
 

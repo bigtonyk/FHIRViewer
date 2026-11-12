@@ -9,14 +9,15 @@ import java.util.Objects;
  *
  * <p>The console shows {@link #passedCount()} and {@link #failedCount()} in a
  * dedicated results area, while the output pane keeps only what the cases
- * printed. {@code message} explains a run that produced no cases at all
- * (closed coordinator, parse refusal) and is empty otherwise.</p>
+ * printed. {@code message} explains a run that did not execute every case
+ * (closed coordinator, parse refusal, or a case session that could not be
+ * created) and is empty otherwise.</p>
  *
  * @param name      the suite name
  * @param cases     per-case results, in execution order
  * @param elapsed   wall time spent running cases
  * @param cancelled whether Stop ended the run before every case ran
- * @param message   why no cases ran, or empty
+ * @param message   why the run did not execute every case, or empty
  */
 public record SuiteRunResult(
         String name,
