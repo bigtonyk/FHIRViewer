@@ -6,7 +6,7 @@ before changing it; each records the design decisions behind the code.
 | Path | State |
 |------|-------|
 | `workspace/` | Current — workspace persistence, recovery snapshots and startup restoration. |
-| `scriptingrefined/` | Current — the scripting console, the script APIs, the test runner and SMART reuse, phase by phase. |
+| `scriptingrefined/` | Current — the scripting console, the script APIs and SMART reuse, phase by phase. Automated testing (Phase 3) is planned but not implemented: its engine was removed in `7724874` because nothing could start it. |
 | `scriptingautomation/` | Current companion roadmap — batch workflows, interoperability automation and ecosystem work beyond the console. |
 | `FHIRViewer_Feature_Roadmap_and_Planning_Backlog.md` | Idea-level backlog, not a plan for any one feature. |
 | `archived/scripting/` | Superseded by `scriptingrefined/`. Kept for the history of the phase split, not updated. |

@@ -18,14 +18,14 @@
 |---|---|---|
 | 1. Interactive console and saved `.jsh` files | Complete | Coordinator race fixed; unit tests pass; packaging module list updated |
 | 2. FHIRViewer scripting API and write policy | Complete | fhir/viewer/validation/server/log facades |
-| 3. Automated testing and repeatable workflows | Partial | ScriptTestRunner/TestApi; focused runner tests added; suite execution, progress/cancel, report export, destructive labeling, and UI not yet implemented |
+| 3. Automated testing and repeatable workflows | Not started | Only the `TestApi` assertion facade exists, exposed by the console; the suite engine (`service/scripting/testing`) was deleted in `7724874` because nothing could start it (R6-7 in `docs/CODE-ANALYSIS-ISSUES-ROUND6.md`). Suite format, screen, per-run server selection, progress/cancel and report export are all still to build. |
 | 4. SMART on FHIR integration | Complete | SmartApi |
 | 5. Advanced scripting and batch workflows | In progress | ScriptParameter and partial collections/reporting |
 | 6. Scripting API documentation | Complete | docs/scripting/Scripting-Guide.md |
 
 ## Execution model decisions
 - Interactive JShell session lifecycle: ScriptingCoordinator owns one ScriptingSession; created lazily, reset closes/recreates, close on dialog hide/shutdown.
-- Saved workflow fresh-session behavior: ScriptTestRunner creates isolated sessions; not auto-run on open.
+- Saved workflow fresh-session behavior: there is no saved-workflow runner; a saved `.jsh` file opens in the console and is not auto-run, and the console session is independent of interactive history.
 - Script storage/metadata approach: `.jsh` files via FileChooser; ScriptParameter metadata for workflows.
 - Target server/environment selection: ScriptBindings binds active server; explicit target shown.
 - Parameter handling: ScriptParameter typed/required/optional with defaults and redaction.
@@ -53,4 +53,4 @@
 - Results: 20 tests run, 0 failures, 0 errors; packaged app-image build succeeded.
 - Known limitations: advanced Phase 5 features remain partial; packaged runtime smoke-tested only via successful jpackage build.
 - Packaging/platform checks: jpackage app-image built successfully on Windows with jdk.jshell and jdk.compiler in module list.
-- Recommended next step: continue Phase 5 advanced scripting work.
+- Recommended next step: decide whether Phase 3 is built properly (starting with the saved-suite format) before continuing Phase 5 advanced scripting work.
