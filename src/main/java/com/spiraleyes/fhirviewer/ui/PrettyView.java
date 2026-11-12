@@ -76,6 +76,8 @@ public class PrettyView extends ScrollPane implements ElementNavigationTarget {
             children.add(sectionNode(section, 0));
         }
         content.getChildren().setAll(children);
+        // The old offset belonged to content that is gone; a new document starts at the top.
+        setVvalue(0);
     }
 
     /** Resets the view to its empty state. */

@@ -119,12 +119,15 @@ sees and it names the wrong thing.
 
 ### R7-5. A new document keeps the old scroll position
 
-**Usability - P3.** `PrettyView.show` (lines 59-80) replaces the content and clears the
+**Usability - P3. Fixed 2026-11-12.** `PrettyView.show` (lines 59-80) replaces the content and clears the
 highlight, but never resets the scroll position. `setVvalue` is only called from
 `scrollToShow` (lines 304 and 308), which runs from a tree selection. Opening resource B while
 resource A was scrolled halfway down leaves B positioned proportionally to A's height - or
 pinned at the bottom - until the reader scrolls or clicks a node. Switching resources is the
 common case, so this is hit far more often than the selection path it works around.
+
+Fixed by resetting the vertical value once the new content is installed, so a document always
+opens at the top; `PrettyViewScrollTest.showingADocumentResetsTheScrollPosition` covers it.
 
 ### R7-6. An out-of-range index renders the last value instead of failing to resolve
 
