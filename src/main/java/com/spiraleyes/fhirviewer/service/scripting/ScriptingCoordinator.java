@@ -171,6 +171,12 @@ public final class ScriptingCoordinator implements AutoCloseable {
                     cancelled = stoppedBeforeStart();
                     if (!cancelled) {
                         for (TestCase testCase : suite.cases()) {
+                            if (closed.get()) {
+                                // The console closed since the previous case: starting another
+                                // case would outlive the window that asked for it.
+                                cancelled = true;
+                                break;
+                            }
                             runningCase = testCase.name();
                             ScriptingSession current = sessionForRun(true);
                             if (current == null) {
@@ -211,7 +217,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
                     }
                     running.set(false);
                     workerThread = null;
-                    onDone.accept(new SuiteRunResult(suite.name(), cases,
+                    onDone.accept(new SuiteRunResult(suite.name(), cases, suite.cases().size(),
                             Duration.between(started, Instant.now()), cancelled, message));
                 }
             });
@@ -313,6 +319,14 @@ public final class ScriptingCoordinator implements AutoCloseable {
     private ScriptingSession sessionForRun(boolean freshSession) {
         ScriptingSession current = freshSession ? sessionFactory.get() : session();
         synchronized (runGate) {
+            if (closed.get()) {
+                // Closing the console must win even when the session was created just before
+                // close() read the armed session: nothing may run after the window is gone.
+                if (freshSession) {
+                    closeQuietly(current);
+                }
+                return null;
+            }
             if (stopRequested.getAndSet(false)) {
                 if (freshSession) {
                     closeQuietly(current);
@@ -420,7 +434,12 @@ public final class ScriptingCoordinator implements AutoCloseable {
         if (current != null) {
             current.stop();
         }
-        ScriptingSession running = activeRunSession;
+        ScriptingSession running;
+        synchronized (runGate) {
+            // Under the same lock that arms a run, so close() either sees the armed session
+            // and stops it, or the arming code sees closed and discards it.
+            running = activeRunSession;
+        }
         if (running != null) {
             running.stop();
         }

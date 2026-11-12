@@ -1,8 +1,10 @@
 package com.spiraleyes.fhirviewer.service.scripting.testing;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -46,14 +48,16 @@ public record TestSuite(String name, List<TestCase> cases) {
      * @param name   the suite name, normally the file name
      * @param source the buffer's text
      * @return the parsed suite
-     * @throws IllegalArgumentException when a marker has no name, or text precedes
-     *                                  the first marker
+     * @throws IllegalArgumentException when a marker has no name, repeats a case
+     *                                  name, or text precedes the first marker
      */
     public static TestSuite parse(String name, String source) {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(source, "source");
         List<TestCase> cases = new ArrayList<>();
+        Set<String> names = new HashSet<>();
         String currentName = null;
+        int currentLine = 0;
         StringBuilder body = new StringBuilder();
         String[] lines = source.split("\\R", -1);
         for (int index = 0; index < lines.length; index++) {
@@ -68,9 +72,16 @@ public record TestSuite(String name, List<TestCase> cases) {
                             + " on line " + (index + 1) + " belongs to no case.");
                 }
                 if (currentName != null) {
-                    cases.add(new TestCase(currentName, body.toString()));
+                    cases.add(requireBody(currentName, currentLine, body));
                 }
                 currentName = marker.group(1).trim();
+                currentLine = index + 1;
+                if (!names.add(currentName)) {
+                    // Two failures under one name cannot be told apart in the report.
+                    throw new IllegalArgumentException("The // case: marker on line "
+                            + (index + 1) + " repeats the case name \"" + currentName
+                            + "\"; case names must be unique.");
+                }
                 body.setLength(0);
             } else {
                 body.append(lines[index]).append('\n');
@@ -82,7 +93,16 @@ public record TestSuite(String name, List<TestCase> cases) {
             }
             return new TestSuite(name, List.of(new TestCase(name, source)));
         }
-        cases.add(new TestCase(currentName, body.toString()));
+        cases.add(requireBody(currentName, currentLine, body));
         return new TestSuite(name, cases);
+    }
+
+    /** A marker with no source would otherwise pass as a test that checked nothing. */
+    private static TestCase requireBody(String caseName, int markerLine, StringBuilder body) {
+        if (body.toString().isBlank()) {
+            throw new IllegalArgumentException("The case \"" + caseName + "\" from line "
+                    + markerLine + " has no source; add a body or remove the marker.");
+        }
+        return new TestCase(caseName, body.toString());
     }
 }

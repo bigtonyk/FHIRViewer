@@ -90,17 +90,27 @@ A buffer can hold several cases. A line whose only content is `// case: name`
 starts a case, and everything up to the next marker is that case's source. A
 buffer without markers is one case named after the file. Text before the first
 marker is refused rather than treated as a shared setup, because every case
-takes a fresh session and could not use it anyway.
+takes a fresh session and could not use it anyway. Case names must be unique: a
+repeated name is refused when the suite is parsed, because two results under one
+name cannot be told apart in the report. Every case needs source: a marker
+followed immediately by another marker or by the end of the file is refused
+rather than passing as a test that checked nothing.
 
-**Run Tests** runs every case in its own JShell session and shows the passed and
-failed counts on a separate line above the output, so a verdict is never mixed
-into what a script printed. A case passes only when it finishes with no compile
-errors, exceptions or assertion failures; a failure does not stop the remaining
-cases, and each failing case is named with its first diagnostic. The report line
+**Run Tests** runs every case in its own JShell session and shows the passed,
+failed and stopped counts on a separate line above the output, so a verdict is
+never mixed into what a script printed. A case passes only when it finishes with
+no compile errors, exceptions or assertion failures; a failure does not stop the
+remaining cases, and each failing case is named with its first diagnostic.
+Pressing **Stop** interrupts the current case, reports it as stopped rather than
+failed, and does not start the remaining cases. If a run ends before every case
+ran, the report shows the executed count against the suite's size — for example
+`1 of 2 case(s) ran` — so a partial total is not read as the number of cases the
+suite holds. The report line
 carries the counts and that first diagnostic; the **Test details** tab carries every
 case's printed output and all of its diagnostics and exceptions, while the **Output**
-tab stays ordinary run output. Like Run, the first execution asks for the trust
-acknowledgement.
+tab stays ordinary run output. Opening another file or loading the example clears
+the previous suite's report and details, because they described the buffer that was
+replaced. Like Run, the first execution asks for the trust acknowledgement.
 
 ## SMART on FHIR
 

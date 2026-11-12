@@ -62,6 +62,30 @@ class TestSuiteTest {
     }
 
     @Test
+    @DisplayName("A repeated case name is refused rather than reported ambiguously")
+    void duplicateCaseNamesAreRefused() {
+        IllegalArgumentException problem = assertThrows(IllegalArgumentException.class,
+                () -> TestSuite.parse("suite.jsh",
+                        "// case: checks\nint a = 1;\n// case: checks\nint b = 2;"));
+
+        assertTrue(problem.getMessage().contains("repeats the case name \"checks\""),
+                problem.getMessage());
+        assertTrue(problem.getMessage().contains("line 3"),
+                "the message should name the repeated marker: " + problem.getMessage());
+    }
+
+    @Test
+    @DisplayName("An empty case body is refused instead of passing silently")
+    void emptyCaseBodyIsRefused() {
+        IllegalArgumentException problem = assertThrows(IllegalArgumentException.class,
+                () -> TestSuite.parse("suite.jsh",
+                        "// case: empty\n\n// case: filled\nint a = 1;"));
+
+        assertTrue(problem.getMessage().contains("The case \"empty\" from line 1 has no source"),
+                problem.getMessage());
+    }
+
+    @Test
     @DisplayName("A blank buffer cannot be parsed as a suite")
     void blankBufferIsRefused() {
         assertThrows(IllegalArgumentException.class, () -> TestSuite.parse("empty.jsh", "  \n"));

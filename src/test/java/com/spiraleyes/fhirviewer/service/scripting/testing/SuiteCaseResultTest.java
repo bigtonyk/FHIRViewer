@@ -44,12 +44,33 @@ class SuiteCaseResultTest {
     }
 
     @Test
-    @DisplayName("A stopped run fails rather than silently passing")
-    void stoppedRunFails() {
+    @DisplayName("A stopped run is reported as stopped, not failed")
+    void stoppedRunIsStopped() {
         SuiteCaseResult result = SuiteCaseResult.from("interrupted",
                 result(ScriptRunResult.Status.STOPPED));
 
+        assertEquals(SuiteCaseResult.Status.STOPPED, result.status());
         assertFalse(result.passed());
+        assertTrue(result.stopped());
+        assertEquals("", result.detail());
+    }
+
+    @Test
+    @DisplayName("Suite counts keep stopped cases out of the failures")
+    void stoppedCasesAreCountedSeparately() {
+        SuiteCaseResult passed = new SuiteCaseResult("passes",
+                SuiteCaseResult.Status.PASSED, "", List.of());
+        SuiteCaseResult stopped = new SuiteCaseResult("interrupted",
+                SuiteCaseResult.Status.STOPPED, "", List.of());
+
+        SuiteRunResult result = new SuiteRunResult("suite.jsh", List.of(passed, stopped), 2,
+                Duration.ofMillis(10), true, "");
+
+        assertEquals(2, result.total());
+        assertEquals(1, result.passedCount());
+        assertEquals(0, result.failedCount(),
+                "a case the user stopped is not a failing test");
+        assertEquals(1, result.stoppedCount());
     }
 
     private static ScriptRunResult result(ScriptRunResult.Status status) {

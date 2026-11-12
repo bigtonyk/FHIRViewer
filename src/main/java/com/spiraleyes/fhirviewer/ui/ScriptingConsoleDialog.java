@@ -271,8 +271,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             return;
         }
         // A refusal or parse error must not leave the previous run's results looking current.
-        suiteDetails.clear();
-        hideSuiteReport();
+        clearSuiteResults();
         TestSuite suite;
         try {
             suite = TestSuite.parse(suiteName(), editor.getText());
@@ -302,14 +301,27 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
         report.append("Tests: ")
                 .append(result.passedCount()).append(" passed, ")
-                .append(result.failedCount()).append(" failed (")
-                .append(result.total()).append(" case(s), ")
-                .append(result.elapsed().toMillis()).append(" ms)");
+                .append(result.failedCount()).append(" failed");
+        if (result.stoppedCount() > 0) {
+            report.append(", ").append(result.stoppedCount()).append(" stopped");
+        }
+        // A partial run must not present the executed count as the suite's size.
+        if (result.planned() > result.total()) {
+            report.append(" (").append(result.total()).append(" of ").append(result.planned())
+                    .append(" case(s) ran, ").append(result.elapsed().toMillis()).append(" ms)");
+        } else {
+            report.append(" (").append(result.total()).append(" case(s), ")
+                    .append(result.elapsed().toMillis()).append(" ms)");
+        }
         if (result.cancelled()) {
             report.append(" \u2014 stopped");
         }
         for (SuiteCaseResult testCase : result.cases()) {
-            if (!testCase.passed()) {
+            if (testCase.stopped()) {
+                // Stop is the user's action, not a failing test: name the case without a
+                // failure detail, so the counts and the lines below them agree.
+                report.append('\n').append("STOPPED ").append(testCase.name());
+            } else if (!testCase.passed()) {
                 report.append('\n').append("FAILED ").append(testCase.name())
                         .append(": ").append(testCase.detail());
             }
@@ -331,7 +343,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
         for (SuiteCaseResult testCase : result.cases()) {
             details.append("case: ").append(testCase.name()).append(" \u2014 ")
-                    .append(testCase.passed() ? "PASSED" : "FAILED").append('\n');
+                    .append(testCase.status()).append('\n');
             for (ScriptRunResult.Entry entry : testCase.entries()) {
                 details.append("  [").append(label(entry.kind())).append("] ")
                         .append(entry.text()).append('\n');
@@ -354,6 +366,17 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         suiteReport.setText("");
         suiteReport.setManaged(false);
         suiteReport.setVisible(false);
+    }
+
+    /**
+     * Removes the previous suite's verdict and details, and returns to the output tab.
+     * Called when a suite run starts, and whenever the buffer they described is replaced
+     * by opening a file or loading the example.
+     */
+    private void clearSuiteResults() {
+        suiteDetails.clear();
+        hideSuiteReport();
+        bottomTabs.getSelectionModel().select(0);
     }
 
     /** The suite name shown in the report: the file name, or "buffer" when untitled. */
@@ -499,6 +522,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         return suiteDetails.getText();
     }
 
+    /** Renders a suite result without running one, for tests. */
+    void presentSuiteForTest(SuiteRunResult result) {
+        presentSuite(result);
+    }
+
 
 
     // ------------------------------------------------------------------
@@ -523,7 +551,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 + " they can read files, use the network, start processes and inspect the"
                 + " environment. Only run scripts you trust — this includes any file you open.\n\n"
                 + "FHIRViewer never runs scripts on its own; nothing executes"
-                + " until you press Run.");
+                + " until you press Run or Run Tests.");
         ButtonType runAnyway = new ButtonType("Run Script", ButtonBar.ButtonData.OK_DONE);
         warning.getButtonTypes().setAll(runAnyway, ButtonType.CANCEL);
         warning.getDialogPane().getStylesheets().addAll(stylesheets);
@@ -569,6 +597,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         savedContent = content;
         currentFile = file.toPath();
         updateRunModeLabel();
+        // The verdicts on screen belong to the buffer that was just replaced.
+        clearSuiteResults();
         trustAcknowledged = false;
         setStatus("Opened " + file.getName() + " — running will ask for trust again.");
     }
@@ -638,6 +668,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         // for a location instead of overwriting that file, and Run stays interactive.
         currentFile = null;
         updateRunModeLabel();
+        // The verdicts on screen belong to the buffer that was just replaced.
+        clearSuiteResults();
         setStatus("Example loaded into an untitled buffer — press Run to execute it.");
     }
 

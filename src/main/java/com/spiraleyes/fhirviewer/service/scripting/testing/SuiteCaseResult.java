@@ -9,9 +9,11 @@ import com.spiraleyes.fhirviewer.service.scripting.ScriptRunResult;
  * One case's verdict and the line that explains a failure.
  *
  * <p>A case passes only when its run completed with no errors. A rejected
- * snippet, a thrown exception (assertions included), a stop or a session-level
- * failure all fail the case, and {@link #detail()} carries the first useful
- * message so the console can name the failure without replaying the output.</p>
+ * snippet, a thrown exception (assertions included) or a session-level failure
+ * fails the case, and {@link #detail()} carries the first useful message so the
+ * console can name the failure without replaying the output. A case interrupted
+ * by Stop is reported as stopped rather than failed: the user ended it, and
+ * calling that a failing test would misreport both the case and the counts.</p>
  *
  * @param name    the case name
  * @param status  pass or fail
@@ -23,7 +25,7 @@ public record SuiteCaseResult(String name, Status status, String detail,
 
     /** What a case did. */
     public enum Status {
-        PASSED, FAILED
+        PASSED, FAILED, STOPPED
     }
 
     public SuiteCaseResult {
@@ -39,6 +41,9 @@ public record SuiteCaseResult(String name, Status status, String detail,
         if (result.status() == ScriptRunResult.Status.COMPLETED && !result.hasErrors()) {
             return new SuiteCaseResult(name, Status.PASSED, "", result.entries());
         }
+        if (result.status() == ScriptRunResult.Status.STOPPED) {
+            return new SuiteCaseResult(name, Status.STOPPED, "", result.entries());
+        }
         ScriptRunResult.Entry reason = result.first(ScriptRunResult.Kind.EXCEPTION);
         if (reason == null) {
             reason = result.first(ScriptRunResult.Kind.DIAGNOSTIC);
@@ -52,5 +57,10 @@ public record SuiteCaseResult(String name, Status status, String detail,
 
     public boolean passed() {
         return status == Status.PASSED;
+    }
+
+    /** True when Stop interrupted this case; it is neither a pass nor a failure. */
+    public boolean stopped() {
+        return status == Status.STOPPED;
     }
 }

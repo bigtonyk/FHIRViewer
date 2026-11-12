@@ -9,8 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.awt.GraphicsEnvironment;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -27,6 +30,8 @@ import com.spiraleyes.fhirviewer.server.FhirServerService;
 import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.service.scripting.FailingScriptingSessions;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
+import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteCaseResult;
+import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteRunResult;
 
 import javafx.application.Platform;
 import javafx.scene.Node;
@@ -194,8 +199,8 @@ class ScriptingConsoleSmokeTest {
             assertTrue(reportText.contains("The suite could not finish at case \"never starts\":"
                             + " IllegalStateException: " + reason),
                     "the report must keep the failure reason and name the case: " + reportText);
-            assertTrue(reportText.contains("1 passed, 0 failed (1 case(s)"),
-                    "the report must keep the counts of the case that ran: " + reportText);
+            assertTrue(reportText.contains("1 passed, 0 failed (1 of 2 case(s) ran"),
+                    "the report must separate executed from planned cases: " + reportText);
             assertFalse(reportText.contains("FAILED"),
                     "no case failed on its own, so no FAILED line belongs in the report: "
                             + reportText);
@@ -212,6 +217,91 @@ class ScriptingConsoleSmokeTest {
             assertEquals("", outcome.output(),
                     "a suite verdict or failure must not be written to the output pane");
         }
+    }
+
+    /**
+     * A stopped suite must name its interrupted case without calling it a failure, and its
+     * counts must agree with the lines below them.
+     */
+    @Test
+    @DisplayName("A stopped case is reported as stopped, not as a failure")
+    void stoppedCaseIsNotReportedAsFailed() throws Exception {
+        requireToolkit();
+        SuiteRunResult stoppedSuite = new SuiteRunResult("stopped.jsh", List.of(
+                new SuiteCaseResult("passes", SuiteCaseResult.Status.PASSED, "", List.of()),
+                new SuiteCaseResult("interrupted", SuiteCaseResult.Status.STOPPED, "", List.of())),
+                2, Duration.ofMillis(12), true, "");
+
+        try (ScriptingCoordinator coordinator = new ScriptingCoordinator()) {
+            List<String> shown = onFxThread(() -> {
+                ProbeConsole console = new ProbeConsole(coordinator);
+                console.presentSuiteForTest(stoppedSuite);
+                return List.of(console.suiteReportForTest().getText(),
+                        console.suiteDetailsTextForTest());
+            });
+
+            String reportText = shown.get(0);
+            assertTrue(reportText.contains("1 passed, 0 failed, 1 stopped (2 case(s)"),
+                    "the counts must keep the stopped case apart from the failures: " + reportText);
+            assertTrue(reportText.contains("STOPPED interrupted"),
+                    "the stopped case should be named as stopped: " + reportText);
+            assertFalse(reportText.contains("FAILED"),
+                    "Stop is the user's action, not a failure: " + reportText);
+            assertTrue(shown.get(1).contains("case: interrupted \u2014 STOPPED"),
+                    "the details tab should say stopped too: " + shown.get(1));
+        }
+    }
+
+    /** Replacing the buffer must not leave the previous buffer's suite verdicts on screen. */
+    @Test
+    @DisplayName("Loading the Example clears the previous suite report and details")
+    void loadingExampleClearsSuiteResults() throws Exception {
+        requireToolkit();
+        SuiteRunResult result = new SuiteRunResult("previous.jsh", List.of(
+                new SuiteCaseResult("passes", SuiteCaseResult.Status.PASSED, "", List.of())),
+                1, Duration.ofMillis(5), false, "");
+
+        try (ScriptingCoordinator coordinator = new ScriptingCoordinator()) {
+            List<String> shown = onFxThread(() -> {
+                ProbeConsole console = new ProbeConsole(coordinator);
+                console.presentSuiteForTest(result);
+                boolean reportWasVisible = console.suiteReportForTest().isVisible();
+                console.exampleButtonForTest().fire();
+                return List.of(
+                        String.valueOf(reportWasVisible),
+                        console.suiteReportForTest().getText(),
+                        String.valueOf(console.suiteReportForTest().isVisible()),
+                        console.suiteDetailsTextForTest(),
+                        console.editorTextForTest());
+            });
+
+            assertEquals("true", shown.get(0), "the report should be visible before loading");
+            assertEquals("", shown.get(1), "the previous verdict line must be cleared");
+            assertEquals("false", shown.get(2), "the report line must be hidden again");
+            assertEquals("", shown.get(3), "the previous details must be cleared");
+            assertFalse(shown.get(4).isBlank(), "the example should have replaced the buffer");
+        }
+    }
+
+    /** Runs FX work and returns its value, failing the test when the task throws. */
+    private static <T> T onFxThread(Callable<T> action) throws Exception {
+        AtomicReference<T> value = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+        Platform.runLater(() -> {
+            try {
+                value.set(action.call());
+            } catch (Throwable problem) {
+                failure.set(problem);
+            } finally {
+                done.countDown();
+            }
+        });
+        assertTrue(done.await(30, TimeUnit.SECONDS), "the FX task did not finish");
+        if (failure.get() != null) {
+            throw new AssertionError("the FX task failed", failure.get());
+        }
+        return value.get();
     }
 
     /**

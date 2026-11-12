@@ -167,6 +167,41 @@ class ScriptingCoordinatorTest {
     }
 
     @Test
+    @DisplayName("Closing between suite cases does not start another case")
+    void closeBetweenSuiteCasesStartsNothing() throws Exception {
+        AtomicInteger created = new AtomicInteger();
+        coordinator = new ScriptingCoordinator(() -> {
+            if (created.incrementAndGet() == 2) {
+                // Close from another thread while this worker is between cases, then wait for
+                // close to finish before handing back a session. close() waits two seconds for
+                // this worker, so its shutdownNow interrupts this thread; clear that flag so a
+                // missing closed check would genuinely run the second case rather than fail it.
+                Thread closer = new Thread(coordinator::close, "suite-close");
+                closer.start();
+                try {
+                    closer.join(30_000);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                Thread.interrupted();
+            }
+            return new ScriptingSession();
+        });
+        TestSuite suite = new TestSuite("closing.jsh", List.of(
+                new TestCase("first", "int first = 1;"),
+                new TestCase("second", "int second = 2;")));
+
+        SuiteRunResult result = runSuiteBlocking(suite);
+
+        assertTrue(result.cancelled(), "closing must end the suite");
+        assertEquals(1, result.total(),
+                "the case after the close must not run: " + result.cases());
+        assertEquals("first", result.cases().get(0).name());
+        assertEquals(2, created.get(),
+                "the session created after close is discarded, not used");
+    }
+
+    @Test
     @DisplayName("A session that cannot be created reports instead of leaving the suite running")
     void suiteSessionCreationFailureIsReported() throws Exception {
         AtomicInteger created = new AtomicInteger();
@@ -183,6 +218,8 @@ class ScriptingCoordinatorTest {
         SuiteRunResult result = runSuiteBlocking(suite);
 
         assertEquals(1, result.total(), "the case that ran keeps its result");
+        assertEquals(2, result.planned(),
+                "a partial result must still report the suite's full size");
         assertTrue(result.cases().get(0).entries().stream()
                         .anyMatch(entry -> entry.text().contains("kept-output")),
                 "a partial suite must keep what the completed case printed: "

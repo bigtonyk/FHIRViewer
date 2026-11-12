@@ -112,15 +112,21 @@ second.
 Fixed by stating in the constructor's javadoc that the dialog closes the coordinator when
 hidden.
 
-## 3. Limitations recorded, not fixed
+## 3. Limitations and follow-ups
 
-- **Close during a suite's between-case window.** `close()` stops the case session that is
-  armed at that moment and interrupts the worker, but the suite loop does not re-check `closed`
+- **Close during a suite's between-case window.** `close()` stopped the case session that was
+  armed at that moment and interrupted the worker, but the suite loop did not re-check `closed`
   before creating the next case. If the window between one case ending and the next session
-  being created happens to contain the close, one more case can start and run before the
-  interrupt is seen. The window is very small; closing while a case is actually running stops
-  it correctly, and the session created afterwards is still closed. A deterministic test would
-  need a hook that does not exist between cases.
+  being created happened to contain the close, one more case could start and run before the
+  interrupt was seen.
+
+  **Fixed after this pass (2026-11-12).** The loop now stops before creating a case once the
+  coordinator is closed, `sessionForRun` checks `closed` under the same lock that arms a run
+  and discards a session created just before the close, and `close()` reads the armed session
+  under that lock. `ScriptingCoordinatorTest.closeBetweenSuiteCasesStartsNothing` closes from
+  another thread while the worker sits in the second session factory, then hands the factory a
+  real session; it asserts one case ran and the created session was discarded. Removing the
+  `closed` check from `sessionForRun` makes it fail with `cancelled` false.
 - **Case-relative line numbers** remain as recorded in round 8.
 - **No per-assertion counts, skip verdicts or report export**; still the Phase 2 gap.
 

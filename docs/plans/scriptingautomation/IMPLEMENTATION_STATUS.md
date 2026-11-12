@@ -8,15 +8,16 @@ landed. Update at the end of each phase.
 
 - Phase: 1 complete; Phase 2 partly delivered; Phase 3 partial; Phase 4 not started.
 - Date: 2026-11-12
-- Branch or commit: `workspace` at `a89e513`
+- Branch or commit: `workspace`; stop-verdict and suite-clearing fixes uncommitted on top of `50fd2ce`
 - Summary: the interactive JShell console, saved `.jsh` runs, the `fhir`/`server`/`validation`/
   `log`/`viewer`/`smart`/`test`/`batch` facades, the central write policy and the batch
-  processor are in the tree and covered by 1,052 tests. Phase 1's saved-script criterion is now
+  processor are in the tree and covered by 1,058 tests. Phase 1's saved-script criterion is now
   met: a buffer with a file behind it runs in a fresh JShell session created for that run and
   closed when it ends, while the unsaved editor keeps the interactive session until Reset.
   A first test-runner slice exists: `// case:` suites run each case in a fresh session and
-  report passed/failed counts apart from console output, with every case's output and full
-  diagnostics in the Test details tab. There is no report export, no parameter prompt, and no
+  report passed, failed and stopped counts apart from console output, with every case's output
+  and full diagnostics in the Test details tab; opening another file or loading the example
+  clears the previous suite's report and details. There is no report export, no parameter prompt, and no
   plugin scripting facade.
 
 ## Phase status
@@ -24,7 +25,7 @@ landed. Update at the end of each phase.
 | Phase | Status | Evidence / notes |
 |---|---|---|
 | 1. Foundation | Complete | `ui/ScriptingConsoleDialog` (693 lines) with Run, Run Tests, Stop, Reset Session, Open, Save, Save As, Example and Clear Output; `ScriptingCoordinator` (450) owns one lazy interactive `ScriptingSession` (605) on a worker thread and creates a temporary `ScriptingSession` for each run of a file-backed buffer, closing it when the run ends; `ScriptBindings` injects `fhir`, `server`, `validation`, `log`, `viewer`, `test`, `smart` and `batch`; saved `.jsh` files load into the editor and run in that fresh session, while the unsaved editor keeps the interactive session Reset replaces; `api/WritePolicy` (94) gates create/update/patch/delete; packaging adds `jdk.jshell` and `jdk.compiler` to the runtime module list (2026-10-21 status entry); guide in `docs/scripting/Scripting-Guide.md`. |
-| 2. Testing, Debugging, and Interoperability | Partial | Assertions exist: `api/TestApi` (116 lines) provides `assertTrue/False/Equals/NotNull/Null/Throws/DoesNotThrow/fail`, each throwing `AssertionError`, which the console reports by name. Interoperability helpers exist: `ServerApi.capabilities/supports/fhirVersion`, `FhirApi.read/search/searchRaw/nextPage/previousPage`, `ValidationApi.validate`. A run does record `ScriptRunResult` with a status, the number of snippets, elapsed time and ordered text entries. A test-runner slice now exists: `service/scripting/testing` parses `// case:` suites, `ScriptingCoordinator.runSuite` runs every case sequentially in a fresh `ScriptingSession`, and `SuiteRunResult` carries passed/failed counts shown in the console's own report line instead of the output pane; each `SuiteCaseResult` keeps the case's entries, which the console's Test details tab shows with the full diagnostics. Missing: per-assertion counts and names, skip/error verdicts, log-level filtering, and any report export. |
+| 2. Testing, Debugging, and Interoperability | Partial | Assertions exist: `api/TestApi` (116 lines) provides `assertTrue/False/Equals/NotNull/Null/Throws/DoesNotThrow/fail`, each throwing `AssertionError`, which the console reports by name. Interoperability helpers exist: `ServerApi.capabilities/supports/fhirVersion`, `FhirApi.read/search/searchRaw/nextPage/previousPage`, `ValidationApi.validate`. A run does record `ScriptRunResult` with a status, the number of snippets, elapsed time and ordered text entries. A test-runner slice now exists: `service/scripting/testing` parses `// case:` suites, `ScriptingCoordinator.runSuite` runs every case sequentially in a fresh `ScriptingSession` and stops before starting another case once the console is closed, and `SuiteRunResult` carries passed, failed and stopped counts plus the suite's planned size, shown in the console's own report line instead of the output pane; a case interrupted by Stop is reported as stopped rather than failed, and a partial run says how many of the planned cases ran. Each `SuiteCaseResult` keeps the case's entries, which the console's Test details tab shows with the full diagnostics. Missing: per-assertion counts and names, skip/error verdicts, log-level filtering, and any report export. |
 | 3. Interoperability Automation | Partial | Batch processing exists: `BatchProcessor` (153 lines, exposed as `batch`) runs sequentially with `BatchErrorPolicy.STOP_ON_FIRST_ERROR` or `CONTINUE`, records per-item outcomes and timings, supports best-effort cancel between items, and routes writes through `WritePolicy`. `ScriptParameter` (66) models typed/required/defaulted parameters and redacts sensitive names. Missing: nothing constructs `ScriptParameter` (no parameter prompt or validation at run time), no collection validation summaries, no CSV/JSON report export, no dry-run preview, and no run history. |
 | 4. Extensibility and Ecosystem | Not started | No plugin facade is bound into `ScriptBindings`; `ServerInfo.pluginId()` is the only plugin fact a script can read, and the plugin operations the REST Workbench offers (`ServerOperation`, `PluginOperationClient`) are not exposed to scripts. No compatibility policy or script-library metadata beyond `.jsh` files. |
 
@@ -53,8 +54,8 @@ landed. Update at the end of each phase.
   and a scope-respecting `read`, never raw tokens.
 - Plugin API: server plugins advertise operations to the REST Workbench and the plugin id is
   visible to scripts through `ServerInfo`; scripts cannot call plugin operations.
-- Tests/build: full suite 1,052 tests in 110 test classes, 0 failures/errors/skips; scripting
-  contributes 98 `@Test` methods in 13 classes under `service/scripting`,
+- Tests/build: full suite 1,058 tests in 110 test classes, 0 failures/errors/skips; scripting
+  contributes 101 `@Test` methods in 13 classes under `service/scripting`,
   `service/scripting/api` and `service/scripting/testing`, and the console smoke test drives
   the suite failure path through the Run Tests button.
 
@@ -62,16 +63,16 @@ landed. Update at the end of each phase.
 
 | Test / command | Result | Notes |
 |---|---|---|
-| `./mvnw -B -ntp test` | 1,052 run, 0 failures, 0 errors, 0 skipped (exit 0) | Run on 2026-11-12 on `workspace` after the suite runner, its failure-path tests, the round-8 fixes and the Run Tests smoke tests, including the injected-factory partial-failure case; includes the 98 scripting tests above. |
+| `./mvnw -B -ntp test` | 1,057 run, 0 failures, 0 errors, 0 skipped (exit 0) | Run on 2026-11-12 on `workspace` after the suite runner, its failure-path tests, the round-8 and round-9 fixes, the Run Tests smoke tests, the stop-verdict and suite-clearing tests, the close-between-cases test, the duplicate-case-name and empty-case-body refusals and the executed-versus-planned report assertion; includes the 101 scripting tests above. |
 | Package build | Succeeded 2026-10-21 | `mvnw -Pdist -DskipTests package` with `jdk.jshell` and `jdk.compiler` in the module list, recorded in the scriptingrefined status file; not rebuilt for this entry. |
 
 ## Known issues and deferred work
 
 - `ScriptParameter` is dead code: no production code constructs it and no test covers it, so the
   Phase 3 parameter contract is a model without a caller.
-- The suite runner counts cases, not assertions: a case is one pass or one fail and there are no
-  skip/error verdicts. The report line names only the first exception or diagnostic, but the Test
-  details tab keeps every entry the case produced (Phase 2).
+- The suite runner counts cases, not assertions: a case is one pass, one fail or one stopped and
+  there are no skip verdicts. The report line names only the first exception or diagnostic, but
+  the Test details tab keeps every entry the case produced (Phase 2).
 - No suite screen, run history or report export. The earlier scriptingrefined Phase 3 engine was
   deleted in `7724874` because nothing could start it (R6-7 in `docs/CODE-ANALYSIS-ISSUES-ROUND6.md`);
   the new runner starts from the saved-suite format instead, and the remaining report work is
