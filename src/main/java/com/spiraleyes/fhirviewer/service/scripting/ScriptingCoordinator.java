@@ -58,8 +58,10 @@ public final class ScriptingCoordinator implements AutoCloseable {
     private boolean sessionRunActive;
     /** Closes the hand-off window between {@link #stop()} and the worker's start-up. */
     private final Object runGate = new Object();
-    /** Created lazily on the worker; read by {@link #stop()} from other threads. */
+    /** Created lazily on the worker; the interactive session, reused until reset. */
     private volatile ScriptingSession session;
+    /** The session the in-flight run uses, which is a temporary one for a fresh run. */
+    private volatile ScriptingSession activeRunSession;
     private final Thread shutdownHook;
 
     /** A coordinator with no session yet; the engine is created on first use. */
@@ -80,7 +82,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
      *                thread when this coordinator is closed); never {@code null}
      */
     public void run(String source, Consumer<ScriptRunResult> onDone) {
-        submit(source, null, onDone);
+        submit(source, null, onDone, false);
     }
 
     /**
@@ -93,7 +95,23 @@ public final class ScriptingCoordinator implements AutoCloseable {
      * @param onDone   receives the result on the worker thread; never {@code null}
      */
     public void run(String source, ScriptBindings bindings, Consumer<ScriptRunResult> onDone) {
-        submit(source, bindings, onDone);
+        submit(source, bindings, onDone, false);
+    }
+
+    /**
+     * Runs one saved script in a JShell session of its own, closed when the run ends.
+     *
+     * <p>Repeatability is the point: a saved script must not see a declaration left by
+     * an earlier run, and must not leave one behind for the next. The interactive
+     * session is untouched, so the console keeps its state until Reset Session.</p>
+     *
+     * @param source   the script; never {@code null}
+     * @param bindings the script API objects, or {@code null} for none
+     * @param onDone   receives the result on the worker thread; never {@code null}
+     */
+    public void runInFreshSession(String source, ScriptBindings bindings,
+            Consumer<ScriptRunResult> onDone) {
+        submit(source, bindings, onDone, true);
     }
 
     /**
@@ -106,7 +124,8 @@ public final class ScriptingCoordinator implements AutoCloseable {
      *
      * @param bindings the script API objects, or {@code null} for none
      */
-    private void submit(String source, ScriptBindings bindings, Consumer<ScriptRunResult> onDone) {
+    private void submit(String source, ScriptBindings bindings, Consumer<ScriptRunResult> onDone,
+            boolean freshSession) {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(onDone, "onDone");
         if (closed.get()) {
@@ -123,7 +142,8 @@ public final class ScriptingCoordinator implements AutoCloseable {
             worker.execute(() -> {
                 workerThread = Thread.currentThread();
                 ScriptRunResult result;
-                ScriptingSession current = stoppedBeforeStart() ? null : sessionForRun();
+                ScriptingSession current =
+                        stoppedBeforeStart() ? null : sessionForRun(freshSession);
                 if (current == null) {
                     // Stop raced the worker's start-up: nothing ran, and saying so is
                     // more honest than calling the snippet and pretending it was cut short.
@@ -138,6 +158,9 @@ public final class ScriptingCoordinator implements AutoCloseable {
                                                 : ": " + problem.getMessage()));
                     } finally {
                         endSessionRun();
+                        if (freshSession) {
+                            closeQuietly(current);
+                        }
                     }
                 }
                 // A Stop that arrived after the run ended must not colour the next one.
@@ -179,14 +202,27 @@ public final class ScriptingCoordinator implements AutoCloseable {
      * either is seen here (this returns {@code null}) or finds an armed session and reaches
      * it through {@link ScriptingSession#stop()}.</p>
      */
-    private ScriptingSession sessionForRun() {
-        ScriptingSession current = session();
+    private ScriptingSession sessionForRun(boolean freshSession) {
+        ScriptingSession current = freshSession ? new ScriptingSession() : session();
         synchronized (runGate) {
             if (stopRequested.getAndSet(false)) {
+                if (freshSession) {
+                    closeQuietly(current);
+                }
                 return null;
             }
             sessionRunActive = true;
+            activeRunSession = current;
             return current;
+        }
+    }
+
+    /** Closing a finished run's session cannot fail the run that already reported. */
+    private static void closeQuietly(ScriptingSession toClose) {
+        try {
+            toClose.close();
+        } catch (RuntimeException ignored) {
+            // The result is already decided; a close failure must not replace it.
         }
     }
 
@@ -194,6 +230,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
     private void endSessionRun() {
         synchronized (runGate) {
             sessionRunActive = false;
+            activeRunSession = null;
         }
     }
 
@@ -212,12 +249,13 @@ public final class ScriptingCoordinator implements AutoCloseable {
             return;
         }
         boolean interruptRun;
+        ScriptingSession current;
         synchronized (runGate) {
             stopRequested.set(true);
             interruptRun = sessionRunActive;
+            current = activeRunSession;
         }
         if (interruptRun) {
-            ScriptingSession current = session;
             if (current != null) {
                 // Best effort, exactly as the console says: a snippet that swallows
                 // interruption can ignore it, and this returns when it does.
@@ -273,6 +311,10 @@ public final class ScriptingCoordinator implements AutoCloseable {
         ScriptingSession current = session;
         if (current != null) {
             current.stop();
+        }
+        ScriptingSession running = activeRunSession;
+        if (running != null) {
+            running.stop();
         }
         worker.shutdown();
         try {

@@ -36,20 +36,20 @@ guide documents, and the central write policy that refuses unconfirmed destructi
    and expected failures (item 5), plus synthetic fixtures and examples (item 8).
 
 ## Goal
-Add a repeatable test-runner model that executes saved scripts or suites from a starting session it states explicitly, so results do not silently depend on leftover console state. Support FHIR server verification, assertions, validation checks, and clear results.
+Add a repeatable test-runner model that executes saved scripts or suites independently of interactive JShell history. Support FHIR server verification, assertions, validation checks, and clear results.
 
 ## Scope
 1. Inspect existing test infrastructure and UI patterns before adding abstractions.
 2. Define saved test/workflow metadata and a stable result model: pass, fail, error, skipped, duration, and sanitized details.
-3. Decide the starting session rather than assuming one. The console reuses a single session today, so either give each case its own session here or say that a run inherits the console state; whatever is chosen, change this plan, the guide and `IMPLEMENTATION-STATUS.md` together.
+3. Run each saved test/workflow in a fresh JShell session, as the console now does for saved scripts; do not inherit variables from the interactive console.
 4. Add a `test` facade for named assertions, checks, and grouped results.
 5. Support assertions for resource existence, expected fields/values, HTTP outcomes, validation findings, and expected failures where practical.
 6. Allow scripts to use Phase 2 APIs for search/read/validation and optionally explicit writes under the central write policy.
-7. Add suite execution, sequential by default, progress reporting, stop/cancel best effort, and per-test isolation where item 3 chooses per-case sessions.
+7. Add suite execution, sequential by default, progress reporting, stop/cancel best effort, and per-test isolation.
 8. Add synthetic test fixtures and examples; never require real patient data.
 9. Produce a summary and exportable JSON/HTML report if consistent with current dependencies. Redact credentials and sensitive data.
 10. Make target server/environment explicit before run. Clearly label potentially destructive tests and require confirmations for destructive operations.
-11. Add mock-based tests for assertion outcomes, the session model chosen in item 3, failures, reporting, cancellation, and policy enforcement.
+11. Add mock-based tests for assertion outcomes, isolation, failures, reporting, cancellation, and policy enforcement.
 
 ## Initial use cases
 - Check that a server advertises expected resource types and interactions.
@@ -58,7 +58,7 @@ Add a repeatable test-runner model that executes saved scripts or suites from a 
 - Compare behavior across configured test servers without assuming vendor equivalence.
 
 ## Acceptance criteria
-- Saved suites start in the session item 3 names, and results do not depend on console state unless item 3 says so.
+- Saved suites run independently from interactive console state.
 - Results are deterministic enough to reproduce and clearly identify server/configuration.
 - Failures identify the script/test and useful sanitized diagnostics.
 - Reports can be exported and contain no tokens or unnecessary patient data.

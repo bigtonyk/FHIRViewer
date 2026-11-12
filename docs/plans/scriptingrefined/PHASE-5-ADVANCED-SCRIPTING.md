@@ -15,7 +15,7 @@ Build on the console, API, test runner, and SMART support to make scripts reusab
 - Support named parameters with types, defaults, required/optional status, and basic validation.
 - Make target server/environment explicit for each run; display it before execution.
 - Record non-sensitive parameter values and redact sensitive parameters.
-- Reuse the console's single session for saved workflows and show what state a run inherits; a fresh per-run session is a separate execution-model change, not a default to promise.
+- Provide a fresh JShell session for each saved workflow run, as the console does for saved scripts; the run must not inherit interactive state.
 
 ### C. Batch processing and transformations
 - Support sequential processing of a search result set or explicit resource list first.

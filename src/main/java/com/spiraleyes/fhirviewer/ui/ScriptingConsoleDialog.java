@@ -10,6 +10,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -186,12 +187,24 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             return;
         }
         String source = editor.getText();
+        // A buffer with a file behind it is a saved script: repeatability matters more
+        // than continuity, so it runs in its own session and leaves none behind. The
+        // unsaved editor stays on the interactive session until Reset.
+        boolean savedScript = currentFile != null;
         setBusy(true);
-        setStatus("Running \u2026");
-        coordinator.run(source, bindings, result -> Platform.runLater(() -> {
+        setStatus(savedScript ? "Running in a fresh session \u2026" : "Running \u2026");
+        Consumer<ScriptRunResult> done = result -> Platform.runLater(() -> {
             setBusy(false);
+            if (savedScript) {
+                appendRaw("[fresh session \u2014 closed after this run]");
+            }
             present(result);
-        }));
+        });
+        if (savedScript) {
+            coordinator.runInFreshSession(source, bindings, done);
+        } else {
+            coordinator.run(source, bindings, done);
+        }
     }
 
     /** Asks the running script to stop; the run's own result lands when it ends. */

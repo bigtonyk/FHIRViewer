@@ -24,8 +24,8 @@
 | 6. Scripting API documentation | Complete | docs/scripting/Scripting-Guide.md |
 
 ## Execution model decisions
-- Interactive JShell session lifecycle: ScriptingCoordinator owns one ScriptingSession; created lazily, reset closes/recreates, close on dialog hide/shutdown.
-- Saved workflow session behavior: there is no saved-workflow runner and no fresh session per saved script; a saved `.jsh` file opens in the console and is not auto-run, and every run, typed or opened, uses the one console session until Reset Session replaces it.
+- Interactive JShell session lifecycle: ScriptingCoordinator owns one interactive ScriptingSession; created lazily, reset closes/recreates, close on dialog hide/shutdown.
+- Saved workflow session behavior: a buffer with a file behind it (opened or saved) runs in a fresh `ScriptingSession` created for that run and closed when it ends, so saved scripts are repeatable and leave nothing behind; the unsaved editor keeps the interactive session, which Reset Session replaces. There is still no workflow runner that starts a saved script on its own.
 - Script storage/metadata approach: `.jsh` files via FileChooser; ScriptParameter metadata for workflows.
 - Target server/environment selection: ScriptBindings binds active server; explicit target shown.
 - Parameter handling: ScriptParameter typed/required/optional with defaults and redaction.

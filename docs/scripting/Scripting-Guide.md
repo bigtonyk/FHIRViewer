@@ -10,8 +10,10 @@ you trust.
 Open the scripting workspace from the application menu. The console provides an
 editor, Run / Stop / Reset, Open / Save, and a console output pane.
 
-- **Run** evaluates the editor buffer in the interactive session (state
-  persists between runs).
+- **Run** evaluates the editor buffer. The unsaved editor keeps the interactive
+  session (state persists between runs); a buffer opened from or saved to a file
+  runs in a fresh session of its own, so each saved-script run starts clean and
+  leaves nothing behind.
 - **Reset Session** discards all interactive state and starts fresh.
 - **Open / Save** load and store script files.
 - Compile errors, runtime exceptions, and output appear in the console pane.
@@ -78,9 +80,9 @@ String v = server.fhirVersion();
 ## Automated testing
 
 Assertions throw `AssertionError` on failure:
-`assertTrue`, `assertFalse`, `assertEquals`, `fail`. Saved tests run in the same
-console session as typed snippets, so declarations from earlier runs are visible to
-them.
+`assertTrue`, `assertFalse`, `assertEquals`, `fail`. Saved tests run in a fresh
+session per run, so declarations from earlier runs or other scripts are not
+visible to them.
 
 ## SMART on FHIR
 
@@ -104,9 +106,10 @@ synthetic identifiers and read-only operations by default.
 
 ## Scripting automation
 
-Saved scripts are not given a session of their own: opening one loads its text
-into the editor, and Run evaluates it in the console's session, where state from
-earlier runs is still present. **Reset Session** discards that state.
+Opening a saved script loads its text into the editor and never runs it. A buffer
+with a file behind it runs in a fresh JShell session each time, so a saved script
+starts clean and leaves no state behind. The unsaved editor keeps the interactive
+session, and **Reset Session** discards that state.
 Use the `test` assertions to check what a script found; a failed assertion appears
 in the output as an `AssertionError` with its message, like any other exception.
 Treat every script that writes or deletes as destructive and point it at synthetic

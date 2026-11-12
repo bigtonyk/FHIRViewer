@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -53,6 +54,54 @@ class ScriptingCoordinatorTest {
         assertTrue(done.await(30, TimeUnit.SECONDS), "the run must complete on the worker");
         assertNotNull(received.get());
         assertEquals(ScriptRunResult.Status.COMPLETED, received.get().status());
+    }
+
+    @Test
+    @DisplayName("A saved-script run neither sees nor leaves interactive state")
+    void freshSessionRunsAreRepeatable() throws Exception {
+        coordinator = new ScriptingCoordinator();
+        assertEquals(ScriptRunResult.Status.COMPLETED,
+                runBlocking("int repeatableProbe = 7;", false).status());
+
+        ScriptRunResult blind = runBlocking("repeatableProbe", true);
+        assertTrue(hasFailureEntry(blind),
+                "a fresh session must not see the interactive declaration: " + blind.entries());
+
+        assertEquals(ScriptRunResult.Status.COMPLETED,
+                runBlocking("int freshProbe = 1;", true).status());
+        ScriptRunResult second = runBlocking("freshProbe", true);
+        assertTrue(hasFailureEntry(second),
+                "each saved-script run must start clean: " + second.entries());
+
+        ScriptRunResult interactive = runBlocking("repeatableProbe", false);
+        assertEquals(ScriptRunResult.Status.COMPLETED, interactive.status(),
+                "the interactive session must be untouched: " + interactive.entries());
+        assertTrue(interactive.entries().stream().anyMatch(entry ->
+                entry.kind() == ScriptRunResult.Kind.VALUE && entry.text().contains("7")),
+                "the interactive declaration should still be there: " + interactive.entries());
+    }
+
+    private ScriptRunResult runBlocking(String source, boolean freshSession) throws Exception {
+        AtomicReference<ScriptRunResult> received = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+        Consumer<ScriptRunResult> sink = result -> {
+            received.set(result);
+            done.countDown();
+        };
+        if (freshSession) {
+            coordinator.runInFreshSession(source, null, sink);
+        } else {
+            coordinator.run(source, sink);
+        }
+        assertTrue(done.await(60, TimeUnit.SECONDS), "the run must finish");
+        assertNotNull(received.get());
+        return received.get();
+    }
+
+    private static boolean hasFailureEntry(ScriptRunResult result) {
+        return result.entries().stream().anyMatch(entry ->
+                entry.kind() == ScriptRunResult.Kind.DIAGNOSTIC
+                        || entry.kind() == ScriptRunResult.Kind.EXCEPTION);
     }
 
     @Test
