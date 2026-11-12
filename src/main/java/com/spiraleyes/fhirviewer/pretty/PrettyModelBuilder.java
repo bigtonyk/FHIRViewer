@@ -273,7 +273,7 @@ public final class PrettyModelBuilder {
                 if (!joined.isBlank()) {
                     target.row(label, joined, property.name());
                 }
-            } else if (formatter.isSummarizable(first) && !topLevel) {
+            } else if (formatter.isSummarizable(first) && !topLevel && !isContainerExtension(first)) {
                 addSummaryRows(target, label, values, property.name());
             } else if (depth >= MAX_DEPTH) {
                 target.row(label, "(recursion limit reached)", property.name());
@@ -284,6 +284,22 @@ public final class PrettyModelBuilder {
                 }
             }
         }
+    }
+
+    /**
+     * True for an extension built from sub-extensions: it has no value[x], so
+     * summarising it would show only its name and hide the children.
+     */
+    private boolean isContainerExtension(IBase value) {
+        if (!"Extension".equals(value.fhirType())) {
+            return false;
+        }
+        for (ElementProperty property : adapter.propertiesOf(value)) {
+            if (property.name().startsWith("value") && !property.values().isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** One or more rows with a one line summary per value. */

@@ -8,10 +8,16 @@ import java.util.List;
 import java.util.Optional;
 
 import com.spiraleyes.fhirviewer.TreeAssert;
+import com.spiraleyes.fhirviewer.fhir.FhirContextFactory;
 import com.spiraleyes.fhirviewer.model.LoadedResource;
 import com.spiraleyes.fhirviewer.model.ResourceNode;
 import com.spiraleyes.fhirviewer.service.FhirService;
 
+import org.hl7.fhir.r4.model.Coding;
+import org.hl7.fhir.r4.model.Extension;
+import org.hl7.fhir.r4.model.HumanName;
+import org.hl7.fhir.r4.model.Patient;
+import org.hl7.fhir.r4.model.StringType;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -206,6 +212,25 @@ class PrettyModelBuilderTest {
         assertEquals("Alice Grey", requireRow(contact.rows(), "Name").value());
         assertEquals("+1-555-0111 (phone work)", requireRow(contact.rows(), "Telecom").value());
         assertEquals("Administration", requireRow(contact.rows(), "Purpose").value());
+    }
+
+    @Test
+    @DisplayName("An extension with sub-extensions shows its children instead of only its title")
+    void nestedExtensionShowsItsChildren() {
+        HumanName name = new HumanName().setFamily("Smith");
+        Extension race = new Extension("http://example.org/fhir/StructureDefinition/patient-race");
+        race.addExtension("race", new Coding("http://example.org/race", "white", "White"));
+        race.addExtension("text", new StringType("White"));
+        name.addExtension(race);
+        Patient patient = new Patient();
+        patient.addName(name);
+
+        PrettyDocument document =
+                new PrettyModelBuilder(FhirContextFactory.r4ModelAdapter()).build(patient);
+
+        PrettyBlock section = requireBlock(document.sections(), "Patient Race");
+        assertEquals("Race = White", requireRow(section.rows(), "Extension 1").value());
+        assertEquals("Text = White", requireRow(section.rows(), "Extension 2").value());
     }
 
     @Test
