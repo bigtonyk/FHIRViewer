@@ -199,7 +199,12 @@ public final class PrettyModelBuilder {
             if (property == null || property.values().isEmpty()) {
                 return null;
             }
-            current = property.values().get(Math.min(index, property.values().size() - 1));
+            if (index < 0 || index >= property.values().size()) {
+                // A path that names a value which is not there must not resolve to a
+                // different one: the caller falls back to the whole document instead.
+                return null;
+            }
+            current = property.values().get(index);
         }
         return current;
     }
@@ -215,7 +220,10 @@ public final class PrettyModelBuilder {
             if (property == null || property.values().isEmpty()) {
                 return null;
             }
-            current = property.values().get(Math.min(index, property.values().size() - 1));
+            if (index < 0 || index >= property.values().size()) {
+                return null;
+            }
+            current = property.values().get(index);
         }
         return findProperty(current, segmentName(segments[segments.length - 1]));
     }

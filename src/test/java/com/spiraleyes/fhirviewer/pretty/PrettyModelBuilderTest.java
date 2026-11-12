@@ -9,6 +9,7 @@ import java.util.Optional;
 
 import com.spiraleyes.fhirviewer.TreeAssert;
 import com.spiraleyes.fhirviewer.fhir.FhirContextFactory;
+import com.spiraleyes.fhirviewer.model.ElementInfo;
 import com.spiraleyes.fhirviewer.model.LoadedResource;
 import com.spiraleyes.fhirviewer.model.ResourceNode;
 import com.spiraleyes.fhirviewer.service.FhirService;
@@ -270,6 +271,33 @@ class PrettyModelBuilderTest {
 
         assertEquals("Birth Date", document.resourceType());
         assertEquals("1974-12-25", requireRow(document.rows(), "Birth Date").value());
+    }
+
+    @Test
+    @DisplayName("A path naming a value that is not there falls back to the whole document")
+    void outOfRangePathShowsTheWholeDocument() {
+        LoadedResource loaded = service.openSample("/fhir/patient.json");
+        ResourceNode root = new ResourceNode("Patient", ElementInfo.builder()
+                .path("Patient")
+                .name("Patient")
+                .kind(ElementInfo.Kind.RESOURCE)
+                .build());
+        ResourceNode stale = new ResourceNode("[4]", ElementInfo.builder()
+                .path("Patient.identifier[4]")
+                .name("identifier")
+                .typeCode("Identifier")
+                .kind(ElementInfo.Kind.COMPLEX)
+                .build());
+        root.addChild(stale);
+
+        PrettyDocument document = service.buildPrettyView(loaded.getResource(), stale);
+
+        assertEquals("Patient", document.resourceType(),
+                "an unresolvable path must not render another identifier as if it matched");
+        assertEquals("000-00-0000", requireRow(
+                requireBlock(document.sections(), "Identifier 2").rows(), "Value").value());
+        assertEquals("MRN-12345", requireRow(
+                requireBlock(document.sections(), "Identifier 1").rows(), "Value").value());
     }
 
     @Test

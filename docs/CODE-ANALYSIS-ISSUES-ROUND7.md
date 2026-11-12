@@ -132,13 +132,18 @@ opens at the top; `PrettyViewScrollTest.showingADocumentResetsTheScrollPosition`
 
 ### R7-6. An out-of-range index renders the last value instead of failing to resolve
 
-**Robustness - P3.** `PrettyModelBuilder.resolveElement` and `resolveProperty` (lines 194 and
+**Robustness - P3. Fixed 2026-11-12.** `PrettyModelBuilder.resolveElement` and `resolveProperty` (lines 194 and
 210) both use `Math.min(index, property.values().size() - 1)`. A path naming `name[4]` when only
 two names exist silently resolves to `name[1]`, so a stale path shows a different element's
 value rather than falling back to the full document the way an unresolvable path does
 (`build` at lines 100-103 and 204-207). Nothing produces a stale path today - the tree is rebuilt
 after every edit - which is what makes this worth recording rather than fixing in a hurry: the
 fallback hides the bug it would otherwise expose.
+
+Fixed by treating an index outside the populated values as an unresolvable path, so both
+callers take the existing fallback to the whole document.
+`PrettyModelBuilderTest.outOfRangePathShowsTheWholeDocument` builds a node whose path names
+`identifier[4]` on a patient with two identifiers and checks the full document comes back.
 
 ## 3. Limitations
 
