@@ -132,6 +132,7 @@ class ScriptingConsoleSmokeTest {
         requireToolkit();
         AtomicReference<String> report = new AtomicReference<>();
         AtomicReference<String> output = new AtomicReference<>();
+        AtomicReference<String> details = new AtomicReference<>();
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReference<ProbeConsole> consoleRef = new AtomicReference<>();
         AtomicReference<String> lastReport = new AtomicReference<>("<none>");
@@ -161,6 +162,7 @@ class ScriptingConsoleSmokeTest {
                                 && !current.startsWith("Running")) {
                             report.set(console.suiteReportForTest().getText());
                             output.set(console.outputTextForTest());
+                            details.set(console.suiteDetailsTextForTest());
                             done.countDown();
                         }
                     } catch (Throwable problem) {
@@ -184,9 +186,11 @@ class ScriptingConsoleSmokeTest {
                         directory.resolve("failed.jsh"));
                 console.setEditorTextForTest("""
                         // case: passes
+                        System.out.println("pass-case-output");
                         test.assertTrue(true, "this passes");
 
                         // case: fails
+                        System.out.println("fail-case-output");
                         test.assertTrue(false, "expected true here");
                         """);
                 consoleRef.set(console);
@@ -221,6 +225,14 @@ class ScriptingConsoleSmokeTest {
                 "verdicts must not leak into the output pane: " + output.get());
         assertFalse(output.get().contains("passed"),
                 "verdicts must not leak into the output pane: " + output.get());
+        String detailsText = details.get();
+        assertTrue(detailsText.contains("pass-case-output"),
+                "the details tab should keep what the passing case printed: " + detailsText);
+        assertTrue(detailsText.contains("fail-case-output"),
+                "the details tab should keep what the failing case printed: " + detailsText);
+        assertTrue(detailsText.contains("AssertionError") && detailsText.contains("expected true here"),
+                "the details tab should carry the full failure, not just the first line: "
+                        + detailsText);
     }
 
     /** Presses Run Script on the trust prompt as soon as it is showing. */

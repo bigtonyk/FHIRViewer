@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -84,6 +85,118 @@ class ScriptingCoordinatorTest {
         assertTrue(interactive.entries().stream().anyMatch(entry ->
                 entry.kind() == ScriptRunResult.Kind.VALUE && entry.text().contains("7")),
                 "the interactive declaration should still be there: " + interactive.entries());
+    }
+
+    @Test
+    @DisplayName("A suite submitted to a closed coordinator is refused with the reason")
+    void suiteOnClosedCoordinatorIsRefused() throws Exception {
+        coordinator = new ScriptingCoordinator();
+        coordinator.close();
+
+        SuiteRunResult result = runSuiteBlocking(new TestSuite("closed.jsh", List.of(
+                new TestCase("never", "1 + 1;"))));
+
+        assertEquals(0, result.total());
+        assertTrue(result.message().contains("closed"), result.message());
+    }
+
+    @Test
+    @DisplayName("A suite submitted during another run is refused without disturbing it")
+    void suiteDuringARunIsRefused() throws Exception {
+        coordinator = new ScriptingCoordinator();
+        warmUp();
+        CountDownLatch finished = new CountDownLatch(1);
+        coordinator.run("Thread.sleep(300000);", result -> finished.countDown());
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!coordinator.isRunning() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        assertTrue(coordinator.isRunning(), "the ordinary run must still be in flight");
+
+        SuiteRunResult refused = runSuiteBlocking(new TestSuite("busy.jsh", List.of(
+                new TestCase("never", "1 + 1;"))));
+
+        assertEquals(0, refused.total());
+        assertTrue(refused.message().contains("already running"), refused.message());
+        coordinator.stop();
+        assertTrue(finished.await(60, TimeUnit.SECONDS), "the interrupted run must report");
+    }
+
+    @Test
+    @DisplayName("Stop between suite cases skips the remaining cases")
+    void stopBetweenSuiteCasesSkipsTheRest() throws Exception {
+        AtomicInteger created = new AtomicInteger();
+        CountDownLatch creatingSecondCase = new CountDownLatch(1);
+        CountDownLatch mayCreate = new CountDownLatch(1);
+        coordinator = new ScriptingCoordinator(() -> {
+            if (created.incrementAndGet() == 2) {
+                creatingSecondCase.countDown();
+                try {
+                    mayCreate.await(60, TimeUnit.SECONDS);
+                } catch (InterruptedException interrupted) {
+                    // Clear the flag so creating the session below does not run interrupted;
+                    // the Stop itself is carried by the coordinator's request flag.
+                }
+            }
+            return new ScriptingSession();
+        });
+        TestSuite suite = new TestSuite("stopped.jsh", List.of(
+                new TestCase("first", "int first = 1;"),
+                new TestCase("second", "int second = 2;")));
+
+        AtomicReference<SuiteRunResult> received = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+        coordinator.runSuite(suite, null, result -> {
+            received.set(result);
+            done.countDown();
+        });
+
+        assertTrue(creatingSecondCase.await(120, TimeUnit.SECONDS),
+                "the suite should get as far as the second case's session");
+        coordinator.stop();
+        mayCreate.countDown();
+
+        assertTrue(done.await(120, TimeUnit.SECONDS), "the stopped suite must report");
+        SuiteRunResult result = received.get();
+        assertNotNull(result);
+        assertTrue(result.cancelled(), "the suite should report that Stop ended it");
+        assertEquals(1, result.total(), "the second case must not run: " + result.cases());
+        assertEquals("first", result.cases().get(0).name());
+        assertEquals(2, created.get(),
+                "the second session is created but discarded once Stop is seen");
+    }
+
+    @Test
+    @DisplayName("A session that cannot be created reports instead of leaving the suite running")
+    void suiteSessionCreationFailureIsReported() throws Exception {
+        AtomicInteger created = new AtomicInteger();
+        coordinator = new ScriptingCoordinator(() -> {
+            if (created.incrementAndGet() == 2) {
+                throw new IllegalStateException("no session available");
+            }
+            return new ScriptingSession();
+        });
+        TestSuite suite = new TestSuite("broken.jsh", List.of(
+                new TestCase("first", "int first = 1;"),
+                new TestCase("second", "int second = 2;")));
+
+        SuiteRunResult result = runSuiteBlocking(suite);
+
+        assertEquals(1, result.total(), "the case that ran keeps its result");
+        assertTrue(result.message().contains("could not finish"), result.message());
+        assertTrue(result.message().contains("no session available"), result.message());
+    }
+
+    private SuiteRunResult runSuiteBlocking(TestSuite suite) throws Exception {
+        AtomicReference<SuiteRunResult> received = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+        coordinator.runSuite(suite, null, result -> {
+            received.set(result);
+            done.countDown();
+        });
+        assertTrue(done.await(120, TimeUnit.SECONDS), "the suite must finish");
+        assertNotNull(received.get());
+        return received.get();
     }
 
     private ScriptRunResult runBlocking(String source, boolean freshSession) throws Exception {

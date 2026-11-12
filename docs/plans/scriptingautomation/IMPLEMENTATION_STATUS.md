@@ -23,7 +23,7 @@ phase.
 | Phase | Status | Evidence / notes |
 |---|---|---|
 | 1. Foundation | Complete | `ui/ScriptingConsoleDialog` (473 lines) with Run, Stop, Reset Session, Open, Save, Save As, Example and Clear Output; `ScriptingCoordinator` (347) owns one lazy interactive `ScriptingSession` (605) on a worker thread and creates a temporary `ScriptingSession` for each run of a file-backed buffer, closing it when the run ends; `ScriptBindings` injects `fhir`, `server`, `validation`, `log`, `viewer`, `test`, `smart` and `batch`; saved `.jsh` files load into the editor and run in that fresh session, while the unsaved editor keeps the interactive session Reset replaces; `api/WritePolicy` (94) gates create/update/patch/delete; packaging adds `jdk.jshell` and `jdk.compiler` to the runtime module list (2026-10-21 status entry); guide in `docs/scripting/Scripting-Guide.md`. |
-| 2. Testing, Debugging, and Interoperability | Partial | Assertions exist: `api/TestApi` (116 lines) provides `assertTrue/False/Equals/NotNull/Null/Throws/DoesNotThrow/fail`, each throwing `AssertionError`, which the console reports by name. Interoperability helpers exist: `ServerApi.capabilities/supports/fhirVersion`, `FhirApi.read/search/searchRaw/nextPage/previousPage`, `ValidationApi.validate`. A run does record `ScriptRunResult` with a status, the number of snippets, elapsed time and ordered text entries. A test-runner slice now exists: `service/scripting/testing` parses `// case:` suites, `ScriptingCoordinator.runSuite` runs every case sequentially in a fresh `ScriptingSession`, and `SuiteRunResult` carries passed/failed counts shown in the console's own report line instead of the output pane. Missing: per-assertion counts and names, skip/error verdicts, log-level filtering, and any report export. |
+| 2. Testing, Debugging, and Interoperability | Partial | Assertions exist: `api/TestApi` (116 lines) provides `assertTrue/False/Equals/NotNull/Null/Throws/DoesNotThrow/fail`, each throwing `AssertionError`, which the console reports by name. Interoperability helpers exist: `ServerApi.capabilities/supports/fhirVersion`, `FhirApi.read/search/searchRaw/nextPage/previousPage`, `ValidationApi.validate`. A run does record `ScriptRunResult` with a status, the number of snippets, elapsed time and ordered text entries. A test-runner slice now exists: `service/scripting/testing` parses `// case:` suites, `ScriptingCoordinator.runSuite` runs every case sequentially in a fresh `ScriptingSession`, and `SuiteRunResult` carries passed/failed counts shown in the console's own report line instead of the output pane; each `SuiteCaseResult` keeps the case's entries, which the console's Test details tab shows with the full diagnostics. Missing: per-assertion counts and names, skip/error verdicts, log-level filtering, and any report export. |
 | 3. Interoperability Automation | Partial | Batch processing exists: `BatchProcessor` (153 lines, exposed as `batch`) runs sequentially with `BatchErrorPolicy.STOP_ON_FIRST_ERROR` or `CONTINUE`, records per-item outcomes and timings, supports best-effort cancel between items, and routes writes through `WritePolicy`. `ScriptParameter` (66) models typed/required/defaulted parameters and redacts sensitive names. Missing: nothing constructs `ScriptParameter` (no parameter prompt or validation at run time), no collection validation summaries, no CSV/JSON report export, no dry-run preview, and no run history. |
 | 4. Extensibility and Ecosystem | Not started | No plugin facade is bound into `ScriptBindings`; `ServerInfo.pluginId()` is the only plugin fact a script can read, and the plugin operations the REST Workbench offers (`ServerOperation`, `PluginOperationClient`) are not exposed to scripts. No compatibility policy or script-library metadata beyond `.jsh` files. |
 
@@ -52,24 +52,24 @@ phase.
   and a scope-respecting `read`, never raw tokens.
 - Plugin API: server plugins advertise operations to the REST Workbench and the plugin id is
   visible to scripts through `ServerInfo`; scripts cannot call plugin operations.
-- Tests/build: full suite 1,046 tests in 110 test classes, 0 failures/errors/skips; scripting
-  contributes 93 `@Test` methods in 13 classes under `service/scripting`,
+- Tests/build: full suite 1,050 tests in 110 test classes, 0 failures/errors/skips; scripting
+  contributes 97 `@Test` methods in 13 classes under `service/scripting`,
   `service/scripting/api` and `service/scripting/testing`.
 
 ## Tests executed
 
 | Test / command | Result | Notes |
 |---|---|---|
-| `./mvnw -B -ntp test` | 1,046 run, 0 failures, 0 errors, 0 skipped (exit 0) | Run on 2026-11-12 on `workspace` after the suite runner and the Run Tests smoke test; includes the 93 scripting tests above. |
+| `./mvnw -B -ntp test` | 1,050 run, 0 failures, 0 errors, 0 skipped (exit 0) | Run on 2026-11-12 on `workspace` after the suite runner, its failure-path tests and the Run Tests smoke test; includes the 97 scripting tests above. |
 | Package build | Succeeded 2026-10-21 | `mvnw -Pdist -DskipTests package` with `jdk.jshell` and `jdk.compiler` in the module list, recorded in the scriptingrefined status file; not rebuilt for this entry. |
 
 ## Known issues and deferred work
 
 - `ScriptParameter` is dead code: no production code constructs it and no test covers it, so the
   Phase 3 parameter contract is a model without a caller.
-- The suite runner counts cases, not assertions: a case is one pass or one fail, there are no
-  skip/error verdicts, and a failure is reported by the first exception or diagnostic only
-  (Phase 2).
+- The suite runner counts cases, not assertions: a case is one pass or one fail and there are no
+  skip/error verdicts. The report line names only the first exception or diagnostic, but the Test
+  details tab keeps every entry the case produced (Phase 2).
 - No suite screen, run history or report export. The earlier scriptingrefined Phase 3 engine was
   deleted in `7724874` because nothing could start it (R6-7 in `docs/CODE-ANALYSIS-ISSUES-ROUND6.md`);
   the new runner starts from the saved-suite format instead, and the remaining report work is

@@ -96,8 +96,11 @@ takes a fresh session and could not use it anyway.
 failed counts on a separate line above the output, so a verdict is never mixed
 into what a script printed. A case passes only when it finishes with no compile
 errors, exceptions or assertion failures; a failure does not stop the remaining
-cases, and each failing case is named with its first diagnostic. Like Run, the
-first execution asks for the trust acknowledgement.
+cases, and each failing case is named with its first diagnostic. The report line
+carries the counts and that first diagnostic; the **Test details** tab carries every
+case's printed output and all of its diagnostics and exceptions, while the **Output**
+tab stays ordinary run output. Like Run, the first execution asks for the trust
+acknowledgement.
 
 ## SMART on FHIR
 

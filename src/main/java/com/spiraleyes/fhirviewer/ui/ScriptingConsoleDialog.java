@@ -22,6 +22,8 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.SplitPane;
+import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.FlowPane;
@@ -80,6 +82,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     private final TextArea editor = new TextArea();
     private final TextArea output = new TextArea();
+    private final TextArea suiteDetails = new TextArea();
+    private TabPane bottomTabs;
     private final Label statusLabel = new Label();
     private final Button runButton = new Button("Run");
     private final Label runModeLabel = new Label();
@@ -168,7 +172,15 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         resetButton.setOnAction(event -> onReset());
         clearButton.setOnAction(event -> output.clear());
 
-        SplitPane split = new SplitPane(editor, output);
+        suiteDetails.setEditable(false);
+        suiteDetails.setWrapText(true);
+        Tab outputTab = new Tab("Output", output);
+        outputTab.setClosable(false);
+        Tab detailsTab = new Tab("Test details", suiteDetails);
+        detailsTab.setClosable(false);
+        bottomTabs = new TabPane(outputTab, detailsTab);
+        bottomTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        SplitPane split = new SplitPane(editor, bottomTabs);
         split.setOrientation(javafx.geometry.Orientation.VERTICAL);
         split.setDividerPositions(0.55);
 
@@ -208,6 +220,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (!ensureTrust()) {
             return;
         }
+        bottomTabs.getSelectionModel().select(0);
         String source = editor.getText();
         // A buffer with a file behind it is a saved script: repeatability matters more
         // than continuity, so it runs in its own session and leaves none behind. The
@@ -251,6 +264,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (!ensureTrust()) {
             return;
         }
+        suiteDetails.clear();
         setBusy(true);
         showSuiteReport("Running " + suite.cases().size() + " test case(s) \u2026");
         setStatus("Running " + suite.cases().size() + " test case(s) \u2026");
@@ -283,7 +297,31 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
         String text = report.toString();
         showSuiteReport(text);
+        presentSuiteDetails(result);
         setStatus(text.lines().findFirst().orElse(text));
+    }
+
+    /**
+     * Writes every case's printed output and full failure detail to the Test details tab.
+     * The output pane stays untouched, so its contents are only what a run printed.
+     */
+    private void presentSuiteDetails(SuiteRunResult result) {
+        StringBuilder details = new StringBuilder();
+        if (!result.message().isBlank()) {
+            details.append(result.message()).append('\n');
+        }
+        for (SuiteCaseResult testCase : result.cases()) {
+            details.append("case: ").append(testCase.name()).append(" \u2014 ")
+                    .append(testCase.passed() ? "PASSED" : "FAILED").append('\n');
+            for (ScriptRunResult.Entry entry : testCase.entries()) {
+                details.append("  [").append(label(entry.kind())).append("] ")
+                        .append(entry.text()).append('\n');
+            }
+            details.append('\n');
+        }
+        suiteDetails.setText(details.toString());
+        suiteDetails.positionCaret(0);
+        bottomTabs.getSelectionModel().select(1);
     }
 
     private void showSuiteReport(String text) {
@@ -428,6 +466,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     /** The output pane's text, for tests. */
     String outputTextForTest() {
         return output.getText();
+    }
+
+    /** The Test details tab's text, for tests. */
+    String suiteDetailsTextForTest() {
+        return suiteDetails.getText();
     }
 
 

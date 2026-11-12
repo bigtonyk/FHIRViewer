@@ -37,6 +37,10 @@ class SuiteCaseResultTest {
 
         assertFalse(result.passed());
         assertEquals("java.lang.AssertionError: expected 2 but was 1", result.detail());
+        assertEquals(1, result.entries().size(),
+                "the case must keep its entries for the details view");
+        assertEquals("java.lang.AssertionError: expected 2 but was 1",
+                result.entries().get(0).text());
     }
 
     @Test

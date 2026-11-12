@@ -11,6 +11,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
 import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteCaseResult;
@@ -68,10 +69,18 @@ public final class ScriptingCoordinator implements AutoCloseable {
     private volatile ScriptingSession session;
     /** The session the in-flight run uses, which is a temporary one for a fresh run. */
     private volatile ScriptingSession activeRunSession;
+    /** Creates sessions; replaced only by tests that need creation to block or fail. */
+    private final Supplier<ScriptingSession> sessionFactory;
     private final Thread shutdownHook;
 
     /** A coordinator with no session yet; the engine is created on first use. */
     public ScriptingCoordinator() {
+        this(ScriptingSession::new);
+    }
+
+    /** A coordinator whose sessions come from the given factory, for tests. */
+    ScriptingCoordinator(Supplier<ScriptingSession> sessionFactory) {
+        this.sessionFactory = Objects.requireNonNull(sessionFactory, "sessionFactory");
         shutdownHook = new Thread(this::close, "fhirviewer-scripting-close");
         try {
             Runtime.getRuntime().addShutdownHook(shutdownHook);
@@ -297,7 +306,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
      * it through {@link ScriptingSession#stop()}.</p>
      */
     private ScriptingSession sessionForRun(boolean freshSession) {
-        ScriptingSession current = freshSession ? new ScriptingSession() : session();
+        ScriptingSession current = freshSession ? sessionFactory.get() : session();
         synchronized (runGate) {
             if (stopRequested.getAndSet(false)) {
                 if (freshSession) {
@@ -433,7 +442,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
     private ScriptingSession session() {
         ScriptingSession current = session;
         if (current == null) {
-            current = new ScriptingSession();
+            current = sessionFactory.get();
             session = current;
         }
         return current;
