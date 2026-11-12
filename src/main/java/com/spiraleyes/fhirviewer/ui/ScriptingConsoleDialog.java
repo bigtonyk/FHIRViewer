@@ -149,7 +149,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 + " session until Reset Session."));
         updateRunModeLabel();
         runTestsButton.setTooltip(new Tooltip("Runs each // case: block as a test in a session"
-                + " of its own; the counts appear above the output pane."));
+                + " of its own; counts appear above the panes and each case's output goes"
+                + " to the Test details tab."));
         suiteReport.getStyleClass().add("app-subtitle");
         suiteReport.setWrapText(true);
         suiteReport.setMaxWidth(Double.MAX_VALUE);
@@ -253,6 +254,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (coordinator.isRunning()) {
             return;
         }
+        // A refusal or parse error must not leave the previous run's results looking current.
+        suiteDetails.clear();
+        hideSuiteReport();
         TestSuite suite;
         try {
             suite = TestSuite.parse(suiteName(), editor.getText());
@@ -264,7 +268,6 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (!ensureTrust()) {
             return;
         }
-        suiteDetails.clear();
         setBusy(true);
         showSuiteReport("Running " + suite.cases().size() + " test case(s) \u2026");
         setStatus("Running " + suite.cases().size() + " test case(s) \u2026");
@@ -276,12 +279,12 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     /** Shows the suite counts and every failure line, apart from console output. */
     private void presentSuite(SuiteRunResult result) {
+        StringBuilder report = new StringBuilder();
         if (!result.message().isBlank()) {
-            showSuiteReport(result.message());
-            setStatus(result.message());
-            return;
+            // The run stopped part-way: keep the reason and the counts of what did run.
+            report.append(result.message()).append('\n');
         }
-        StringBuilder report = new StringBuilder("Tests: ")
+        report.append("Tests: ")
                 .append(result.passedCount()).append(" passed, ")
                 .append(result.failedCount()).append(" failed (")
                 .append(result.total()).append(" case(s), ")
@@ -328,6 +331,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         suiteReport.setText(text);
         suiteReport.setManaged(true);
         suiteReport.setVisible(true);
+    }
+
+    /** Drops an earlier suite's verdict line until the new run has something to say. */
+    private void hideSuiteReport() {
+        suiteReport.setText("");
+        suiteReport.setManaged(false);
+        suiteReport.setVisible(false);
     }
 
     /** The suite name shown in the report: the file name, or "buffer" when untitled. */

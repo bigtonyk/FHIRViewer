@@ -25,6 +25,9 @@ public record TestSuite(String name, List<TestCase> cases) {
 
     private static final Pattern MARKER =
             Pattern.compile("^\\s*//\\s*case:\\s*(\\S.*)$", Pattern.CASE_INSENSITIVE);
+    /** A marker with no name: refused rather than folded into the previous case. */
+    private static final Pattern NAMELESS_MARKER =
+            Pattern.compile("^\\s*//\\s*case:\\s*$", Pattern.CASE_INSENSITIVE);
 
     public TestSuite {
         Objects.requireNonNull(name, "name");
@@ -54,6 +57,10 @@ public record TestSuite(String name, List<TestCase> cases) {
         StringBuilder body = new StringBuilder();
         String[] lines = source.split("\\R", -1);
         for (int index = 0; index < lines.length; index++) {
+            if (NAMELESS_MARKER.matcher(lines[index]).matches()) {
+                throw new IllegalArgumentException("The // case: marker on line "
+                        + (index + 1) + " needs a name.");
+            }
             Matcher marker = MARKER.matcher(lines[index]);
             if (marker.matches()) {
                 if (currentName == null && !body.toString().isBlank()) {

@@ -177,12 +177,16 @@ class ScriptingCoordinatorTest {
             return new ScriptingSession();
         });
         TestSuite suite = new TestSuite("broken.jsh", List.of(
-                new TestCase("first", "int first = 1;"),
+                new TestCase("first", "System.out.println(\"kept-output\");"),
                 new TestCase("second", "int second = 2;")));
 
         SuiteRunResult result = runSuiteBlocking(suite);
 
         assertEquals(1, result.total(), "the case that ran keeps its result");
+        assertTrue(result.cases().get(0).entries().stream()
+                        .anyMatch(entry -> entry.text().contains("kept-output")),
+                "a partial suite must keep what the completed case printed: "
+                        + result.cases().get(0).entries());
         assertTrue(result.message().contains("could not finish"), result.message());
         assertTrue(result.message().contains("no session available"), result.message());
     }

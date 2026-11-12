@@ -53,6 +53,15 @@ class TestSuiteTest {
     }
 
     @Test
+    @DisplayName("A marker without a name is refused instead of joining the previous case")
+    void namelessMarkerIsRefused() {
+        IllegalArgumentException problem = assertThrows(IllegalArgumentException.class,
+                () -> TestSuite.parse("suite.jsh", "// case: first\nint a = 1;\n// case:   \nint b = 2;"));
+
+        assertTrue(problem.getMessage().contains("needs a name"), problem.getMessage());
+    }
+
+    @Test
     @DisplayName("A blank buffer cannot be parsed as a suite")
     void blankBufferIsRefused() {
         assertThrows(IllegalArgumentException.class, () -> TestSuite.parse("empty.jsh", "  \n"));
