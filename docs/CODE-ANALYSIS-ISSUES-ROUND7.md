@@ -75,12 +75,16 @@ out of the summary path and rendered as a section, so its sub-extensions appear 
 
 ### R7-2. Narrative text keeps its HTML entities
 
-**Bug - P3.** `DataTypeFormatter.stripXhtml` (lines 419-421) removes tags and collapses
+**Bug - P3. Fixed 2026-11-12.** `DataTypeFormatter.stripXhtml` (lines 419-421) removes tags and collapses
 whitespace, but never decodes entities. A `Narrative.div` containing `&amp;`, `&lt;`, `&#39;`
 or `&nbsp;` renders with those sequences literally, so "Smith &amp; Sons" appears as
 "Smith &amp; Sons" in the Pretty View. Paragraph and line breaks are flattened at the same time,
 which is a lesser version of the same problem. The raw JSON view is correct; this is the one view
 that claims to be human friendly.
+
+Fixed by `decodeEntities`, which decodes the five XML entities and numeric character
+references after the tags are removed, so an escaped angle bracket stays text.
+`DataTypeFormatterTest.stripsMarkupAndDecodesEntities` covers the case.
 
 ### R7-3. Unknown terminology systems are dropped for Coding and printed for Quantity
 
