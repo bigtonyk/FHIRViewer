@@ -338,9 +338,9 @@ public class UserGuideView extends ScrollPane {
     }
 
     /**
-     * Finds the next or previous occurrence of {@code query}.
+     * Moves to the next or previous block containing {@code query}.
      *
-     * @return the one-based match number, or zero when there is no match
+     * @return the one-based matching-block number, or zero when there is no match
      */
     public int search(String query, boolean forward) {
         String normalized = query == null ? "" : query.strip().toLowerCase(Locale.ROOT);

@@ -74,26 +74,7 @@ class UserGuideViewerUiTest {
     }
 
     @Test
-    @DisplayName("Search reports matches and moves through them")
-    void searchReportsAndMovesThroughMatches() throws Exception {
-        runOnFxThread(() -> {
-            UserGuideDialog dialog = new UserGuideDialog(new ThemeManager(), GUIDE);
-            dialog.searchField().setText("patient");
-            dialog.search(true);
-            assertEquals("1 of 2", dialog.searchStatus().getText());
-            dialog.search(true);
-            assertEquals("2 of 2", dialog.searchStatus().getText());
-            dialog.search(true);
-            assertEquals("1 of 2", dialog.searchStatus().getText(), "next wraps to the first match");
-
-            dialog.searchField().setText("missing");
-            dialog.search(true);
-            assertEquals("No matches", dialog.searchStatus().getText());
-        });
-    }
-
-    @Test
-    @DisplayName("Repeated matches in one paragraph are one navigation stop")
+    @DisplayName("Search counts matching blocks, not occurrences within a block")
     void repeatedMatchesInOneParagraphCountOnce() throws Exception {
         String repeated = """
                 # Repeated matches
@@ -119,6 +100,9 @@ class UserGuideViewerUiTest {
             dialog.search(false);
             assertEquals("2 of 2", dialog.searchStatus().getText(),
                     "Previous returns to the preceding matching block");
+            dialog.searchField().setText("missing");
+            dialog.search(true);
+            assertEquals("No matches", dialog.searchStatus().getText());
         });
     }
 

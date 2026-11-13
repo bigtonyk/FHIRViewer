@@ -188,9 +188,15 @@ public class UserGuideDialog extends Dialog<Void> {
     }
 
     void search(boolean forward) {
-        int match = guideView.search(searchField.getText(), forward);
-        int total = guideView.searchMatchCount();
-        searchStatus.setText(match == 0 ? "No matches" : match + " of " + total);
+        String query = searchField.getText();
+        int match = guideView.search(query, forward);
+        if (query == null || query.isBlank()) {
+            // Clearing the field clears the previous highlight as well as the status.
+            searchStatus.setText("");
+        } else {
+            int total = guideView.searchMatchCount();
+            searchStatus.setText(match == 0 ? "No matches" : match + " of " + total);
+        }
         refreshNavigation();
     }
 

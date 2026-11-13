@@ -1,8 +1,8 @@
 package com.spiraleyes.fhirviewer.ui;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -140,17 +140,19 @@ class UserGuideContentTest {
 
     @Test
     @DisplayName("The documented SMART and FHIR calls still exist")
-    void documentedApiCallsExist() throws NoSuchMethodException {
-        assertNotNull(SmartApi.class.getMethod("isSessionActive"));
-        assertNotNull(SmartApi.class.getMethod("grantedScopes"));
-        assertNotNull(SmartApi.class.getMethod("launchPatientId"));
-        assertNotNull(SmartApi.class.getMethod("launchEncounterId"));
-        assertNotNull(SmartApi.class.getMethod("read", String.class, String.class));
-        assertNotNull(FhirApi.class.getMethod("read", String.class, String.class));
-        assertNotNull(FhirApi.class.getMethod("search", String.class,
-                com.spiraleyes.fhirviewer.server.SearchCriterion[].class));
-        assertNotNull(ViewerApi.class.getMethod("showResource",
-                org.hl7.fhir.instance.model.api.IBaseResource.class));
+    void documentedApiCallsExist() {
+        assertDoesNotThrow(() -> {
+            SmartApi.class.getMethod("isSessionActive");
+            SmartApi.class.getMethod("grantedScopes");
+            SmartApi.class.getMethod("launchPatientId");
+            SmartApi.class.getMethod("launchEncounterId");
+            SmartApi.class.getMethod("read", String.class, String.class);
+            FhirApi.class.getMethod("read", String.class, String.class);
+            FhirApi.class.getMethod("search", String.class,
+                    com.spiraleyes.fhirviewer.server.SearchCriterion[].class);
+            ViewerApi.class.getMethod("showResource",
+                    org.hl7.fhir.instance.model.api.IBaseResource.class);
+        });
 
         String smart = UserGuideContent.loadSmartGuide();
         assertTrue(smart.contains("smart.isSessionActive()"));
