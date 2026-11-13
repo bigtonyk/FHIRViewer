@@ -97,12 +97,52 @@ public record TestSuite(String name, List<TestCase> cases) {
         return new TestSuite(name, cases);
     }
 
-    /** A marker with no source would otherwise pass as a test that checked nothing. */
+    /**
+     * A marker with no source would otherwise pass as a test that checked nothing.
+     * A body holding only comments is refused too: JShell compiles it to nothing.
+     */
     private static TestCase requireBody(String caseName, int markerLine, StringBuilder body) {
-        if (body.toString().isBlank()) {
+        if (!hasSource(body.toString())) {
             throw new IllegalArgumentException("The case \"" + caseName + "\" from line "
                     + markerLine + " has no source; add a body or remove the marker.");
         }
         return new TestCase(caseName, body.toString());
+    }
+
+    /**
+     * True when the body holds anything besides whitespace and comments.
+     *
+     * <p>Literals need no special handling: their opening quote is neither whitespace
+     * nor a comment opener, so it makes the body source before any {@code //} or
+     * {@code /*} inside the literal is examined.</p>
+     */
+    private static boolean hasSource(String body) {
+        int index = 0;
+        while (index < body.length()) {
+            char current = body.charAt(index);
+            if (Character.isWhitespace(current)) {
+                index++;
+                continue;
+            }
+            if (current == '/' && index + 1 < body.length()) {
+                char next = body.charAt(index + 1);
+                if (next == '/') {
+                    int newline = body.indexOf('\n', index + 2);
+                    index = newline < 0 ? body.length() : newline + 1;
+                    continue;
+                }
+                if (next == '*') {
+                    int end = body.indexOf("*/", index + 2);
+                    if (end < 0) {
+                        // An unterminated block comment leaves no source behind it.
+                        return false;
+                    }
+                    index = end + 2;
+                    continue;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 }

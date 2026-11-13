@@ -86,6 +86,56 @@ class TestSuiteTest {
     }
 
     @Test
+    @DisplayName("A case body holding only comments is refused like an empty one")
+    void commentOnlyCaseBodyIsRefused() {
+        IllegalArgumentException problem = assertThrows(IllegalArgumentException.class,
+                () -> TestSuite.parse("suite.jsh", "// case: notes\n// TODO later\n"
+                        + "/* still nothing */\n// case: filled\nint a = 1;"));
+
+        assertTrue(problem.getMessage().contains("The case \"notes\" from line 1 has no source"),
+                problem.getMessage());
+    }
+
+    @Test
+    @DisplayName("Comment markers inside literals are source, including escaped quotes and text blocks")
+    void literalContainingCommentMarkersIsSource() {
+        TestSuite suite = TestSuite.parse("literals.jsh", "// case: literals\n"
+                + "String endpoint = \"https://example.org/a/*b*/c\";\n"
+                + "String quoted = \"she said \\\"// not a comment\\\"\";\n"
+                + "String block = \"\"\"\n"
+                + "// inside the text block\n"
+                + "/* inside too */\n"
+                + "\"\"\";");
+
+        assertEquals(1, suite.cases().size());
+        String source = suite.cases().get(0).source();
+        assertTrue(source.contains("https://example.org/a/*b*/c"));
+        assertTrue(source.contains("she said \\\"// not a comment\\\""));
+        assertTrue(source.contains("// inside the text block"));
+        assertTrue(source.contains("/* inside too */"));
+    }
+
+    @Test
+    @DisplayName("An unterminated block comment leaves no source")
+    void unterminatedBlockCommentIsRefused() {
+        IllegalArgumentException problem = assertThrows(IllegalArgumentException.class,
+                () -> TestSuite.parse("suite.jsh", "// case: unfinished\n/* TODO"));
+
+        assertTrue(problem.getMessage().contains("The case \"unfinished\" from line 1 has no source"),
+                problem.getMessage());
+    }
+
+    @Test
+    @DisplayName("Leading and trailing comments do not hide the code between them")
+    void commentsAroundCodeAreNotTheWholeCase() {
+        TestSuite suite = TestSuite.parse("mixed.jsh",
+                "// case: mixed\n// lead\n/* then */ int value = 1; // tail");
+
+        assertEquals(1, suite.cases().size());
+        assertTrue(suite.cases().get(0).source().contains("int value = 1;"));
+    }
+
+    @Test
     @DisplayName("A blank buffer cannot be parsed as a suite")
     void blankBufferIsRefused() {
         assertThrows(IllegalArgumentException.class, () -> TestSuite.parse("empty.jsh", "  \n"));

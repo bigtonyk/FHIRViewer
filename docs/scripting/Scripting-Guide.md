@@ -94,7 +94,9 @@ takes a fresh session and could not use it anyway. Case names must be unique: a
 repeated name is refused when the suite is parsed, because two results under one
 name cannot be told apart in the report. Every case needs source: a marker
 followed immediately by another marker or by the end of the file is refused
-rather than passing as a test that checked nothing.
+rather than passing as a test that checked nothing, and a body holding only
+comments is refused for the same reason. Comment markers inside a string
+literal are source, not comments.
 
 **Run Tests** runs every case in its own JShell session and shows the passed,
 failed and stopped counts on a separate line above the output, so a verdict is
