@@ -2,12 +2,23 @@ package com.spiraleyes.fhirviewer.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import com.spiraleyes.fhirviewer.service.scripting.api.FhirApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.SmartApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.ViewerApi;
 
 /**
  * Tests the bundled user guide loads from the class path.
@@ -99,6 +110,88 @@ class UserGuideContentTest {
                 assertNoMarkers(typed.inner());
             }
         }
+    }
+
+    @Test
+    @DisplayName("Fenced code samples stay code blocks with their line breaks")
+    void fencedCodeSamplesStayCodeBlocks() {
+        for (String guide : List.of(UserGuideContent.loadSmartGuide(),
+                UserGuideContent.loadPhase6Guide())) {
+            List<UserGuideDocument.Block> blocks = UserGuideDocument.parse(guide);
+            List<String> codeBlocks = blocks.stream()
+                    .filter(block -> block instanceof UserGuideDocument.CodeBlock)
+                    .map(block -> ((UserGuideDocument.CodeBlock) block).text())
+                    .toList();
+            assertFalse(codeBlocks.isEmpty(), "Both guides should contain fenced code samples");
+            assertTrue(codeBlocks.stream().anyMatch(code -> code.contains("smart.isSessionActive()")),
+                    "The SMART sample should be a code block");
+            assertTrue(codeBlocks.stream().anyMatch(code -> code.contains("\n    log.warn")),
+                    "Code indentation and line breaks must survive parsing");
+            for (UserGuideDocument.Block block : blocks) {
+                if (block instanceof UserGuideDocument.CodeBlock code) {
+                    assertFalse(code.text().contains("```"), "The fences themselves must not render");
+                } else if (block instanceof UserGuideDocument.Paragraph paragraph) {
+                    assertFalse(UserGuideDocument.plainText(paragraph.spans()).contains("```"),
+                            "A fenced sample must not collapse into a paragraph");
+                }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("The documented SMART and FHIR calls still exist")
+    void documentedApiCallsExist() throws NoSuchMethodException {
+        assertNotNull(SmartApi.class.getMethod("isSessionActive"));
+        assertNotNull(SmartApi.class.getMethod("grantedScopes"));
+        assertNotNull(SmartApi.class.getMethod("launchPatientId"));
+        assertNotNull(SmartApi.class.getMethod("launchEncounterId"));
+        assertNotNull(SmartApi.class.getMethod("read", String.class, String.class));
+        assertNotNull(FhirApi.class.getMethod("read", String.class, String.class));
+        assertNotNull(FhirApi.class.getMethod("search", String.class,
+                com.spiraleyes.fhirviewer.server.SearchCriterion[].class));
+        assertNotNull(ViewerApi.class.getMethod("showResource",
+                org.hl7.fhir.instance.model.api.IBaseResource.class));
+
+        String smart = UserGuideContent.loadSmartGuide();
+        assertTrue(smart.contains("smart.isSessionActive()"));
+        assertTrue(smart.contains("smart.read(\"Patient\""));
+        assertTrue(UserGuideContent.loadPhase6Guide().contains("fhir.read(\"Patient\""));
+    }
+
+    @Test
+    @DisplayName("Every internal link in every bundled guide resolves")
+    void allGuideAnchorsResolve() {
+        Pattern internal = Pattern.compile("\\]\\(#([^)]+)\\)");
+        for (String guide : List.of(UserGuideContent.load(), UserGuideContent.loadSmartGuide(),
+                UserGuideContent.loadPhase6Guide())) {
+            List<String> anchors = UserGuideDocument.parse(guide).stream()
+                    .filter(block -> block instanceof UserGuideDocument.Heading)
+                    .map(block -> UserGuideDocument.anchorOf((UserGuideDocument.Heading) block))
+                    .toList();
+            Matcher links = internal.matcher(guide);
+            while (links.find()) {
+                assertTrue(anchors.contains(links.group(1)),
+                        "Internal link #" + links.group(1) + " has no heading: " + links.group());
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("The docs sources and bundled help copies stay identical")
+    void docsAndBundledHelpStayInSync() throws IOException {
+        assertParity("docs/user-guide/User-Guide.md", UserGuideContent.load());
+        assertParity("docs/smartonfhir/USER-GUIDE-SMART.md", UserGuideContent.loadSmartGuide());
+        assertParity("docs/scripting/Scripting-Guide.md", UserGuideContent.loadPhase6Guide());
+    }
+
+    private static void assertParity(String path, String bundled) throws IOException {
+        String source = Files.readString(Path.of(path), StandardCharsets.UTF_8);
+        assertEquals(idempotent(source), idempotent(bundled),
+                path + " and its bundled help copy have drifted");
+    }
+
+    private static String idempotent(String text) {
+        return text.replace("\r\n", "\n");
     }
 
     @Test

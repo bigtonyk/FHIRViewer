@@ -84,6 +84,23 @@ class SmartLaunchWorkbenchUiTest {
     }
 
     @Test
+    @DisplayName("The Workbench Guide button targets the session and Log out section")
+    void guideButtonTargetsSessionSection() throws Exception {
+        AtomicReference<String> guide = new AtomicReference<>();
+        AtomicReference<String> anchor = new AtomicReference<>();
+        runOnFxThread(() -> {
+            SmartLaunchDialog dialog = new SmartLaunchDialog(store);
+            dialog.setGuideOpener((name, target) -> {
+                guide.set(name);
+                anchor.set(target);
+            });
+            dialog.guideButton().fire();
+        });
+        assertEquals("smart", guide.get());
+        assertEquals("#log-out-and-start-again", anchor.get());
+    }
+
+    @Test
     @DisplayName("The workbench builds, and Authorize waits for a usable discovery")
     void workbenchBuildsAndFutureActionsStayDisabled() throws Exception {
         runOnFxThread(() -> {

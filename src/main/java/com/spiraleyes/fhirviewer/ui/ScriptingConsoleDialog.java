@@ -10,6 +10,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import javafx.application.Platform;
@@ -21,6 +22,8 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
@@ -99,6 +102,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private final Button saveAsButton = new Button("Save As\u2026");
     private final Button exampleButton = new Button("Example");
     private final Button clearButton = new Button("Clear Output");
+    private final MenuButton guidesButton = new MenuButton("Guides");
+
+    /** Opens a named guide at an anchor; the server screens supply the real opener. */
+    private BiConsumer<String, String> guideOpener = (guide, anchor) -> {
+    };
 
     private final ScriptingCoordinator coordinator;
     private final List<String> stylesheets;
@@ -194,9 +202,15 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         // A FlowPane, not an HBox: the controls plus the mode label are wider than the
         // 820px minimum dialog, and an HBox would squeeze the buttons or clip the label
         // instead of moving the overflow to a second row.
+        MenuItem scriptingGuide = new MenuItem("Scripting Guide");
+        scriptingGuide.setOnAction(event -> guideOpener.accept("scripting", "#smart-on-fhir"));
+        MenuItem smartGuide = new MenuItem("SMART session");
+        smartGuide.setOnAction(event -> guideOpener.accept("smart", "#coding-a-smart-workflow"));
+        guidesButton.getItems().addAll(scriptingGuide, smartGuide);
+        guidesButton.setTooltip(new Tooltip("Open the guide beside this console"));
         FlowPane toolbar = new FlowPane(8, 8, runButton, runTestsButton, runModeLabel,
                 stopButton, resetButton, openButton, saveButton, saveAsButton, exampleButton,
-                clearButton);
+                clearButton, guidesButton);
         toolbar.setAlignment(Pos.CENTER_LEFT);
         runTestsButton.setOnAction(event -> onRunTests());
         openButton.setOnAction(event -> onOpen());
@@ -242,6 +256,17 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 event.consume();
             }
         });
+    }
+
+    /** Supplies the application's guide opener; a no-op opener is the default. */
+    public void setGuideOpener(BiConsumer<String, String> opener) {
+        guideOpener = opener == null ? (guide, anchor) -> {
+        } : opener;
+    }
+
+    /** The contextual guide menu, exposed for tests. */
+    MenuButton guidesButton() {
+        return guidesButton;
     }
 
     // ------------------------------------------------------------------

@@ -121,6 +121,7 @@ final class ServerScreens {
                 new SmartLaunchStore(smartLaunchFile.get()),
                 new SmartFhirAccess(serverService.registry()), smartSessions);
         dialog.initOwner(owner);
+        dialog.setGuideOpener(this::openGuide);
         DialogTheme.apply(dialog.getDialogPane(), themeManager);
         dialog.showAndWait();
 
@@ -315,8 +316,19 @@ final class ServerScreens {
     void scriptingConsole() {
         ScriptingConsoleDialog dialog = new ScriptingConsoleDialog(themeManager, fhirService,
                 serverService, serverManager, smartSessions);
+        dialog.setGuideOpener(this::openGuide);
         dialog.initOwner(owner);
         dialog.showAndWait();
+    }
+
+    /** Opens a guide at an anchor, without routing through the main window's menu. */
+    private void openGuide(String guide, String anchor) {
+        String text = "scripting".equals(guide)
+                ? UserGuideContent.loadPhase6Guide()
+                : UserGuideContent.loadSmartGuide();
+        UserGuideDialog dialog = new UserGuideDialog(themeManager, text);
+        dialog.initOwner(owner);
+        dialog.showAt(anchor);
     }
 
     /**

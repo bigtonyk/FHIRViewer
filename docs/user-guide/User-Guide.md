@@ -3,12 +3,12 @@
 How to open, read, edit and validate FHIR R4 resources, and how to work with
 a FHIR server when you want to. The viewer works entirely offline on files
 you already have; the server features are optional and described in
-[Part B](#part-b-working-with-a-fhir-server).
+[Part B](#part-b--working-with-a-fhir-server).
 
 > **This viewer can modify data on a live system.** Edits you save to a file
 > are yours alone, but every action that writes to a server is confirmed
 > before it happens, and a write that would overwrite somebody else's change
-> is never silent. Read [Working with a FHIR server](#part-b-working-with-a-fhir-server)
+> is never silent. Read [Working with a FHIR server](#part-b--working-with-a-fhir-server)
 > before your first write.
 
 ---
@@ -157,7 +157,7 @@ Edits are ordinary and undoable. Nothing is written anywhere until you save.
 **File → Save** (`Ctrl+S`) and **File → Save As...** (`Ctrl+Shift+S`) write
 the resource to disk. **File → Export as JSON... / Export as XML...** writes
 it in the other format without changing what is open. Writes back to a
-server are separate — see [Part B](#part-b-working-with-a-fhir-server).
+server are separate — see [Part B](#part-b--working-with-a-fhir-server).
 
 ---
 

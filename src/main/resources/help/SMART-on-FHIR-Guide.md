@@ -145,6 +145,20 @@ You need a SMART-enabled FHIR server and a registered **public** OAuth client on
   exactly what was wrong, and the user is told to check the base URL and that SMART is
   enabled on the server.
 
+## Authorize in the system browser
+
+1. Press **Authorize**. The Workbench starts a loopback listener and opens the issuer's
+   authorization page in the system browser. The redirect URI is the loopback address that
+   listener chose; it is not a hosted service.
+2. Sign in and approve the scopes in the browser, then return to the Workbench. Keep the
+   Workbench open while you do this: closing it cancels the attempt, and the listener waits
+   at most five minutes for the callback.
+3. The browser returns to the loopback address, and the Workbench exchanges the code using
+   PKCE and validates the returned ID token. The status line reports a failure or a
+   cancellation rather than leaving the panel looking authorized.
+4. On success the Session panel fills with the granted scopes, patient, encounter, user and
+   expiry. Authorizing again logs the previous session out first, so two tokens never
+   coexist.
 
 ## Inspect what you were granted
 

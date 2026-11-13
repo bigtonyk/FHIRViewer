@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -139,6 +140,11 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     private final Button discoverButton = new Button("Discover");
     private final Button authorizeButton = new Button("Authorize");
     private final Button logoutButton = new Button("Log out");
+    private final Button guideButton = new Button("Guide");
+
+    /** Opens a named guide at an anchor; the server screens supply the real opener. */
+    private BiConsumer<String, String> guideOpener = (guide, anchor) -> {
+    };
 
     private SmartLaunchConfig editing;
     private boolean addingNew = true;
@@ -295,7 +301,16 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         VBox formSide = new VBox(6);
         Label formTitle = new Label("Launch configuration");
         formTitle.getStyleClass().add("pretty-row-label");
-        formSide.getChildren().addAll(formTitle, formScroll, buildButtons(), statusLabel);
+        formTitle.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(formTitle, Priority.ALWAYS);
+        guideButton.getStyleClass().add("button-ghost");
+        guideButton.setTooltip(new javafx.scene.control.Tooltip(
+                "Open the SMART guide at session lifetime and Log out"));
+        guideButton.setOnAction(event ->
+                guideOpener.accept("smart", "#log-out-and-start-again"));
+        HBox titleRow = new HBox(8, formTitle, guideButton);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
+        formSide.getChildren().addAll(titleRow, formScroll, buildButtons(), statusLabel);
         VBox.setVgrow(formScroll, Priority.ALWAYS);
 
         statusLabel.getStyleClass().add("app-subtitle");
@@ -919,6 +934,17 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     // Package-private and read-only, so the smoke test can drive the workbench the way a
     // user does rather than reimplementing the flow - the arrangement ServerManagerDialog
     // offers, for the same reason.
+
+    /** Supplies the application's guide opener; a no-op opener is the default. */
+    public void setGuideOpener(BiConsumer<String, String> opener) {
+        guideOpener = opener == null ? (guide, anchor) -> {
+        } : opener;
+    }
+
+    /** The contextual guide button, exposed for tests. */
+    Button guideButton() {
+        return guideButton;
+    }
 
     /** The form, for filling in fields. */
     SmartLaunchFormPanel form() {

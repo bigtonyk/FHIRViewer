@@ -92,6 +92,22 @@ class ScriptingConsoleSmokeTest {
      * save-dialog seam with two paths and counts how often Save had to ask.
      */
     @Test
+    @DisplayName("The console Guides menu targets the scripting and SMART sections")
+    void guidesMenuTargetsTheRelevantSections() throws Exception {
+        List<String> opened = new java.util.ArrayList<>();
+        onFxThread(() -> {
+            ProbeConsole console = new ProbeConsole(new ScriptingCoordinator());
+            console.setGuideOpener((guide, anchor) -> opened.add(guide + "|" + anchor));
+            assertEquals(2, console.guidesButton().getItems().size());
+            console.guidesButton().getItems().get(0).fire();
+            console.guidesButton().getItems().get(1).fire();
+            console.close();
+            return null;
+        });
+        assertEquals(List.of("scripting|#smart-on-fhir", "smart|#coding-a-smart-workflow"), opened);
+    }
+
+    @Test
     @DisplayName("Loading the Example unbinds the open file, so Run is interactive and Save asks again")
     void exampleUnbindsTheOpenFile() throws Exception {
         requireToolkit();
