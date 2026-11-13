@@ -27,6 +27,9 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
+import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationSession;
+import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
+import com.spiraleyes.fhirviewer.server.smart.SmartTokenResponse;
 import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.service.scripting.FailingScriptingSessions;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
@@ -284,6 +287,39 @@ class ScriptingConsoleSmokeTest {
     }
 
     /**
+     * The console must see the session the Workbench published, not an empty facade.
+     */
+    @Test
+    @DisplayName("The console sees the Workbench's authorized SMART session")
+    void consoleSeesSharedSmartSession() throws Exception {
+        requireToolkit();
+        SmartSessionHolder holder = new SmartSessionHolder();
+        holder.set(session("stub-token", "stub-patient"), null);
+        try (ScriptingCoordinator coordinator = new ScriptingCoordinator()) {
+            ProbeConsole console = onFxThread(() -> {
+                ProbeConsole created = new ProbeConsole(coordinator, holder);
+                created.setEditorTextForTest("""
+                        // case: smart
+                        test.assertTrue(smart.isSessionActive(), "shared session");
+                        test.assertEquals("stub-patient", smart.launchPatientId());
+                        """);
+                return created;
+            });
+
+            SuiteOutcome outcome = runSuite(console);
+
+            assertTrue(outcome.report().contains("1 passed, 0 failed"),
+                    "the SMART case should pass: " + outcome.report());
+        }
+    }
+
+    private static SmartAuthorizationSession session(String token, String patient) {
+        SmartTokenResponse tokens = new SmartTokenResponse(
+                token, "Bearer", 3600L, "patient/*.read", patient, null, null, null);
+        return new SmartAuthorizationSession("http://example.com/fhir", tokens, null);
+    }
+
+    /**
      * A refusal must not leave the console stuck: fixing the buffer and pressing Run Tests
      * again in the same console has to ask for trust and run the suite normally.
      */
@@ -505,16 +541,21 @@ class ScriptingConsoleSmokeTest {
         private int saveAsked;
 
         ProbeConsole(Path first, Path second) {
-            this(new ScriptingCoordinator(), first, second);
+            this(new ScriptingCoordinator(), first, second, null);
         }
 
         ProbeConsole(ScriptingCoordinator coordinator) {
-            this(coordinator, null, null);
+            this(coordinator, null, null, null);
         }
 
-        private ProbeConsole(ScriptingCoordinator coordinator, Path first, Path second) {
+        ProbeConsole(ScriptingCoordinator coordinator, SmartSessionHolder smartSessions) {
+            this(coordinator, null, null, smartSessions);
+        }
+
+        private ProbeConsole(ScriptingCoordinator coordinator, Path first, Path second,
+                SmartSessionHolder smartSessions) {
             super(new ThemeManager(), new FhirService(), new FhirServerService(),
-                    new FhirServerManager(), coordinator);
+                    new FhirServerManager(), coordinator, smartSessions);
             if (first != null) {
                 targets.add(first);
             }

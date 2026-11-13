@@ -41,11 +41,14 @@ import com.spiraleyes.fhirviewer.service.scripting.api.FhirApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.LogApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
 import com.spiraleyes.fhirviewer.service.scripting.api.ServerApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.SmartApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.TestApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ValidationApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ViewerApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.WritePolicy;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
+import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
 
 /**
  * The Scripting Console: a multiline Java editor over a read-only output
@@ -121,6 +124,14 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         this(themeManager, fhirService, serverService, serverManager, new ScriptingCoordinator());
     }
 
+    /** A console that can read through the application's authorized SMART session. */
+    public ScriptingConsoleDialog(ThemeManager themeManager, FhirService fhirService,
+            FhirServerService serverService, FhirServerManager serverManager,
+            SmartSessionHolder smartSessions) {
+        this(themeManager, fhirService, serverService, serverManager,
+                new ScriptingCoordinator(), smartSessions);
+    }
+
     /**
      * Builds the console over the given coordinator, so a UI test can drive suite
      * results the real session factory cannot produce. Package-private: production
@@ -130,6 +141,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     ScriptingConsoleDialog(ThemeManager themeManager, FhirService fhirService,
             FhirServerService serverService, FhirServerManager serverManager,
             ScriptingCoordinator coordinator) {
+        this(themeManager, fhirService, serverService, serverManager, coordinator,
+                new SmartSessionHolder());
+    }
+
+    ScriptingConsoleDialog(ThemeManager themeManager, FhirService fhirService,
+            FhirServerService serverService, FhirServerManager serverManager,
+            ScriptingCoordinator coordinator, SmartSessionHolder smartSessions) {
         if (coordinator == null) {
             throw new IllegalArgumentException("A scripting coordinator is required.");
         }
@@ -141,12 +159,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
 
         this.coordinator = coordinator;
+        SmartApi smartApi = smartSessions == null ? new SmartApi() : smartSessions.api();
         bindings = new ScriptBindings(
                 new FhirApi(serverService, serverManager, WritePolicy.READ_ONLY),
                 new ViewerApi(fhirService),
                 new ValidationApi(fhirService),
                 new ServerApi(serverService, serverManager),
-                new LogApi());
+                new LogApi(), new TestApi(), smartApi);
 
         this.stylesheets = List.copyOf(themeManager.stylesheets());
 

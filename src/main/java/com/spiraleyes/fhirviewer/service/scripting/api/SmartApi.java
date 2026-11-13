@@ -13,8 +13,8 @@ import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
 /** Script-facing facade over an existing authorized SMART session. Never exposes tokens. */
 public class SmartApi {
 
-    private SmartAuthorizationSession session;
-    private SmartFhirAccess access;
+    private volatile SmartAuthorizationSession session;
+    private volatile SmartFhirAccess access;
 
     public SmartApi(SmartAuthorizationSession session, SmartFhirAccess access) {
         this.session = session;

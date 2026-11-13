@@ -117,8 +117,8 @@ class UserGuideContentTest {
                 .filter(span -> span instanceof UserGuideDocument.Link)
                 .map(span -> ((UserGuideDocument.Link) span).target().replaceFirst("^#", ""))
                 .toList();
-        // Part A's contents has 12 entries, Part B's keeps its original 16.
-        assertEquals(28, targets.size(), "The contents lists have 12 + 16 entries");
+        // Part A's contents has 13 entries, Part B's keeps its original 16.
+        assertEquals(29, targets.size(), "The contents lists have 13 + 16 entries");
         for (String target : targets) {
             assertTrue(anchors.contains(target),
                     "Contents link #" + target + " has no heading");

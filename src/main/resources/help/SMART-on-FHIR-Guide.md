@@ -2,8 +2,8 @@
 
 How to add a SMART-enabled FHIR server to FHIRViewer, discover what it advertises, sign in
 through the system browser, and read resources you are entitled to. The SMART Launch Workbench
-lives in **Tools → SMART Launch Workbench...** and is described in the User Guide's Part B
-for the server-features side; this guide is the on-ramp.
+lives in **Tools → SMART Launch Workbench...**; the User Guide's Part B covers the ordinary
+server features, and this guide is the SMART on-ramp.
 
 > **This feature needs a SMART-enabled FHIR server.** A plain FHIR server will be diagnosed as
 > `not SMART` at Discover and will not launch. Use a test server (the HL7 FHIR R4 reference
@@ -24,9 +24,11 @@ for the server-features side; this guide is the on-ramp.
 8. [Read a resource through the authorized session](#read-a-resource-through-the-authorized-session)
 9. [EHR launch simulation](#ehr-launch-simulation)
 10. [Log out and start again](#log-out-and-start-again)
-11. [Troubleshooting](#troubleshooting)
-12. [Security notes](#security-notes)
-13. [Known limitations](#known-limitations)
+11. [Sample workflows](#sample-workflows)
+12. [Coding a SMART workflow](#coding-a-smart-workflow)
+13. [Troubleshooting](#troubleshooting)
+14. [Security notes](#security-notes)
+15. [Known limitations](#known-limitations)
 
 ---
 
@@ -211,13 +213,108 @@ itself:
 
 ## Log out and start again
 
-1. Press **Clear session** (logout) in the workbench. The Session panel resets to
-   *"No session exists yet."* and the Resource access panel disables its read button.
-2. The token is dropped from memory and is never written to disk, so there is nothing to
-   find in the filesystem. Closing the dialog also drops the session.
-3. To start again, press **New** or **Open** to load a saved configuration, then go through
-   Discover and Authorize again. The previous session cannot leak into a new one: logout
-   clears the old token, and the session field is set to the new session.
+1. Press **Log out** in the Workbench. The Session panel resets to *"No session exists yet."*,
+   the Resource access panel disables its read button, and the shared token is dropped, so
+   the Scripting Console no longer has a SMART session either.
+2. Closing the Workbench **without** pressing Log out keeps the authorized session in
+   application memory for the Scripting Console. It is never written to disk; exiting the
+   application drops it.
+3. Reopen **Tools → SMART Launch Workbench...** and the Session panel shows the current
+   session, if there is one. Press **Open** (or **New**) to load a configuration, then
+   Discover and Authorize again when you want a different launch. Authorizing again replaces
+   any previous session and logs the old one out.
+
+---
+
+## Sample workflows
+
+Both workflows below are read-only. The Workbench reads through the authorized session; it
+does not offer writes, so a SMART token cannot change data through this screen.
+
+### Workflow 1 — standalone review of the launch patient
+
+Use this when you are acting as yourself and want to inspect the patient the server puts in
+context.
+
+1. Register a public client and a loopback redirect URI as described in
+   [Before you start](#before-you-start--register-a-test-application).
+2. Open **Tools → SMART Launch Workbench...**.
+3. Enter a name, the issuer, the client ID, and
+   `launch/patient patient/*.read openid fhirUser`. Leave the mode on **Standalone**.
+4. Press **Validate** to catch typos locally, then **Discover**.
+5. Check that the Capabilities panel names the authorization and token endpoints, and that
+   `S256` is listed under PKCE methods.
+6. Press **Authorize**, sign in in the system browser, and approve the scopes.
+7. In the Session panel, confirm the granted scopes, the patient, and the token expiry. If
+   the patient row says none, the server chose not to supply patient context; re-check that
+   `launch/patient` was requested and granted.
+8. Press **Read patient context**. A successful read offers **Open in viewer**.
+9. Press **Open in viewer** to inspect the resource. Press **Log out** to revoke the token,
+   or close the Workbench to leave the session available to the Scripting Console.
+
+What a good run looks like:
+
+- Discover reports a capability count and enables Authorize.
+- The Session panel shows the scopes the server granted, which may be fewer than the ones
+  requested. That is the server's grant, not an error.
+- Read names the patient and offers the viewer; opening it shows the same tree and Pretty
+  View as a file.
+
+### Workflow 2 — EHR launch simulation
+
+Use this when a test harness has given you an `iss` and an opaque `launch` token and you want
+to check what the server returns for that context.
+
+1. Open the Workbench and choose **EHR launch**.
+2. Enter the issuer and client ID, then paste the `launch` token exactly as supplied.
+3. Press **Validate** and **Discover** as before.
+4. Press **Authorize**. The request carries `launch` and no `aud`.
+5. Inspect the Session panel for patient, encounter, and user context. Any of them may be
+   absent; the panel names what the server returned.
+6. Read the patient context and open it in the viewer if one was granted.
+7. Clear the session. Do not reuse the launch token: a real EHR launch token is single-use.
+
+This simulates the client half only. It cannot receive an inbound launch from a real EHR, and
+it does not prove compatibility with a vendor that is not a documented test harness.
+
+---
+
+## Coding a SMART workflow
+
+The Scripting Console exposes a `smart` binding with `isSessionActive()`, `grantedScopes()`,
+`launchPatientId()`, `launchEncounterId()`, and `read(resourceType, id)`. It never exposes the
+access token.
+
+Authorize in **Tools → SMART Launch Workbench...**, then close the Workbench and open
+**Tools → Scripting Console...**. The authorized session stays in application memory for
+the console, so `smart.isSessionActive()` is true and `smart.read` uses the granted scopes
+and patient context. Press **Log out** in the Workbench, authorize again, or exit the
+application to drop it; the token is never written to disk. If no session has been
+authorized, `smart.read` throws `ScriptApiException("No active SMART session")`.
+
+A scripted SMART read:
+
+```java
+if (!smart.isSessionActive()) {
+    log.warn("No SMART session is available to this console.");
+} else {
+    String patientId = smart.launchPatientId();
+    if (patientId == null || patientId.isBlank()) {
+        log.warn("The launch granted no patient context.");
+    } else {
+        var patient = smart.read("Patient", patientId);
+        if (patient == null) {
+            log.warn("Patient " + patientId + " was not found.");
+        } else {
+            viewer.showResource(patient);
+            log.info("Read Patient " + patientId + " with scopes " + smart.grantedScopes());
+        }
+    }
+}
+```
+
+A launch with no patient is a normal outcome, not a failure: identity-only scopes do not
+guarantee patient context. Check `launchPatientId()` before calling `read`.
 
 ---
 
@@ -241,8 +338,10 @@ client secret, authorization header, or patient data.
 
 ## Security notes
 
-- **Tokens are memory-only.** The access token is carried in the session and dropped on
-  logout or dialog close. It is never written to disk and never logged.
+- **Tokens are memory-only.** The access token is carried in the session, is never written
+  to disk and is never logged. It stays in application memory after the Workbench closes so
+  the Scripting Console can use it. **Log out** drops it immediately; exiting the application
+  drops it otherwise.
 - **No client secret.** Public clients have none, and none is used anywhere in the flow. The
   Workbench posts the authorization code plus the PKCE verifier and the exact redirect URI —
   that is all the token endpoint receives.

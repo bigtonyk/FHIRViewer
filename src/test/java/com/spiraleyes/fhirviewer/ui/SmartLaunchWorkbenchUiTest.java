@@ -21,6 +21,7 @@ import org.junit.jupiter.api.io.TempDir;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchConfig;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchMode;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchStore;
+import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
 
 import javafx.application.Platform;
 import javafx.scene.control.PasswordField;
@@ -409,13 +410,14 @@ class SmartLaunchWorkbenchUiTest {
                                     java.time.Duration.ofSeconds(10),
                                     java.time.Duration.ofSeconds(10)));
 
+            SmartSessionHolder sessionHolder = new SmartSessionHolder();
             AtomicReference<SmartLaunchDialog> shown = new AtomicReference<>();
             runOnFxThread(() -> {
                 SmartLaunchDialog dialog = new SmartLaunchDialog(store,
                         new com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryService(
                                 java.time.Duration.ofSeconds(10),
                                 java.time.Duration.ofSeconds(10)),
-                        following, flow);
+                        following, flow, sessionHolder);
                 dialog.form().issuerField().setText(fhirBase);
                 dialog.form().clientIdField().setText("stub-client");
                 dialog.form().scopesField().setText("launch/patient patient/*.read");
@@ -441,14 +443,25 @@ class SmartLaunchWorkbenchUiTest {
                 assertNotNull(shown.get().session(), "a session must exist after Authorize");
                 assertEquals("stub-patient", shown.get().session().patient());
                 assertEquals("stub-access-token", shown.get().session().accessToken());
+                assertTrue(sessionHolder.api().isSessionActive(),
+                        "the session must be published to the Scripting Console");
+                assertEquals("stub-patient", sessionHolder.api().launchPatientId());
+                assertFalse(shown.get().logoutButton().isDisabled(),
+                        "a live session must offer Log out");
                 String display = shown.get().sessionPane().displayText();
                 assertTrue(display.contains("stub-patient"),
                         "patient context must reach the panel: " + display);
                 assertFalse(display.contains("stub-access-token"),
                         "the token must never reach the panel: " + display);
-                shown.get().logoutSession();
+                shown.get().logoutButton().fire();
                 assertTrue(shown.get().sessionPane().displayText().contains("No session"),
                         "logout must reset the panel");
+                assertTrue(shown.get().resourcePane().displayText().contains("No session"),
+                        "logout must reset the resource panel");
+                assertTrue(shown.get().logoutButton().isDisabled(),
+                        "Log out disables when there is no session");
+                assertFalse(sessionHolder.api().isSessionActive(),
+                        "logout must clear the published session");
                 shown.get().close();
             });
         } finally {
