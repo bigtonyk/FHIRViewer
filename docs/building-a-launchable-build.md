@@ -56,12 +56,70 @@ platform:
 | Built on | Produces |
 |---|---|
 | Windows | `FHIRViewer.exe` |
-| macOS | `FHIRViewer.app` |
+| macOS | `FHIRViewer.app`, plus a `.dmg` |
 | Linux | A launcher script |
 
 The same `mvnw -Pdist package` command works everywhere; only the output
 differs. A Windows build will not run on Linux, and there is no way around that
 with this tool.
+
+The per-platform differences (image name, launcher path, icon format, whether a
+`.dmg` is made) are properties in `pom.xml` set by the `dist-os-mac` and
+`dist-os-linux` profiles. Maven activates those from the build machine's OS, so
+there is no extra flag to pass. Windows uses the defaults.
+
+## macOS
+
+```
+./mvnw -Pdist clean package -DskipTests
+```
+
+Use a JDK 21 (`export JAVA_HOME=$(/usr/libexec/java_home -v 21)`, or run
+`./run-java21.sh build -Pdist`, which does that for you).
+
+| Path | What it is |
+|---|---|
+| `target/dist-image/FHIRViewer.app` | The application. Double-click it, or drag it to Applications. |
+| `target/dist/FHIRViewer-<version>.dmg` | A disk image holding the `.app` and an Applications shortcut. This is the file to send to someone. |
+
+The `.app` is about 290 MB and the `.dmg` about 210 MB. Both carry their own
+Java runtime, so the recipient needs nothing installed.
+
+**Architecture.** The build matches the Mac that made it. On Apple silicon it is
+arm64 only: the bundled JDK and the JavaFX jars Maven resolves (`mac-aarch64`)
+are both arm64. For Intel Macs, build on an Intel Mac or with an x64 JDK under
+Rosetta. `jpackage` cannot produce a universal binary.
+
+**Signing.** The `.app` and `.dmg` carry only an ad-hoc signature. A copy that
+was downloaded, emailed or AirDropped is quarantined by macOS, and Gatekeeper
+refuses to open it ("FHIRViewer is damaged" or "unidentified developer"). For
+testers, after copying the app to Applications:
+
+```
+xattr -dr com.apple.quarantine /Applications/FHIRViewer.app
+```
+
+Or right-click the app, choose **Open**, then confirm (on recent macOS: try once,
+then **System Settings > Privacy & Security > Open Anyway**).
+
+Distributing it properly needs an Apple Developer ID Application certificate:
+add `--mac-sign` and `--mac-signing-key-user-name "<team name>"` to both
+`jpackage` invocations in the pom, then notarize the `.dmg` with
+`xcrun notarytool submit --wait` and `xcrun stapler staple`.
+
+**The icon** is `src/main/dist/macos/FHIRViewer.icns`, generated from
+`src/main/resources/Spiral Eye Emblem App Icon.png`. To regenerate it after
+changing the artwork:
+
+```
+mkdir FHIRViewer.iconset
+for s in 16 32 128 256 512; do
+  sips -z $s $s "src/main/resources/Spiral Eye Emblem App Icon.png" --out FHIRViewer.iconset/icon_${s}x${s}.png
+  sips -z $((s*2)) $((s*2)) "src/main/resources/Spiral Eye Emblem App Icon.png" --out FHIRViewer.iconset/icon_${s}x${s}@2x.png
+done
+iconutil -c icns FHIRViewer.iconset -o src/main/dist/macos/FHIRViewer.icns
+rm -r FHIRViewer.iconset
+```
 
 ## Shipping it to someone
 
@@ -88,7 +146,7 @@ Neither is fixable in this repository; both need a signing certificate.
 
 ## How it works
 
-`mvnw -Pdist package` adds four steps to the ordinary build. All of them only
+`mvnw -Pdist package` adds four steps (five on macOS) to the ordinary build. All of them only
 run under the `dist` profile, so `mvnw package` on its own is unchanged and
 still produces just the jar.
 
@@ -100,6 +158,9 @@ still produces just the jar.
 4. **Finish the image**: repair the JVM library if the JDK that built it names
    it differently (see below), and clear the read-only attribute `jpackage`
    puts on the launcher so that `mvnw clean` can delete it afterwards.
+5. **On macOS only, build the `.dmg`**: clear `target/dist`, then run `jpackage`
+   a second time with `--type dmg` over the finished image. Skipped elsewhere
+   through the `dist.dmg.skip` property.
 
 `src/main/dist/clear-previous-image.java` does the file removal in steps 2 and 4,
 and the repair in step 4. It is a single-file Java program rather than a shell
@@ -133,8 +194,15 @@ project. Delete `target\dist-image` by hand once, and it will not recur.
 
 **`Error: Application destination directory ... already exists`**
 
-`jpackage` will not overwrite. `mvnw clean` first, or delete `target\dist-image`
-by hand.
+`jpackage` will not overwrite. Step 2 clears the image on every platform, so this
+means the image is somewhere step 2 does not look - check `dist.image.dir` for
+your OS in `pom.xml`. `mvnw clean`, or deleting `target/dist-image` by hand, gets
+past it.
+
+**macOS: "The specified icon ... is not an ICNS file and will not be used"**
+
+The macOS profile did not activate, so the Windows `.ico` was passed. Run
+`./mvnw help:active-profiles -Pdist` and check `dist-os-mac` is listed.
 
 **`could not find or load main class`**
 

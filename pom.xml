@@ -80,6 +80,28 @@
       to someone is not a snapshot.
     -->
     <dist.version>1.0.0</dist.version>
+
+    <!--
+      Per-platform shape of the jpackage output, used by the dist profile.
+
+      jpackage names and lays out the image differently on each OS, and wants a
+      different icon format on each, so these are set by the dist-os-* profiles
+      at the end of this file (activated by the build machine's OS). The values
+      here are the Windows ones, which is also what an unrecognized OS gets.
+
+        dist.image.dir    the image jpackage writes under target/dist-image
+        dist.launcher     the native launcher inside it, relative to dist-image
+        dist.icon         the icon file: .ico on Windows, .icns on macOS,
+                          .png on Linux. jpackage ignores any other format
+                          with only a warning, so a wrong one is easy to miss.
+        dist.dmg.skip     false only on macOS, where the dist build also wraps
+                          the image in a .dmg (jpackage needs no extra tools for
+                          that there, unlike the .msi on Windows).
+    -->
+    <dist.image.dir>FHIRViewer</dist.image.dir>
+    <dist.launcher>FHIRViewer/FHIRViewer.exe</dist.launcher>
+    <dist.icon>src/main/resources/FHIRViewer.ico</dist.icon>
+    <dist.dmg.skip>true</dist.dmg.skip>
   </properties>
 
   <dependencies>
@@ -358,7 +380,10 @@
       dist-image/FHIRViewer/   the application image: an .exe launcher
                                plus a private copy of the Java runtime,
                                so the user needs no JDK installed.
-      dist/FHIRViewer.msi      an installer (Windows only).
+                               On macOS it is dist-image/FHIRViewer.app.
+      dist/FHIRViewer-<version>.dmg
+                               a disk image for handing the .app to
+                               someone (macOS only).
 
     Each is built for the machine that built it. jpackage cannot
     cross-compile: a Windows image is produced on Windows, a macOS .dmg
@@ -566,7 +591,7 @@
                       has no copy in target to run.
                     -->
                     <argument>src/main/dist/clear-previous-image.java</argument>
-                    <argument>${project.build.directory}/dist-image/FHIRViewer</argument>
+                    <argument>${project.build.directory}/dist-image/${dist.image.dir}</argument>
                   </arguments>
                 </configuration>
               </execution>
@@ -686,14 +711,15 @@
                     <argument>--java-options</argument>
                     <argument>--add-opens java.base/java.lang=ALL-UNNAMED --add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED</argument>
                     <!--
-                      The .exe file icon. Must be a Windows .ico file on disk
-                      (jpackage does not read it from the jar), so it is taken
-                      from the source tree. The in-window title-bar icon is the
-                      PNG exported from this same file (see Main.applyWindowIcon),
-                      because JavaFX cannot decode .ico.
+                      The launcher icon. Must be a file on disk in the build
+                      OS's native format (jpackage does not read it from the
+                      jar): .ico on Windows, .icns on macOS, .png on Linux - see
+                      dist.icon. The in-window title-bar icon is a PNG exported
+                      from the same artwork (see Main.applyWindowIcon), because
+                      JavaFX cannot decode .ico or .icns.
                     -->
                     <argument>--icon</argument>
-                    <argument>src/main/resources/FHIRViewer.ico</argument>
+                    <argument>${dist.icon}</argument>
                   </arguments>
                 </configuration>
               </execution>
@@ -743,7 +769,7 @@
                   <arguments>
                     <argument>src/main/dist/clear-previous-image.java</argument>
                     <argument>--repair-jvm</argument>
-                    <argument>${project.build.directory}/dist-image/FHIRViewer</argument>
+                    <argument>${project.build.directory}/dist-image/${dist.image.dir}</argument>
                   </arguments>
                 </configuration>
               </execution>
@@ -763,7 +789,63 @@
                   <arguments>
                     <argument>src/main/dist/clear-previous-image.java</argument>
                     <argument>--unlock-only</argument>
-                    <argument>${project.build.directory}/dist-image/FHIRViewer/FHIRViewer.exe</argument>
+                    <argument>${project.build.directory}/dist-image/${dist.launcher}</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+
+              <!--
+                Step 5 (macOS only): wrap the image in a .dmg under target/dist.
+
+                Skipped everywhere else through dist.dmg.skip, rather than
+                living in the macOS profile, so it only ever runs as part of a
+                dist build: the OS profile is active on every build, and a
+                plain 'mvnw package' must not start invoking jpackage.
+
+                jpackage refuses to overwrite an existing .dmg, so the previous
+                one is cleared first with the same helper as step 3. Both run in
+                the package phase after the image steps above; executions of one
+                plugin in one phase run in declaration order.
+
+                The .dmg is unsigned, like the image. See
+                docs/building-a-launchable-build.md for what that means for
+                the person who opens it.
+              -->
+              <execution>
+                <id>clear-previous-dmg</id>
+                <phase>package</phase>
+                <goals><goal>exec</goal></goals>
+                <configuration>
+                  <skip>${dist.dmg.skip}</skip>
+                  <executable>${java.home}/bin/java</executable>
+                  <arguments>
+                    <argument>src/main/dist/clear-previous-image.java</argument>
+                    <argument>${project.build.directory}/dist</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+              <execution>
+                <id>package-dmg</id>
+                <phase>package</phase>
+                <goals><goal>exec</goal></goals>
+                <configuration>
+                  <skip>${dist.dmg.skip}</skip>
+                  <executable>${java.home}/bin/jpackage</executable>
+                  <arguments>
+                    <argument>--type</argument>
+                    <argument>dmg</argument>
+                    <argument>--app-image</argument>
+                    <argument>${project.build.directory}/dist-image/${dist.image.dir}</argument>
+                    <argument>--name</argument>
+                    <argument>FHIRViewer</argument>
+                    <argument>--app-version</argument>
+                    <argument>${dist.version}</argument>
+                    <argument>--vendor</argument>
+                    <argument>FHIR Resource Viewer</argument>
+                    <argument>--icon</argument>
+                    <argument>${dist.icon}</argument>
+                    <argument>--dest</argument>
+                    <argument>${project.build.directory}/dist</argument>
                   </arguments>
                 </configuration>
               </execution>
@@ -772,6 +854,41 @@
 
         </plugins>
       </build>
+    </profile>
+
+    <!--
+      Per-OS values for the dist profile (see dist.image.dir and friends in
+      <properties>). Activated by the build machine's OS, so they are on for
+      every build, but they only set properties: nothing changes unless -Pdist
+      is also given. Windows needs no profile; the defaults are its values.
+    -->
+    <profile>
+      <id>dist-os-mac</id>
+      <activation>
+        <os><family>mac</family></os>
+      </activation>
+      <properties>
+        <!-- jpackage writes a .app bundle on macOS, launcher under Contents/MacOS. -->
+        <dist.image.dir>FHIRViewer.app</dist.image.dir>
+        <dist.launcher>FHIRViewer.app/Contents/MacOS/FHIRViewer</dist.launcher>
+        <!--
+          Generated from "Spiral Eye Emblem App Icon.png" with sips and
+          iconutil; see docs/building-a-launchable-build.md to regenerate it.
+        -->
+        <dist.icon>src/main/dist/macos/FHIRViewer.icns</dist.icon>
+        <dist.dmg.skip>false</dist.dmg.skip>
+      </properties>
+    </profile>
+    <profile>
+      <id>dist-os-linux</id>
+      <activation>
+        <os><family>unix</family><name>Linux</name></os>
+      </activation>
+      <properties>
+        <dist.image.dir>FHIRViewer</dist.image.dir>
+        <dist.launcher>FHIRViewer/bin/FHIRViewer</dist.launcher>
+        <dist.icon>src/main/resources/Spiral Eye Emblem App Icon.png</dist.icon>
+      </properties>
     </profile>
   </profiles>
 
