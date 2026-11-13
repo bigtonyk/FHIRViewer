@@ -269,13 +269,13 @@ a native bundle - jpackage cannot cross-compile.
 
 ```bat
 :: Windows (app-image; add --type msi for an installer)
-jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-1.0.0.jar ^
+jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-2.0.0.jar ^
   --main-class com.spiraleyes.fhirviewer.Launcher --type app-image
 ```
 
 ```bash
 # macOS / Linux
-jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-1.0.0.jar \
+jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-2.0.0.jar \
   --main-class com.spiraleyes.fhirviewer.Launcher --type app-image
 ```
 
