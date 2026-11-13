@@ -91,22 +91,21 @@ class TestSuiteTest {
     }
 
     @Test
-    @DisplayName("Comment markers inside literals are source, including escaped quotes and text blocks")
-    void literalContainingCommentMarkersIsSource() {
-        TestSuite suite = TestSuite.parse("literals.jsh", "// case: literals\n"
-                + "String endpoint = \"https://example.org/a/*b*/c\";\n"
-                + "String quoted = \"she said \\\"// not a comment\\\"\";\n"
-                + "String block = \"\"\"\n"
-                + "// inside the text block\n"
-                + "/* inside too */\n"
-                + "\"\"\";");
+    @DisplayName("Literal contents with comment markers stay in the case source")
+    void literalsWithCommentMarkersStaySource() {
+        // Each entry starts with a literal, so the scanner meets a quote before any marker.
+        String body = String.join("\n",
+                "\"https://example.org/a/*b*/c\";",
+                "\"she said \\\"// not a comment\\\"\";",
+                "\"\"\"",
+                "// inside the text block",
+                "/* inside too */",
+                "\"\"\";");
 
-        assertEquals(1, suite.cases().size());
-        String source = suite.cases().get(0).source();
-        assertTrue(source.contains("https://example.org/a/*b*/c"));
-        assertTrue(source.contains("she said \\\"// not a comment\\\""));
-        assertTrue(source.contains("// inside the text block"));
-        assertTrue(source.contains("/* inside too */"));
+        TestSuite suite = TestSuite.parse("literals.jsh", "// case: literals\n" + body);
+
+        // Exact equality checks the name and that every marker inside the literals survived.
+        assertEquals(List.of(new TestCase("literals", body + "\n")), suite.cases());
     }
 
     @Test

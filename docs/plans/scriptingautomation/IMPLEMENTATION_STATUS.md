@@ -8,7 +8,7 @@ landed. Update at the end of each phase.
 
 - Phase: 1 complete; Phase 2 partly delivered; Phase 3 partial; Phase 4 not started.
 - Date: 2026-11-12
-- Branch or commit: `workspace` at `568a1bd`
+- Branch or commit: `workspace`
 - Summary: the interactive JShell console, saved `.jsh` runs, the `fhir`/`server`/`validation`/
   `log`/`viewer`/`smart`/`test`/`batch` facades, the central write policy and the batch
   processor are in the tree and covered by 1,063 tests. Phase 1's saved-script criterion is now
