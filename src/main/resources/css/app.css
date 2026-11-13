@@ -774,6 +774,43 @@
     -fx-fill: -text-strong;
 }
 
+/* Fenced code blocks: a tinted panel that preserves the sample's line breaks. */
+.guide-code-block {
+    -fx-background-color: -surface-alt;
+    -fx-background-radius: 6;
+    -fx-border-color: -border;
+    -fx-border-radius: 6;
+    -fx-padding: 6 8 8 8;
+}
+
+.guide-code-bar {
+    -fx-padding: 0 0 2 0;
+}
+
+.guide-copy-button {
+    -fx-font-size: 11px;
+    -fx-padding: 2 8 2 8;
+}
+
+.guide-code-block-area {
+    -fx-font-family: "Consolas", "Menlo", monospace;
+    -fx-font-size: 12px;
+    -fx-text-fill: -text-strong;
+    -fx-control-inner-background: -surface-alt;
+    -fx-background-color: transparent;
+}
+
+.guide-code-block-area .content {
+    -fx-background-color: -surface-alt;
+}
+
+/* A searched block stays visible while the next/previous match moves. */
+.guide-search-hit {
+    -fx-border-color: -accent-strong;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+}
+
 .guide-paragraph {
     -fx-padding: 2 0 6 0;
 }

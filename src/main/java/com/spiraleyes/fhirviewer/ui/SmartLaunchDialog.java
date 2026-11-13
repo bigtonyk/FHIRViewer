@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -36,6 +37,7 @@ import com.spiraleyes.fhirviewer.server.smart.SmartDiscoveryService;
 import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchConfig;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchStore;
+import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
 import com.spiraleyes.fhirviewer.server.smart.SmartUrls;
 
 /**
@@ -96,6 +98,7 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     private final SmartDiagnostics diagnostics = new SmartDiagnostics();
     private final SmartDiagnosticsPane diagnosticsPane = new SmartDiagnosticsPane(diagnostics);
     private final SmartDiscoveryService discoveryService;
+    private final SmartSessionHolder sessionHolder;
     private final BrowserLauncher browserLauncher;
     private final SmartAuthorizationFlow authorizationFlow;
     private final SmartFhirAccess fhirAccess;
@@ -136,6 +139,12 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     private final Button validateButton = new Button("Validate");
     private final Button discoverButton = new Button("Discover");
     private final Button authorizeButton = new Button("Authorize");
+    private final Button logoutButton = new Button("Log out");
+    private final Button guideButton = new Button("Guide");
+
+    /** Opens a named guide at an anchor; the server screens supply the real opener. */
+    private BiConsumer<String, String> guideOpener = (guide, anchor) -> {
+    };
 
     private SmartLaunchConfig editing;
     private boolean addingNew = true;
@@ -163,6 +172,16 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     }
 
     /**
+     * A workbench that publishes its session to the application, so the Scripting
+     * Console can use it after this dialog closes.
+     */
+    public SmartLaunchDialog(SmartLaunchStore store, SmartFhirAccess fhirAccess,
+            SmartSessionHolder sessionHolder) {
+        this(store, new SmartDiscoveryService(), new DesktopBrowserLauncher(),
+                new SmartAuthorizationFlow(), fhirAccess, sessionHolder);
+    }
+
+    /**
      * A dialog with chosen services, so a test can give short deadlines.
      *
      * @param store where the configurations are read from and written to
@@ -181,9 +200,24 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
 
     SmartLaunchDialog(SmartLaunchStore store, SmartDiscoveryService discoveryService,
             BrowserLauncher browserLauncher, SmartAuthorizationFlow authorizationFlow,
+            SmartSessionHolder sessionHolder) {
+        this(store, discoveryService, browserLauncher, authorizationFlow,
+                new SmartFhirAccess(PluginLoader.load()), sessionHolder);
+    }
+
+    SmartLaunchDialog(SmartLaunchStore store, SmartDiscoveryService discoveryService,
+            BrowserLauncher browserLauncher, SmartAuthorizationFlow authorizationFlow,
             SmartFhirAccess fhirAccess) {
+        this(store, discoveryService, browserLauncher, authorizationFlow, fhirAccess,
+                new SmartSessionHolder());
+    }
+
+    SmartLaunchDialog(SmartLaunchStore store, SmartDiscoveryService discoveryService,
+            BrowserLauncher browserLauncher, SmartAuthorizationFlow authorizationFlow,
+            SmartFhirAccess fhirAccess, SmartSessionHolder sessionHolder) {
         this.store = store;
         this.discoveryService = Objects.requireNonNull(discoveryService, "discoveryService");
+        this.sessionHolder = Objects.requireNonNull(sessionHolder, "sessionHolder");
         this.browserLauncher = Objects.requireNonNull(browserLauncher, "browserLauncher");
         this.authorizationFlow = Objects.requireNonNull(authorizationFlow, "authorizationFlow");
         this.fhirAccess = Objects.requireNonNull(fhirAccess, "fhirAccess");
@@ -229,6 +263,23 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         loadFromStore();
         refreshList();
         updateButtonState();
+        adoptSharedSession();
+    }
+
+    /** Shows a session the console may already be using, so the panel does not lie. */
+    private void adoptSharedSession() {
+        SmartAuthorizationSession existing = sessionHolder.session();
+        if (existing == null) {
+            return;
+        }
+        if (existing.isLoggedOut() || existing.isExpired()) {
+            sessionHolder.clear();
+            return;
+        }
+        session = existing;
+        sessionPane.show(existing);
+        resourcePane.show(existing);
+        updateButtonState();
     }
 
     /** What the user did, for the caller to report. Never {@code null}. */
@@ -250,7 +301,16 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         VBox formSide = new VBox(6);
         Label formTitle = new Label("Launch configuration");
         formTitle.getStyleClass().add("pretty-row-label");
-        formSide.getChildren().addAll(formTitle, formScroll, buildButtons(), statusLabel);
+        formTitle.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(formTitle, Priority.ALWAYS);
+        guideButton.getStyleClass().add("button-ghost");
+        guideButton.setTooltip(new javafx.scene.control.Tooltip(
+                "Open the SMART guide at session lifetime and Log out"));
+        guideButton.setOnAction(event ->
+                guideOpener.accept("smart", "#log-out-and-start-again"));
+        HBox titleRow = new HBox(8, formTitle, guideButton);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
+        formSide.getChildren().addAll(titleRow, formScroll, buildButtons(), statusLabel);
         VBox.setVgrow(formScroll, Priority.ALWAYS);
 
         statusLabel.getStyleClass().add("app-subtitle");
@@ -352,8 +412,9 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
                 "Authorize in the system browser. Needs a successful Discover first."));
 
         newButton.setOnAction(event -> onNew());
+        logoutButton.setOnAction(event -> logoutSession());
         for (Button button : List.of(newButton, saveButton, deleteButton, validateButton,
-                discoverButton, authorizeButton)) {
+                discoverButton, authorizeButton, logoutButton)) {
             button.setMaxWidth(Double.MAX_VALUE);
         }
 
@@ -363,11 +424,13 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         HBox.setHgrow(saveButton, Priority.ALWAYS);
         HBox.setHgrow(deleteButton, Priority.ALWAYS);
 
-        HBox secondary = new HBox(8, validateButton, discoverButton, authorizeButton);
+        HBox secondary = new HBox(8, validateButton, discoverButton, authorizeButton,
+                logoutButton);
         secondary.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(validateButton, Priority.ALWAYS);
         HBox.setHgrow(discoverButton, Priority.ALWAYS);
         HBox.setHgrow(authorizeButton, Priority.ALWAYS);
+        HBox.setHgrow(logoutButton, Priority.ALWAYS);
 
         return new VBox(6, primary, secondary);
     }
@@ -430,6 +493,7 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         deleteButton.setDisable(editing == null);
         boolean busy = discoveryTask != null || authorizationTask != null;
         authorizeButton.setDisable(busy || discovered == null || !discovered.isUsable());
+        logoutButton.setDisable(session == null);
     }
     private void onSave() {
         // Captured first: editing the fields must not lose the id this is derived from.
@@ -694,6 +758,7 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
             session.logout();
         }
         session = next;
+        sessionHolder.set(next, fhirAccess);
         sessionPane.show(next);
         clearPendingResource();
         resourcePane.show(next);
@@ -715,6 +780,7 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
             session.logout();
             session = null;
         }
+        sessionHolder.clear();
         diagnostics.record(SmartDiagnosticsEvent.Phase.SESSION,
                 SmartDiagnosticsEvent.Kind.LOGGED_OUT,
                 "Session cleared by logout; token dropped from memory",
@@ -723,6 +789,7 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         clearPendingResource();
         resourcePane.showNothingYet();
         updateButtonState();
+        setStatus("Logged out. The SMART token was dropped from application memory.");
     }
 
     /** Drops a read result: it belonged to the session that just changed. */
@@ -868,6 +935,17 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     // user does rather than reimplementing the flow - the arrangement ServerManagerDialog
     // offers, for the same reason.
 
+    /** Supplies the application's guide opener; a no-op opener is the default. */
+    public void setGuideOpener(BiConsumer<String, String> opener) {
+        guideOpener = opener == null ? (guide, anchor) -> {
+        } : opener;
+    }
+
+    /** The contextual guide button, exposed for tests. */
+    Button guideButton() {
+        return guideButton;
+    }
+
     /** The form, for filling in fields. */
     SmartLaunchFormPanel form() {
         return form;
@@ -902,6 +980,10 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
     /** Stays disabled until a usable discovery exists; a test asserts exactly that. */
     Button authorizeButton() {
         return authorizeButton;
+    }
+
+    Button logoutButton() {
+        return logoutButton;
     }
 
     /** The Capabilities panel, so a test can assert what discovery put on screen. */

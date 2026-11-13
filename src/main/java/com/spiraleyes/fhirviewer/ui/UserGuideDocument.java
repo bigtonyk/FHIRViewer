@@ -8,12 +8,11 @@ import java.util.List;
  * lists, tables, quotes and rules, with inline bold, italic, code
  * and links.
  *
- * <p>Only the markdown the bundled user guide uses is covered: ATX
+ * <p>Only the markdown the bundled user guides use is covered: ATX
  * headings, unordered and ordered lists (including wrapped continuation
- * lines), GitHub style tables, blockquotes, horizontal rules and inline
- * {@code **bold**}, {@code *italic*}, backtick code and
- * {@code [text](target)} links. Fenced code blocks and images do not
- * appear in the guide and are not handled.</p>
+ * lines), GitHub style tables, blockquotes, horizontal rules, fenced
+ * code blocks and inline {@code **bold**}, {@code *italic*}, backtick
+ * code and {@code [text](target)} links. Images are not handled.</p>
  *
  * <p>Free of JavaFX types so the parsing is tested without starting
  * the toolkit; {@link UserGuideView} turns the blocks into nodes.</p>
@@ -45,7 +44,7 @@ public final class UserGuideDocument {
     }
 
     /** One block of the document. */
-    public sealed interface Block permits Paragraph, Heading, BulletList, OrderedList, Table, Quote, Rule {
+    public sealed interface Block permits Paragraph, Heading, BulletList, OrderedList, Table, Quote, CodeBlock, Rule {
     }
 
     /** A paragraph of inline spans. */
@@ -76,6 +75,10 @@ public final class UserGuideDocument {
     public record Quote(List<Span> spans) implements Block {
     }
 
+    /** A fenced code block: its lines exactly as written, without the fences. */
+    public record CodeBlock(String text) implements Block {
+    }
+
     /** A horizontal rule. */
     public record Rule() implements Block {
     }
@@ -92,6 +95,20 @@ public final class UserGuideDocument {
             if (trimmed.isEmpty()) {
                 flushParagraph(paragraph, blocks);
                 index++;
+                continue;
+            }
+            if (trimmed.startsWith("```")) {
+                flushParagraph(paragraph, blocks);
+                List<String> codeLines = new ArrayList<>();
+                index++;
+                while (index < lines.length && !lines[index].strip().startsWith("```")) {
+                    codeLines.add(lines[index]);
+                    index++;
+                }
+                if (index < lines.length) {
+                    index++;
+                }
+                blocks.add(new CodeBlock(String.join("\n", codeLines)));
                 continue;
             }
             if (trimmed.equals("---")) {
@@ -403,6 +420,8 @@ public final class UserGuideDocument {
                 anchor.append('-');
             }
         }
-        return anchor.toString().replaceAll("-+", "-").replaceAll("^-|-$", "");
+        // Keep the double hyphen GitHub produces around a removed em dash: the
+        // bundled SMART contents link uses that form. Only trim the ends.
+        return anchor.toString().replaceAll("^-+", "").replaceAll("-+$", "");
     }
 }

@@ -27,6 +27,9 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
+import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationSession;
+import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
+import com.spiraleyes.fhirviewer.server.smart.SmartTokenResponse;
 import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.service.scripting.FailingScriptingSessions;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
@@ -88,6 +91,22 @@ class ScriptingConsoleSmokeTest {
      * Saves the blank buffer, loads the example, then saves again. The probe answers the
      * save-dialog seam with two paths and counts how often Save had to ask.
      */
+    @Test
+    @DisplayName("The console Guides menu targets the scripting and SMART sections")
+    void guidesMenuTargetsTheRelevantSections() throws Exception {
+        List<String> opened = new java.util.ArrayList<>();
+        onFxThread(() -> {
+            ProbeConsole console = new ProbeConsole(new ScriptingCoordinator());
+            console.setGuideOpener((guide, anchor) -> opened.add(guide + "|" + anchor));
+            assertEquals(2, console.guidesButton().getItems().size());
+            console.guidesButton().getItems().get(0).fire();
+            console.guidesButton().getItems().get(1).fire();
+            console.close();
+            return null;
+        });
+        assertEquals(List.of("scripting|#smart-on-fhir", "smart|#coding-a-smart-workflow"), opened);
+    }
+
     @Test
     @DisplayName("Loading the Example unbinds the open file, so Run is interactive and Save asks again")
     void exampleUnbindsTheOpenFile() throws Exception {
@@ -281,6 +300,39 @@ class ScriptingConsoleSmokeTest {
             assertEquals("", shown.get(3), "the previous details must be cleared");
             assertFalse(shown.get(4).isBlank(), "the example should have replaced the buffer");
         }
+    }
+
+    /**
+     * The console must see the session the Workbench published, not an empty facade.
+     */
+    @Test
+    @DisplayName("The console sees the Workbench's authorized SMART session")
+    void consoleSeesSharedSmartSession() throws Exception {
+        requireToolkit();
+        SmartSessionHolder holder = new SmartSessionHolder();
+        holder.set(session("stub-token", "stub-patient"), null);
+        try (ScriptingCoordinator coordinator = new ScriptingCoordinator()) {
+            ProbeConsole console = onFxThread(() -> {
+                ProbeConsole created = new ProbeConsole(coordinator, holder);
+                created.setEditorTextForTest("""
+                        // case: smart
+                        test.assertTrue(smart.isSessionActive(), "shared session");
+                        test.assertEquals("stub-patient", smart.launchPatientId());
+                        """);
+                return created;
+            });
+
+            SuiteOutcome outcome = runSuite(console);
+
+            assertTrue(outcome.report().contains("1 passed, 0 failed"),
+                    "the SMART case should pass: " + outcome.report());
+        }
+    }
+
+    private static SmartAuthorizationSession session(String token, String patient) {
+        SmartTokenResponse tokens = new SmartTokenResponse(
+                token, "Bearer", 3600L, "patient/*.read", patient, null, null, null);
+        return new SmartAuthorizationSession("http://example.com/fhir", tokens, null);
     }
 
     /**
@@ -505,16 +557,21 @@ class ScriptingConsoleSmokeTest {
         private int saveAsked;
 
         ProbeConsole(Path first, Path second) {
-            this(new ScriptingCoordinator(), first, second);
+            this(new ScriptingCoordinator(), first, second, null);
         }
 
         ProbeConsole(ScriptingCoordinator coordinator) {
-            this(coordinator, null, null);
+            this(coordinator, null, null, null);
         }
 
-        private ProbeConsole(ScriptingCoordinator coordinator, Path first, Path second) {
+        ProbeConsole(ScriptingCoordinator coordinator, SmartSessionHolder smartSessions) {
+            this(coordinator, null, null, smartSessions);
+        }
+
+        private ProbeConsole(ScriptingCoordinator coordinator, Path first, Path second,
+                SmartSessionHolder smartSessions) {
             super(new ThemeManager(), new FhirService(), new FhirServerService(),
-                    new FhirServerManager(), coordinator);
+                    new FhirServerManager(), coordinator, smartSessions);
             if (first != null) {
                 targets.add(first);
             }

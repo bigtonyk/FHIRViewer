@@ -10,6 +10,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import javafx.application.Platform;
@@ -21,6 +22,8 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
@@ -41,11 +44,14 @@ import com.spiraleyes.fhirviewer.service.scripting.api.FhirApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.LogApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
 import com.spiraleyes.fhirviewer.service.scripting.api.ServerApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.SmartApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.TestApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ValidationApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ViewerApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.WritePolicy;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
+import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
 
 /**
  * The Scripting Console: a multiline Java editor over a read-only output
@@ -96,6 +102,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private final Button saveAsButton = new Button("Save As\u2026");
     private final Button exampleButton = new Button("Example");
     private final Button clearButton = new Button("Clear Output");
+    private final MenuButton guidesButton = new MenuButton("Guides");
+
+    /** Opens a named guide at an anchor; the server screens supply the real opener. */
+    private BiConsumer<String, String> guideOpener = (guide, anchor) -> {
+    };
 
     private final ScriptingCoordinator coordinator;
     private final List<String> stylesheets;
@@ -121,6 +132,14 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         this(themeManager, fhirService, serverService, serverManager, new ScriptingCoordinator());
     }
 
+    /** A console that can read through the application's authorized SMART session. */
+    public ScriptingConsoleDialog(ThemeManager themeManager, FhirService fhirService,
+            FhirServerService serverService, FhirServerManager serverManager,
+            SmartSessionHolder smartSessions) {
+        this(themeManager, fhirService, serverService, serverManager,
+                new ScriptingCoordinator(), smartSessions);
+    }
+
     /**
      * Builds the console over the given coordinator, so a UI test can drive suite
      * results the real session factory cannot produce. Package-private: production
@@ -130,6 +149,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     ScriptingConsoleDialog(ThemeManager themeManager, FhirService fhirService,
             FhirServerService serverService, FhirServerManager serverManager,
             ScriptingCoordinator coordinator) {
+        this(themeManager, fhirService, serverService, serverManager, coordinator,
+                new SmartSessionHolder());
+    }
+
+    ScriptingConsoleDialog(ThemeManager themeManager, FhirService fhirService,
+            FhirServerService serverService, FhirServerManager serverManager,
+            ScriptingCoordinator coordinator, SmartSessionHolder smartSessions) {
         if (coordinator == null) {
             throw new IllegalArgumentException("A scripting coordinator is required.");
         }
@@ -141,12 +167,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
 
         this.coordinator = coordinator;
+        SmartApi smartApi = smartSessions == null ? new SmartApi() : smartSessions.api();
         bindings = new ScriptBindings(
                 new FhirApi(serverService, serverManager, WritePolicy.READ_ONLY),
                 new ViewerApi(fhirService),
                 new ValidationApi(fhirService),
                 new ServerApi(serverService, serverManager),
-                new LogApi());
+                new LogApi(), new TestApi(), smartApi);
 
         this.stylesheets = List.copyOf(themeManager.stylesheets());
 
@@ -175,9 +202,15 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         // A FlowPane, not an HBox: the controls plus the mode label are wider than the
         // 820px minimum dialog, and an HBox would squeeze the buttons or clip the label
         // instead of moving the overflow to a second row.
+        MenuItem scriptingGuide = new MenuItem("Scripting Guide");
+        scriptingGuide.setOnAction(event -> guideOpener.accept("scripting", "#smart-on-fhir"));
+        MenuItem smartGuide = new MenuItem("SMART session");
+        smartGuide.setOnAction(event -> guideOpener.accept("smart", "#coding-a-smart-workflow"));
+        guidesButton.getItems().addAll(scriptingGuide, smartGuide);
+        guidesButton.setTooltip(new Tooltip("Open the guide beside this console"));
         FlowPane toolbar = new FlowPane(8, 8, runButton, runTestsButton, runModeLabel,
                 stopButton, resetButton, openButton, saveButton, saveAsButton, exampleButton,
-                clearButton);
+                clearButton, guidesButton);
         toolbar.setAlignment(Pos.CENTER_LEFT);
         runTestsButton.setOnAction(event -> onRunTests());
         openButton.setOnAction(event -> onOpen());
@@ -223,6 +256,17 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 event.consume();
             }
         });
+    }
+
+    /** Supplies the application's guide opener; a no-op opener is the default. */
+    public void setGuideOpener(BiConsumer<String, String> opener) {
+        guideOpener = opener == null ? (guide, anchor) -> {
+        } : opener;
+    }
+
+    /** The contextual guide menu, exposed for tests. */
+    MenuButton guidesButton() {
+        return guidesButton;
     }
 
     // ------------------------------------------------------------------

@@ -1,147 +1,386 @@
-# SMART on FHIR — User Guide
+# SMART on FHIR — Launch Guide
 
-This guide covers FHIRViewer's SMART Launch Workbench: what it does, how to configure a
-test launch, how to run standalone and EHR launch flows, and what to expect at each step.
+How to add a SMART-enabled FHIR server to FHIRViewer, discover what it advertises, sign in
+through the system browser, and read resources you are entitled to. The SMART Launch Workbench
+lives in **Tools → SMART Launch Workbench...**; the User Guide's Part B covers the ordinary
+server features, and this guide is the SMART on-ramp.
 
-## What SMART on FHIR is
+> **This feature needs a SMART-enabled FHIR server.** A plain FHIR server will be diagnosed as
+> `not SMART` at Discover and will not launch. Use a test server (the HL7 FHIR R4 reference
+> server, a local HAPI server configured with SMART, or an official SMART sandbox) until you
+> are running in production.
 
-SMART on FHIR is an OAuth 2.0-based authorization framework that lets a client application
-(like FHIRViewer) request access to FHIR resources on a FHIR server on behalf of a user.
-Instead of entering a username and password in FHIRViewer, you sign in to the server through
-its own authorization page (opened in your system browser), and the server gives FHIRViewer
-a time-limited access token with the scopes it granted.
+---
 
-FHIRViewer implements the **SMART App Launch v2.2.0** specification using
-**Authorization Code with PKCE S256**, the flow recommended for public desktop clients.
+## What this guide covers
+
+1. [What SMART on FHIR adds to FHIRViewer](#what-smart-on-fhir-adds-to-fhirviewer)
+2. [Standalone versus EHR launch](#standalone-versus-ehr-launch)
+3. [Before you start — register a test application](#before-you-start--register-a-test-application)
+4. [Add a SMART launch in the workbench](#add-a-smart-launch-in-the-workbench)
+5. [Discover what the server advertises](#discover-what-the-server-advertises)
+6. [Authorize in the system browser](#authorize-in-the-system-browser)
+7. [Inspect what you were granted](#inspect-what-you-were-granted)
+8. [Read a resource through the authorized session](#read-a-resource-through-the-authorized-session)
+9. [EHR launch simulation](#ehr-launch-simulation)
+10. [Log out and start again](#log-out-and-start-again)
+11. [Sample workflows](#sample-workflows)
+12. [Coding a SMART workflow](#coding-a-smart-workflow)
+13. [Troubleshooting](#troubleshooting)
+14. [Security notes](#security-notes)
+15. [Known limitations](#known-limitations)
+
+---
+
+## What SMART on FHIR adds to FHIRViewer
+
+The SMART Launch Workbench is a separate screen from the normal server workflow. It does not
+replace **File → Open from FHIR Server...** or the server plugins. It adds:
+
+- **Discovery** of a server's SMART metadata from `/.well-known/smart-configuration`.
+- **Authorization Code with PKCE S256** against a public (client-side) client, with no client
+  secret and no saved credentials.
+- **Standalone launch** and **EHR launch simulation** modes.
+- **Authorized reads** of the patient context the token grants, through the existing viewer.
+- **Diagnostics** — a structured, redacted event list with export and clear.
+
+The rest of the application — tree, views, editing, validation, server connections — is
+unchanged.
+
+
 
 ## Standalone versus EHR launch
 
-### Standalone launch
+| Mode | What you supply | What it sends | What it is for |
+|---|---|---|---|
+| **Standalone** | An issuer URL and a client ID | `aud` (the FHIR base URL), `response_type=code`, `client_id`, `redirect_uri`, `scope`, `state`, PKCE S256 | You sign in as yourself to a server that already knows you. |
+| **EHR launch** | An issuer URL, a client ID, and a `launch` token | `launch` (the opaque context token), no `aud` | You simulate what an EHR does when it hands FQ a launch context and expects the patient it is visiting. |
 
-You configure a FHIR server issuer URL and a client ID, press Discover to learn the
-server's authorization endpoints, then press Authorize. FHIRViewer opens the server's
-authorization page in your system browser; after you sign in and approve, the server
-returns an authorization code, FHIRViewer exchanges it for an access token, and the
-Workbench shows you what was granted (scopes, patient context if any, token expiry).
+Standalone is the normal case for a desktop application. EHR launch is a client-side
+simulation only — FHIRViewer is not an EHR and does not receive an inbound launch URI from a
+real EHR. Use a documented SMART test launcher or compatible test harness for end-to-end
+testing, and never claim a manually-entered launch token is equivalent to a valid EHR launch.
 
-Use this when you want FHIRViewer to act as a standalone app against a SMART-enabled FHIR
-server.
+---
 
-### EHR launch simulation
+## Before you start — register a test application
 
-In an EHR launch, an EHR system hands FHIRViewer a `launch` token and an issuer URL.
-FHIRViewer simulates the client side of that flow: it sends the `launch` parameter (not
-the `aud` audience parameter) in the authorization request, and any patient/encounter
-context the server returns is shown in the Workbench.
+You need a SMART-enabled FHIR server and a registered **public** OAuth client on it.
 
-This is a **client-side simulation** — FHIRViewer is not an EHR, and it does not receive an
-inbound launch URI from a real EHR. You enter the `iss` and `launch` values yourself, as
-documented by your test harness.
+### Steps
 
-## How to register a test application
+1. **Choose a test server.** A local HAPI FHIR server with SMART enabled, or an official
+   SMART sandbox. Do not use a production server with real patient data.
+2. **Register a public client.** In the server's administration console, register a client
+   with `confidentiality = public`. The server will issue a **client ID**; record it.
+3. **Set the redirect URI.** The Workbench communicates over a loopback address chosen at
+   runtime, but the **registered redirect URI must be loopback http** — for example
+   `http://127.0.0.1:54321/callback`. The exact port does not matter: the Workbench picks a
+   free local port and the server must accept the pattern.
+4. **Request scopes.** At minimum request `launch/patient` if you want patient context, and
+   `patient/*.read` if you want to read resources. Identity scopes (`openid`, `fhirUser`) are
+   optional and produce an ID token.
 
-Before you can authorize, you need a SMART-enabled FHIR server and a registered public
-(client-side) client on it:
+> Do not commit client IDs, redirect URIs, or tokens into version control. Use placeholders
+> in the workbench for any shared configuration.
 
-1. Choose a SMART test server (for example the HL7 FHIR R4 reference server or a local HAPI
-   FHIR server configured with SMART support).
-2. Register a **public** (confidential=false) OAuth client on that server. Record the
-   client ID it issues.
-3. Set the redirect URI to a loopback address such as `http://127.0.0.1:54321/callback` —
-   the Workbench picks a free local port automatically at callback time, but the registered
-   redirect URI must match the pattern the server accepts (loopback http is required).
-4. Request scopes your launch needs, for example `launch/patient patient/*.read
-   openid fhirUser`.
+---
 
-Do not commit real client IDs or redirect URIs into version control; use placeholders only.
+## Add a SMART launch in the workbench
 
-## Client ID and redirect URI configuration
-
-Open **Tools > SMART Launch Workbench...** and fill in the form:
+1. Open **Tools → SMART Launch Workbench...**.
+2. Fill in the form:
 
 | Field | What to enter |
 |---|---|
-| Name | A nickname for this launch (for the saved list only) |
-| Issuer | The FHIR server base URL / issuer, e.g. `https://fhir.example.com` |
-| Client ID | The public client ID from your server registration |
-| Scopes | Space-separated scopes, e.g. `launch/patient patient/*.read` |
-| Mode | Standalone or EHR launch |
+| Name | A nickname for this launch, only used in the saved list |
+| Issuer | The FHIR server base URL, e.g. `https://fhir.example.com` |
+| Client ID | The public client ID you registered |
+| Scopes | Space-separated, e.g. `launch/patient patient/*.read` |
+| Mode | **Standalone** or **EHR launch** |
 
-In EHR launch mode, an additional **Launch** field appears for the opaque launch token
-supplied by the EHR.
+3. Fill the **Launch** field only in EHR mode — paste the opaque launch token.
+4. Press **Validate** to check the form without contacting any server. It reports problems
+   such as a blank client ID or a malformed scope. The status line is explicit about what it
+   did: "no server has been contacted".
 
-Press **Validate** to check the form locally (no server is contacted). Press **Discover**
-to fetch `/.well-known/smart-configuration` from the issuer and learn its endpoints.
+---
 
-## Scope behavior
+## Discover what the server advertises
 
-The scopes you request are sent in the authorization request. The server may grant fewer
-scopes than you asked for — the Workbench reports the **granted** scopes (from the token
-response), not the requested ones, so you see what you actually received.
+1. Press **Discover**. The dialog shows "Discovering from http://... — ..." and runs on a
+   background daemon thread. Click the **Diagnostics** tab to watch it, or open `~
+   /.fhirviewer/smart-launches.properties` to inspect the saved configuration.
+2. When it finishes, the **Capabilities** panel fills with the endpoints the server advertises:
 
-- `launch/patient` — needed to receive patient context in an EHR launch.
-- `patient/*.read` — needed to read patient resources through an authorized session.
-- `openid`, `fhirUser` — identity scopes; requesting them causes an ID token to be issued
-  and validated, and the `sub` claim is shown as the "User" in the Session panel.
+- Issuer
+- Authorization endpoint
+- Token endpoint
+- JWKS URI
+- Capabilities (e.g. `launch-standalone`, `client-public`)
+- Scopes supported
+- PKCE methods supported (usually `S256`)
+- Grant types supported
+- Unknown fields preserved for diagnostics
 
-If a launch grants no patient context, that is a normal outcome: identity-scoped launches
-carry no patient, and the Resource access panel says so rather than hiding the row.
+3. The status line says how many capabilities were found and whether there were problems.
+   Problems (a missing authorization endpoint, an insecure token endpoint, a malformed
+   document) are listed beside the metadata so you can see exactly what was wrong — and the
+   panel never reports a problem the document did not actually contain.
+
+### What a successful discovery looks like
+
+- The Capabilities panel shows the full document.
+- The status line says: *"Discovered N capability(ies). The server can be launched against."*
+- The **Authorize** button becomes pressable.
+- Unknown fields (extensions a server adds beyond the SMART spec) are shown as "Other"
+  rows, so nothing is silently dropped.
+
+### What happens with a plain FHIR server
+
+- Discovery answers with a clear `not SMART` diagnosis: the server does not publish
+  `/.well-known/smart-configuration`, or the document does not contain the endpoints
+  SMART needs.
+- The Workbench does not half-launch. The status line and the Capabilities panel both say
+  exactly what was wrong, and the user is told to check the base URL and that SMART is
+  enabled on the server.
+
+## Authorize in the system browser
+
+1. Press **Authorize**. The Workbench starts a loopback listener and opens the issuer's
+   authorization page in the system browser. The redirect URI is the loopback address that
+   listener chose; it is not a hosted service.
+2. Sign in and approve the scopes in the browser, then return to the Workbench. Keep the
+   Workbench open while you do this: closing it cancels the attempt, and the listener waits
+   at most five minutes for the callback.
+3. The browser returns to the loopback address, and the Workbench exchanges the code using
+   PKCE and validates the returned ID token. The status line reports a failure or a
+   cancellation rather than leaving the panel looking authorized.
+4. On success the Session panel fills with the granted scopes, patient, encounter, user and
+   expiry. Authorizing again logs the previous session out first, so two tokens never
+   coexist.
+
+## Inspect what you were granted
+
+The **Session** panel shows what the server actually gave you. It never shows the token
+itself:
+
+| Field | Meaning |
+|---|---|
+| State | Whether the session is active or has been logged out |
+| Granted scopes | The scopes the server granted (which may differ from what you asked for) |
+| Patient | The patient context, when the server supplied one |
+| Encounter | The encounter context, when supplied |
+| User | The `sub` claim from the ID token, when identity scopes were requested |
+| Token expiry | When the access token stops working, or a note that the server did not state a lifetime |
+
+- A launch can succeed with **no patient context**. That is a normal outcome, not a bug: it
+  happens for identity-scoped launches that did not request `launch/patient`. The Session
+  panel says so rather than hiding the row.
+- A launch that granted **no patient** disables the **Read patient context** button in the
+  Resource access panel — there is nothing to read.
+- The granted scopes may be fewer than the ones you requested. That is the server's
+  decision, and the Session panel reports the granted set, not the requested set.
+
+---
+
+## Read a resource through the authorized session
+
+1. With an authorized session that has a patient context, press **Read patient context**.
+   The button is enabled only when the session granted a patient, so pressing it with
+   nothing to read cannot happen through the UI — the guard stays in code too.
+2. A status line reports the read. The Resource access panel shows the result:
+
+- *"Read Patient 12345 from the authorized session."* — success.
+- *"The server says Patient 12345 does not exist."* — a 404, not a scope problem.
+- A failure message — the redacted reason, with no resource offered, and the status line
+  says what to do next (e.g. re-authorize).
+
+3. Press **Open in viewer** to display the fetched resource in the existing tree and Pretty
+   View exactly as any other read would appear.
+
+---
 
 
-## How to configure a test server
+## EHR launch simulation
 
-FHIRViewer contacts your SMART server only at discovery (`/.well-known/smart-configuration`)
-and, after authorization, at the token endpoint and FHIR base URL learned from discovery.
-No server is hard-coded.
+1. Switch the Mode to **EHR launch**.
+2. Enter the **Issuer** and **Client ID** as usual.
+3. Paste the **Launch** token the EHR supplied. It is opaque and must be preserved exactly.
+4. Discover and authorize as normal. The Workbench sends the `launch` parameter and no `aud`,
+   exactly as a real EHR would.
+5. Any patient, encounter, or user context the server returns is shown in the Session
+   panel. The Workbench distinguishes clearly between:
 
-1. Point the Issuer field at your test server's FHIR base URL.
-2. Press **Discover** — the Capabilities panel fills with the advertised endpoints and any
-   problems found in the document.
-3. Press **Authorize** — FHIRViewer opens the server's authorization page in your system
-   browser. Sign in there and approve the requested scopes.
-4. When the browser returns, FHIRViewer exchanges the code, validates the ID token (if any),
-   and shows the granted session.
+- a standalone launch (sends `aud`, no `launch`),
+- an EHR launch simulation (sends `launch`, no `aud`),
+- a successful authorization that happens to have no patient context.
 
-## Troubleshooting common failures
+### What EHR simulation does not do
+
+- It does not receive an inbound launch URI, so it is not a real EHR integration.
+- It does not prove compatibility with any vendor that is not a documented test harness.
+- It does not convert a manually-entered opaque token into a valid launch context — that is
+  the server's job, and the Workbench cannot.
+
+---
+
+## Log out and start again
+
+1. Press **Log out** in the Workbench. The Session panel resets to *"No session exists yet."*,
+   the Resource access panel disables its read button, and the shared token is dropped, so
+   the Scripting Console no longer has a SMART session either.
+2. Closing the Workbench **without** pressing Log out keeps the authorized session in
+   application memory for the Scripting Console. It is never written to disk; exiting the
+   application drops it.
+3. Reopen **Tools → SMART Launch Workbench...** and the Session panel shows the current
+   session, if there is one. Press **Open** (or **New**) to load a configuration, then
+   Discover and Authorize again when you want a different launch. Authorizing again replaces
+   any previous session and logs the old one out.
+
+---
+
+## Sample workflows
+
+Both workflows below are read-only. The Workbench reads through the authorized session; it
+does not offer writes, so a SMART token cannot change data through this screen.
+
+### Workflow 1 — standalone review of the launch patient
+
+Use this when you are acting as yourself and want to inspect the patient the server puts in
+context.
+
+1. Register a public client and a loopback redirect URI as described in
+   [Before you start](#before-you-start--register-a-test-application).
+2. Open **Tools → SMART Launch Workbench...**.
+3. Enter a name, the issuer, the client ID, and
+   `launch/patient patient/*.read openid fhirUser`. Leave the mode on **Standalone**.
+4. Press **Validate** to catch typos locally, then **Discover**.
+5. Check that the Capabilities panel names the authorization and token endpoints, and that
+   `S256` is listed under PKCE methods.
+6. Press **Authorize**, sign in in the system browser, and approve the scopes.
+7. In the Session panel, confirm the granted scopes, the patient, and the token expiry. If
+   the patient row says none, the server chose not to supply patient context; re-check that
+   `launch/patient` was requested and granted.
+8. Press **Read patient context**. A successful read offers **Open in viewer**.
+9. Press **Open in viewer** to inspect the resource. Press **Log out** to revoke the token,
+   or close the Workbench to leave the session available to the Scripting Console.
+
+What a good run looks like:
+
+- Discover reports a capability count and enables Authorize.
+- The Session panel shows the scopes the server granted, which may be fewer than the ones
+  requested. That is the server's grant, not an error.
+- Read names the patient and offers the viewer; opening it shows the same tree and Pretty
+  View as a file.
+
+### Workflow 2 — EHR launch simulation
+
+Use this when a test harness has given you an `iss` and an opaque `launch` token and you want
+to check what the server returns for that context.
+
+1. Open the Workbench and choose **EHR launch**.
+2. Enter the issuer and client ID, then paste the `launch` token exactly as supplied.
+3. Press **Validate** and **Discover** as before.
+4. Press **Authorize**. The request carries `launch` and no `aud`.
+5. Inspect the Session panel for patient, encounter, and user context. Any of them may be
+   absent; the panel names what the server returned.
+6. Read the patient context and open it in the viewer if one was granted.
+7. Clear the session. Do not reuse the launch token: a real EHR launch token is single-use.
+
+This simulates the client half only. It cannot receive an inbound launch from a real EHR, and
+it does not prove compatibility with a vendor that is not a documented test harness.
+
+---
+
+## Coding a SMART workflow
+
+The Scripting Console exposes a `smart` binding with `isSessionActive()`, `grantedScopes()`,
+`launchPatientId()`, `launchEncounterId()`, and `read(resourceType, id)`. It never exposes the
+access token.
+
+Authorize in **Tools → SMART Launch Workbench...**, then close the Workbench and open
+**Tools → Scripting Console...**. The authorized session stays in application memory for
+the console, so `smart.isSessionActive()` is true and `smart.read` uses the granted scopes
+and patient context. Press **Log out** in the Workbench, authorize again, or exit the
+application to drop it; the token is never written to disk. If no session has been
+authorized, `smart.read` throws `ScriptApiException("No active SMART session")`.
+
+A scripted SMART read:
+
+```java
+if (!smart.isSessionActive()) {
+    log.warn("No SMART session is available to this console.");
+} else {
+    String patientId = smart.launchPatientId();
+    if (patientId == null || patientId.isBlank()) {
+        log.warn("The launch granted no patient context.");
+    } else {
+        var patient = smart.read("Patient", patientId);
+        if (patient == null) {
+            log.warn("Patient " + patientId + " was not found.");
+        } else {
+            viewer.showResource(patient);
+            log.info("Read Patient " + patientId + " with scopes " + smart.grantedScopes());
+        }
+    }
+}
+```
+
+A launch with no patient is a normal outcome, not a failure: identity-only scopes do not
+guarantee patient context. Check `launchPatientId()` before calling `read`.
+
+---
+
+## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Discover says "not SMART" | The server does not publish a SMART configuration document | Confirm the base URL and that SMART is enabled on the server |
-| Authorization page never opens | System browser unavailable or redirect URI mismatch | Check that a browser is installed; confirm the registered redirect URI is loopback http |
-| "Authorization failed: invalid_grant" | The authorization code expired or was already used | Press Authorize again and sign in promptly |
-| "The access token has expired" | The token lifetime passed | Press Authorize again for a new session |
+| Discover says "not SMART" | The server does not publish a SMART configuration document | Check the base URL; confirm SMART is enabled on the server |
+| Authorization page never opens | Browser unavailable or redirect URI mismatch | Confirm a browser is installed; the registered redirect URI must be loopback http |
+| Authorization fails with `invalid_grant` | The authorization code expired or was already used | Press Authorize again and sign in promptly |
+| "The access token has expired" | The token's stated lifetime passed | Press Authorize again for a new session |
+| Read fails with `401` or `403` | The token was rejected or lacks the needed scope | Re-authorize with the scopes the resource requires |
 | Read returns no patient | The launch granted no patient context | Normal for identity-scoped launches; request `launch/patient` if you need one |
-| Read fails with 401/403 | The token was rejected or lacks scope | Re-authorize with the needed scopes |
+| Session panel is always empty | Authorization succeeded but granted no scopes | Check that the server actually granted what you requested |
+| Discovery works but Authorize stays disabled | The discovered document had problems | Open the Capabilities panel and read the problem list |
 
-None of these messages ever contains your access token, authorization code, or patient
-data.
+None of these messages ever contains your access token, authorization code, PKCE verifier,
+client secret, authorization header, or patient data.
 
-## Security precautions for production servers
+---
 
-- FHIRViewer never writes tokens to disk; they live in memory only for the current
-  workbench session. Closing the dialog drops them.
-- The redirect URI is always loopback (`127.0.0.1`); the authorization code can never be
+## Security notes
+
+- **Tokens are memory-only.** The access token is carried in the session, is never written
+  to disk and is never logged. It stays in application memory after the Workbench closes so
+  the Scripting Console can use it. **Log out** drops it immediately; exiting the application
+  drops it otherwise.
+- **No client secret.** Public clients have none, and none is used anywhere in the flow. The
+  Workbench posts the authorization code plus the PKCE verifier and the exact redirect URI —
+  that is all the token endpoint receives.
+- **Loopback only.** The authorization redirect is always `127.0.0.1`. A code can never be
   sent to a remote host.
-- No client secret is used — public clients have none, so nothing is stored or logged.
-- Diagnostic events and exports are redacted before display or writing: no bearer token,
-  authorization code, PKCE verifier, client secret, authorization header, or patient
-  identifier is included.
-- Use HTTPS for production servers; loopback http is acceptable for local testing only.
+- **Diagnostics are redacted before they leave the process.** The Diagnostics tab and every
+  exported log file are run through redaction for bearer tokens, authorization codes,
+  PKCE verifiers, client secrets, authorization headers, and patient identifiers. You can
+  attach an export to a bug report without leaking anything.
+- **Use HTTPS for production servers.** Loopback http is acceptable for local testing only.
+- **No real credentials in the guide.** This document and the bundled user guide deliberately
+  contain no client IDs, redirect URIs, or tokens. Fill in your own test values in the
+  Workbench.
 
-## Supported flows and known limitations
+---
 
-**Supported:** standalone launch, EHR launch simulation, Authorization Code with PKCE S256,
-ID token validation against JWKS, authorized patient/resource read through the existing
-viewer, session logout, diagnostic export with redaction.
+## Known limitations
 
-**Known limitations:**
-
-- Diagnostics are in-memory only for the current workbench session; export writes to
-  `~/.fhirviewer/` but nothing survives a restart.
-- No refresh-token use: if the server issues a refresh token it is recorded but not used
-  to obtain a new access token.
-- No `Accept` negotiation beyond `application/json` for discovery.
-- A non-matching document `issuer` is reported but not resolved — only the deployment can
-  say which address is right.
-- Manual end-to-end verification against a public SMART test server is recommended before
-  production use; no test credentials are committed.
+- **Diagnostics are in-memory only.** The Diagnostics tab, export, and clear all apply to the
+  current workbench session. Nothing survives a restart.
+- **No refresh-token use.** If the server issues a refresh token, the grant records it but the
+  Workbench does not use it to obtain a new access token.
+- **No `Accept` negotiation** beyond `application/json` for discovery.
+- **A non-matching document issuer is reported but not resolved.** The Workbench does not
+  guess which address is right; that is a deployment decision.
+- **EHR launch is a client-side simulation only.** It does not integrate with a real EHR.
+- **Manual end-to-end verification** against a public SMART test server is recommended before
+  production use; this guide contains no committed test credentials.

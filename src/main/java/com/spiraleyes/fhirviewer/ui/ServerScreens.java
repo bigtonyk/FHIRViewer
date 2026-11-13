@@ -17,6 +17,7 @@ import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.server.ServerPassphrase;
 import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
 import com.spiraleyes.fhirviewer.server.smart.SmartLaunchStore;
+import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
 import com.spiraleyes.fhirviewer.service.FhirService;
 
 import javafx.stage.Stage;
@@ -52,6 +53,7 @@ final class ServerScreens {
     private final Function<ServerOrigin, FhirServerConfiguration> serverFor;
     private final Supplier<Path> pluginSettingsFile;
     private final Supplier<Path> smartLaunchFile;
+    private final SmartSessionHolder smartSessions = new SmartSessionHolder();
     private final DocumentPort document;
 
     ServerScreens(Stage owner, FhirServerService serverService, FhirServerManager serverManager,
@@ -117,8 +119,9 @@ final class ServerScreens {
     void smartWorkbench() {
         SmartLaunchDialog dialog = new SmartLaunchDialog(
                 new SmartLaunchStore(smartLaunchFile.get()),
-                new SmartFhirAccess(serverService.registry()));
+                new SmartFhirAccess(serverService.registry()), smartSessions);
         dialog.initOwner(owner);
+        dialog.setGuideOpener(this::openGuide);
         DialogTheme.apply(dialog.getDialogPane(), themeManager);
         dialog.showAndWait();
 
@@ -312,9 +315,20 @@ final class ServerScreens {
     /** Opens the scripting console, sharing the application's FHIR services. */
     void scriptingConsole() {
         ScriptingConsoleDialog dialog = new ScriptingConsoleDialog(themeManager, fhirService,
-                serverService, serverManager);
+                serverService, serverManager, smartSessions);
+        dialog.setGuideOpener(this::openGuide);
         dialog.initOwner(owner);
         dialog.showAndWait();
+    }
+
+    /** Opens a guide at an anchor, without routing through the main window's menu. */
+    private void openGuide(String guide, String anchor) {
+        String text = "scripting".equals(guide)
+                ? UserGuideContent.loadPhase6Guide()
+                : UserGuideContent.loadSmartGuide();
+        UserGuideDialog dialog = new UserGuideDialog(themeManager, text);
+        dialog.initOwner(owner);
+        dialog.showAt(anchor);
     }
 
     /**
