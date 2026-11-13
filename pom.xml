@@ -6,7 +6,7 @@
 
   <groupId>com.spiraleyes.fhirviewer</groupId>
   <artifactId>fhir-viewer</artifactId>
-  <version>1.0.0</version>
+  <version>2.0.0</version>
   <packaging>jar</packaging>
 
   <name>FHIR Resource Viewer</name>
@@ -79,7 +79,7 @@
       suffix, which is what a shipped build should say anyway - a build offered
       to someone is not a snapshot.
     -->
-    <dist.version>1.0.0</dist.version>
+    <dist.version>2.0.0</dist.version>
   </properties>
 
   <dependencies>
