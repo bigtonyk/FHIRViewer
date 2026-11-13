@@ -75,25 +75,19 @@ class TestSuiteTest {
     }
 
     @Test
-    @DisplayName("An empty case body is refused instead of passing silently")
-    void emptyCaseBodyIsRefused() {
-        IllegalArgumentException problem = assertThrows(IllegalArgumentException.class,
+    @DisplayName("A case with no source is refused whether it is blank or only comments")
+    void caseWithoutSourceIsRefused() {
+        IllegalArgumentException blank = assertThrows(IllegalArgumentException.class,
                 () -> TestSuite.parse("suite.jsh",
                         "// case: empty\n\n// case: filled\nint a = 1;"));
+        assertTrue(blank.getMessage().contains("The case \"empty\" from line 1 has no source"),
+                blank.getMessage());
 
-        assertTrue(problem.getMessage().contains("The case \"empty\" from line 1 has no source"),
-                problem.getMessage());
-    }
-
-    @Test
-    @DisplayName("A case body holding only comments is refused like an empty one")
-    void commentOnlyCaseBodyIsRefused() {
-        IllegalArgumentException problem = assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException comments = assertThrows(IllegalArgumentException.class,
                 () -> TestSuite.parse("suite.jsh", "// case: notes\n// TODO later\n"
                         + "/* still nothing */\n// case: filled\nint a = 1;"));
-
-        assertTrue(problem.getMessage().contains("The case \"notes\" from line 1 has no source"),
-                problem.getMessage());
+        assertTrue(comments.getMessage().contains("The case \"notes\" from line 1 has no source"),
+                comments.getMessage());
     }
 
     @Test

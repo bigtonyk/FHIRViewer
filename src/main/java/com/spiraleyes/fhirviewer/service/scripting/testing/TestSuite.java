@@ -102,11 +102,12 @@ public record TestSuite(String name, List<TestCase> cases) {
      * A body holding only comments is refused too: JShell compiles it to nothing.
      */
     private static TestCase requireBody(String caseName, int markerLine, StringBuilder body) {
-        if (!hasSource(body.toString())) {
+        String source = body.toString();
+        if (!hasSource(source)) {
             throw new IllegalArgumentException("The case \"" + caseName + "\" from line "
                     + markerLine + " has no source; add a body or remove the marker.");
         }
-        return new TestCase(caseName, body.toString());
+        return new TestCase(caseName, source);
     }
 
     /**
@@ -119,27 +120,23 @@ public record TestSuite(String name, List<TestCase> cases) {
     private static boolean hasSource(String body) {
         int index = 0;
         while (index < body.length()) {
-            char current = body.charAt(index);
-            if (Character.isWhitespace(current)) {
+            if (Character.isWhitespace(body.charAt(index))) {
                 index++;
                 continue;
             }
-            if (current == '/' && index + 1 < body.length()) {
-                char next = body.charAt(index + 1);
-                if (next == '/') {
-                    int newline = body.indexOf('\n', index + 2);
-                    index = newline < 0 ? body.length() : newline + 1;
-                    continue;
+            if (body.startsWith("//", index)) {
+                int newline = body.indexOf('\n', index + 2);
+                index = newline < 0 ? body.length() : newline + 1;
+                continue;
+            }
+            if (body.startsWith("/*", index)) {
+                int end = body.indexOf("*/", index + 2);
+                if (end < 0) {
+                    // An unterminated block comment leaves no source behind it.
+                    return false;
                 }
-                if (next == '*') {
-                    int end = body.indexOf("*/", index + 2);
-                    if (end < 0) {
-                        // An unterminated block comment leaves no source behind it.
-                        return false;
-                    }
-                    index = end + 2;
-                    continue;
-                }
+                index = end + 2;
+                continue;
             }
             return true;
         }

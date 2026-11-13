@@ -283,6 +283,87 @@ class ScriptingConsoleSmokeTest {
         }
     }
 
+    /**
+     * A refusal must not leave the console stuck: fixing the buffer and pressing Run Tests
+     * again in the same console has to ask for trust and run the suite normally.
+     */
+    @Test
+    @DisplayName("A refused buffer can be fixed and run in the same console")
+    void refusedSuiteCanBeFixedAndRun() throws Exception {
+        requireToolkit();
+        try (ScriptingCoordinator coordinator = new ScriptingCoordinator()) {
+            ProbeConsole console = onFxThread(() -> {
+                ProbeConsole created = new ProbeConsole(coordinator);
+                created.setEditorTextForTest("""
+                        // case: notes
+                        // TODO later
+                        /* still nothing */
+                        """);
+                created.runTestsButtonForTest().fire();
+                return created;
+            });
+            String refusal = onFxThread(() -> console.suiteReportForTest().getText());
+            assertTrue(refusal.startsWith("Could not read tests:"),
+                    "the first press should be refused: " + refusal);
+
+            onFxThread(() -> {
+                console.setEditorTextForTest("""
+                        // case: passes
+                        test.assertTrue(true, "this passes");
+                        """);
+                return null;
+            });
+
+            SuiteOutcome outcome = runSuite(console);
+
+            assertTrue(outcome.report().contains("1 passed, 0 failed (1 case(s)"),
+                    "the fixed suite should run: " + outcome.report());
+            assertTrue(outcome.details().contains("case: passes \u2014 PASSED"),
+                    "the fixed suite's details should appear: " + outcome.details());
+        }
+    }
+
+    /**
+     * The parser refusal has to reach the console, and nothing may run: the dialog must not
+     * ask for trust or start a suite for a buffer it could not read.
+     */
+    @Test
+    @DisplayName("Run Tests on a comment-only case reports the refusal and runs nothing")
+    void commentOnlyCaseIsRefusedInConsole() throws Exception {
+        requireToolkit();
+        try (ScriptingCoordinator coordinator = new ScriptingCoordinator()) {
+            List<String> shown = onFxThread(() -> {
+                ProbeConsole console = new ProbeConsole(coordinator);
+                console.setEditorTextForTest("""
+                        // case: notes
+                        // TODO later
+                        /* still nothing */
+                        """);
+                // No trust prompt may appear: parsing happens first, and this returns only
+                // because the refusal needs no confirmation.
+                console.runTestsButtonForTest().fire();
+                return List.of(
+                        console.suiteReportForTest().getText(),
+                        String.valueOf(console.suiteReportForTest().isVisible()),
+                        console.suiteDetailsTextForTest(),
+                        console.outputTextForTest(),
+                        console.runTestsButtonForTest().isDisabled() ? "disabled" : "enabled",
+                        String.valueOf(coordinator.isRunning()));
+            });
+
+            assertTrue(shown.get(0).startsWith("Could not read tests:"),
+                    "the refusal belongs in the report: " + shown.get(0));
+            assertTrue(shown.get(0).contains(
+                            "The case \"notes\" from line 1 has no source"),
+                    "the refusal must name the case: " + shown.get(0));
+            assertEquals("true", shown.get(1), "the report line should be visible");
+            assertEquals("", shown.get(2), "a refused suite has no details to show");
+            assertEquals("", shown.get(3), "nothing was run, so the output must stay empty");
+            assertEquals("enabled", shown.get(4), "the Run Tests button must not stay disabled");
+            assertEquals("false", shown.get(5), "the coordinator must never have started");
+        }
+    }
+
     /** Runs FX work and returns its value, failing the test when the task throws. */
     private static <T> T onFxThread(Callable<T> action) throws Exception {
         AtomicReference<T> value = new AtomicReference<>();
@@ -312,8 +393,17 @@ class ScriptingConsoleSmokeTest {
      */
     private static SuiteOutcome runSuite(String source, ScriptingCoordinator coordinator)
             throws Exception {
+        ProbeConsole console = onFxThread(() -> {
+            ProbeConsole created = new ProbeConsole(coordinator);
+            created.setEditorTextForTest(source);
+            return created;
+        });
+        return runSuite(console);
+    }
+
+    /** Runs the suite already loaded in the given console, then waits for its result. */
+    private static SuiteOutcome runSuite(ProbeConsole console) throws Exception {
         AtomicReference<Throwable> failure = new AtomicReference<>();
-        AtomicReference<ProbeConsole> consoleRef = new AtomicReference<>();
         AtomicReference<SuiteOutcome> outcome = new AtomicReference<>();
         AtomicReference<String> lastReport = new AtomicReference<>("<none>");
         AtomicBoolean trustAnswered = new AtomicBoolean();
@@ -325,10 +415,6 @@ class ScriptingConsoleSmokeTest {
                 Platform.runLater(() -> {
                     try {
                         fxTicks.incrementAndGet();
-                        ProbeConsole console = consoleRef.get();
-                        if (console == null) {
-                            return;
-                        }
                         lastReport.set(console.suiteReportForTest().getText());
                         if (!trustAnswered.get() && acknowledgeTrustPrompt()) {
                             trustAnswered.set(true);
@@ -359,9 +445,6 @@ class ScriptingConsoleSmokeTest {
 
         Platform.runLater(() -> {
             try {
-                ProbeConsole console = new ProbeConsole(coordinator);
-                console.setEditorTextForTest(source);
-                consoleRef.set(console);
                 // Blocks in the trust dialog's nested event loop until the helper answers it.
                 console.runTestsButtonForTest().fire();
             } catch (Throwable problem) {

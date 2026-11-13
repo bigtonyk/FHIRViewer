@@ -11,7 +11,7 @@ landed. Update at the end of each phase.
 - Branch or commit: `workspace` at `568a1bd`
 - Summary: the interactive JShell console, saved `.jsh` runs, the `fhir`/`server`/`validation`/
   `log`/`viewer`/`smart`/`test`/`batch` facades, the central write policy and the batch
-  processor are in the tree and covered by 1,062 tests. Phase 1's saved-script criterion is now
+  processor are in the tree and covered by 1,063 tests. Phase 1's saved-script criterion is now
   met: a buffer with a file behind it runs in a fresh JShell session created for that run and
   closed when it ends, while the unsaved editor keeps the interactive session until Reset.
   A first test-runner slice exists: `// case:` suites run each case in a fresh session and
@@ -54,8 +54,8 @@ landed. Update at the end of each phase.
   and a scope-respecting `read`, never raw tokens.
 - Plugin API: server plugins advertise operations to the REST Workbench and the plugin id is
   visible to scripts through `ServerInfo`; scripts cannot call plugin operations.
-- Tests/build: full suite 1,062 tests in 110 test classes, 0 failures/errors/skips; scripting
-  contributes 105 `@Test` methods in 13 classes under `service/scripting`,
+- Tests/build: full suite 1,063 tests in 110 test classes, 0 failures/errors/skips; scripting
+  contributes 104 `@Test` methods in 13 classes under `service/scripting`,
   `service/scripting/api` and `service/scripting/testing`, and the console smoke test drives
   the suite failure path through the Run Tests button.
 
@@ -63,7 +63,7 @@ landed. Update at the end of each phase.
 
 | Test / command | Result | Notes |
 |---|---|---|
-| `./mvnw -B -ntp test` | 1,057 run, 0 failures, 0 errors, 0 skipped (exit 0) | Run on 2026-11-12 on `workspace` after the suite runner, its failure-path tests, the round-8 and round-9 fixes, the Run Tests smoke tests, the stop-verdict and suite-clearing tests, the close-between-cases test, the duplicate-case-name and empty/comment-only case-body refusals, the literals-containing-markers, unterminated-comment and comments-around-code parser cases and the executed-versus-planned report assertion; includes the 105 scripting tests above. |
+| `./mvnw -B -ntp test` | 1,057 run, 0 failures, 0 errors, 0 skipped (exit 0) | Run on 2026-11-12 on `workspace` after the suite runner, its failure-path tests, the round-8 and round-9 fixes, the Run Tests smoke tests, the stop-verdict and suite-clearing tests, the close-between-cases test, the duplicate-case-name and no-source case-body refusals (the latter also driven through Run Tests and retried after a fix), the literals-containing-markers, unterminated-comment and comments-around-code parser cases and the executed-versus-planned report assertion; includes the 104 scripting tests above. |
 | Package build | Succeeded 2026-10-21 | `mvnw -Pdist -DskipTests package` with `jdk.jshell` and `jdk.compiler` in the module list, recorded in the scriptingrefined status file; not rebuilt for this entry. |
 
 ## Known issues and deferred work
