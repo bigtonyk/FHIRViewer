@@ -1,0 +1,329 @@
+package com.spiraleyes.fhirviewer.workspace;
+
+import java.util.prefs.BackingStoreException;
+import java.util.prefs.Preferences;
+
+import com.spiraleyes.fhirviewer.server.FhirServerManager;
+import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
+import com.spiraleyes.fhirviewer.service.IgPackageManager;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+public class WorkspaceService {
+
+    /**
+     * The preference node this service owns.
+     *
+     * <p>Package-scoped rather than the bare word {@code workspace}, which is a name any
+     * application on the machine could have taken: two applications writing the same keys
+     * there would read each other's values. Public so a test can read the node the
+     * application actually uses instead of repeating the name.
+     */
+    public static final String PREFERENCES_NODE = "com/spiraleyes/fhirviewer/workspace";
+
+    /** The bare node earlier builds used; migrated into {@link #PREFERENCES_NODE}. */
+    private static final String LEGACY_PREFERENCES_NODE = "workspace";
+
+    private static final String KEY_LAST_ID = "lastId";
+    private static final String KEY_LAST_NAME = "lastName";
+    private static final String KEY_LAST_PATH = "lastPath";
+
+    private Path currentPath;
+    private WorkspaceMetadata current;
+    private boolean dirty;
+    private final List<WorkspaceStateProvider> providers = new ArrayList<>();
+    private Preferences prefs;
+
+    /** Backward-compatible constructor: providers run without real subsystem wiring. */
+    public WorkspaceService() {
+        this(null, null, null);
+    }
+
+    /**
+     * Creates the service with real subsystem adapters wired to the providers.
+     *
+     * @param serverManager  configured FHIR servers (may be null)
+     * @param pluginRegistry server plugin registry (may be null)
+     * @param packageManager installed IG packages (may be null)
+     */
+    public WorkspaceService(FhirServerManager serverManager,
+                            FhirServerPluginRegistry pluginRegistry,
+                            IgPackageManager packageManager) {
+        this(serverManager, pluginRegistry, packageManager, null, null);
+    }
+
+    /**
+     * Creates the service with the live subsystems and the view state the window owns.
+     *
+     * <p>The tree/tab and FHIRPath providers need callbacks into the window, so they are
+     * passed in rather than built here. Built here with no callbacks, their capture was an
+     * empty map and their restore a no-op, which is how the tree selection, the open tabs and
+     * the saved expressions came to be silently absent from every workspace. A {@code null}
+     * provider keeps that documented no-op behaviour, which is what a headless test uses.</p>
+     */
+    public WorkspaceService(FhirServerManager serverManager,
+                            FhirServerPluginRegistry pluginRegistry,
+                            IgPackageManager packageManager,
+                            TreeTabsWorkspaceStateProvider treeTabs,
+                            FhirPathWorkspaceStateProvider fhirPath) {
+        this.prefs = openPreferences();
+        providers.add(new ConnectionsWorkspaceStateProvider(serverManager, pluginRegistry));
+        providers.add(new RestWorkbenchWorkspaceStateProvider());
+        providers.add(treeTabs == null ? new TreeTabsWorkspaceStateProvider() : treeTabs);
+        providers.add(fhirPath == null ? new FhirPathWorkspaceStateProvider() : fhirPath);
+        providers.add(new ValidationWorkspaceStateProvider(packageManager));
+    }
+
+    /**
+     * Builds a service whose providers are exactly the given ones.
+     *
+     * <p>For tests: the real constructor wires the five feature providers, none of which can
+     * be made to fail, so the state a failed restore leaves behind would otherwise be
+     * untestable.</p>
+     */
+    WorkspaceService(List<WorkspaceStateProvider> providers) {
+        this.prefs = openPreferences();
+        this.providers.addAll(providers);
+    }
+
+    /**
+     * This service's preference node, carrying over anything an earlier build recorded under
+     * the bare {@code workspace} node.
+     *
+     * <p>The old node is emptied once its values are safe, so there is one source from here
+     * on. A preferences backend that refuses any of this is ignored: a workspace that cannot
+     * be reopened is a Save As, not a reason to fail start-up.
+     */
+    private static Preferences openPreferences() {
+        Preferences current = Preferences.userRoot().node(PREFERENCES_NODE);
+        try {
+            Preferences legacy = Preferences.userRoot().node(LEGACY_PREFERENCES_NODE);
+            for (String key : new String[] {KEY_LAST_ID, KEY_LAST_NAME, KEY_LAST_PATH}) {
+                if (current.get(key, null) != null) {
+                    continue;
+                }
+                String recorded = legacy.get(key, null);
+                if (recorded != null) {
+                    current.put(key, recorded);
+                }
+            }
+            current.flush();
+            for (String key : new String[] {KEY_LAST_ID, KEY_LAST_NAME, KEY_LAST_PATH}) {
+                legacy.remove(key);
+            }
+        } catch (RuntimeException | BackingStoreException ignored) {
+            // A preference store that cannot be migrated still leaves a working service.
+        }
+        return current;
+    }
+
+    public WorkspaceMetadata newWorkspace(String name) {
+        WorkspaceMetadata meta = new WorkspaceMetadata(WorkspaceMetadata.CURRENT_SCHEMA_VERSION, UUID.randomUUID(), name);
+        current = meta;
+        currentPath = null;
+        dirty = true;
+        // Persist that a new workspace was created (no path yet)
+        prefs.put(KEY_LAST_ID, meta.workspaceId().toString());
+        prefs.put(KEY_LAST_NAME, name);
+        return meta;
+    }
+
+    /**
+     * Opens an archive and applies its state.
+     *
+     * <p>The archive becomes the current workspace only after its sections have been
+     * applied. Adopting it first meant that a failing provider left the service pointing at
+     * an archive the window never showed: Save would then have written over a file the user
+     * had not opened, and the caller's "failed to open" message described an open that had
+     * half happened.</p>
+     *
+     * <p>On failure the previous workspace is put back where the providers can take it, the
+     * recorded last-opened archive is left alone, and the failure is reported as an
+     * {@link IOException} — the type {@link #openLastFromPreferences()} already treats as
+     * "nothing to open", so an unrestorable archive cannot abort start-up.</p>
+     */
+    public WorkspaceMetadata open(Path path) throws IOException {
+        WorkspaceMetadata meta = WorkspaceArchiveReader.read(path);
+        WorkspaceMetadata previous = current;
+        Path previousPath = currentPath;
+        boolean wasDirty = dirty;
+        try {
+            restoreAll(meta);
+        } catch (RuntimeException e) {
+            // Some providers may already have applied their section before this one failed:
+            // restore the workspace we were on, so the features do not hold a mixture of two
+            // archives. Best effort — an archive that cannot be applied is the real failure.
+            if (previous != null) {
+                try {
+                    restoreAll(previous);
+                } catch (RuntimeException ignored) {
+                    // Reported below as the failure to open the archive that was asked for.
+                }
+            }
+            current = previous;
+            currentPath = previousPath;
+            dirty = wasDirty;
+            throw new IOException("Could not restore workspace " + path.getFileName()
+                    + ": " + e.getMessage(), e);
+        }
+        current = meta;
+        currentPath = path;
+        dirty = false;
+        // Persist this as the last used workspace
+        prefs.put(KEY_LAST_PATH, path.toString());
+        prefs.put(KEY_LAST_ID, meta.workspaceId().toString());
+        prefs.put(KEY_LAST_NAME, meta.name());
+        return meta;
+    }
+
+    /**
+     * Opens the workspace recorded in preferences, if its archive is still on disk.
+     *
+     * <p>Returns {@code null} rather than inventing a workspace. At start-up there is
+     * nothing to save yet, and a fresh empty workspace would arrive already dirty, so
+     * closing the window would ask about work nobody did. An archive that has moved or
+     * cannot be read clears the recorded identity and reports the same "nothing open",
+     * which Save turns into a Save As.</p>
+     *
+     * @return the workspace that was opened, or {@code null} when there was none
+     */
+    public WorkspaceMetadata openLastFromPreferences() {
+        String savedPath = prefs.get(KEY_LAST_PATH, null);
+        if (savedPath == null) {
+            return null;
+        }
+
+        Path path = Path.of(savedPath);
+        if (!Files.isRegularFile(path)) {
+            // Archive missing or moved: forget it, so the next Save asks where.
+            forgetLastWorkspace();
+            return null;
+        }
+
+        try {
+            return open(path);
+        } catch (IOException e) {
+            // Corrupt or incompatible archive: forget it rather than failing to start.
+            forgetLastWorkspace();
+            return null;
+        }
+    }
+
+    /**
+     * The name of the workspace the previous session had open, or {@code null} when none was
+     * recorded or its archive is gone.
+     *
+     * <p>Separate from {@link #openLastFromPreferences()} so start-up can ask before anything
+     * is applied. Applying first would put the question after the fact: the workspace would
+     * already be the user's, and there would be nothing left to decline.</p>
+     */
+    public String lastWorkspaceName() {
+        String savedPath = prefs.get(KEY_LAST_PATH, null);
+        if (savedPath == null || !Files.isRegularFile(Path.of(savedPath))) {
+            return null;
+        }
+        String name = prefs.get(KEY_LAST_NAME, null);
+        return name == null || name.isBlank()
+                ? Path.of(savedPath).getFileName().toString()
+                : name;
+    }
+
+    /** Drops the recorded last-workspace identity: there is no archive to reopen. */
+    private void forgetLastWorkspace() {
+        prefs.remove(KEY_LAST_PATH);
+        prefs.remove(KEY_LAST_ID);
+        prefs.remove(KEY_LAST_NAME);
+    }
+
+    public void save() throws IOException {
+        if (current == null) throw new IllegalStateException("No workspace open");
+        if (currentPath == null) throw new IllegalStateException("Use Save As");
+        WorkspaceMetadata meta = captureAll(current);
+        WorkspaceArchiveWriter.write(currentPath, meta);
+        current = meta;
+        dirty = false;
+        // Persist this as the last used workspace
+        prefs.put(KEY_LAST_PATH, currentPath.toString());
+        prefs.put(KEY_LAST_ID, meta.workspaceId().toString());
+        prefs.put(KEY_LAST_NAME, meta.name());
+    }
+
+    public void saveAs(Path path) throws IOException {
+        if (current == null) throw new IllegalStateException("No workspace open");
+        WorkspaceMetadata meta = captureAll(current);
+        WorkspaceArchiveWriter.write(path, meta);
+        current = meta;
+        currentPath = path;
+        dirty = false;
+        // Persist this as the last used workspace
+        prefs.put(KEY_LAST_PATH, path.toString());
+        prefs.put(KEY_LAST_ID, meta.workspaceId().toString());
+        prefs.put(KEY_LAST_NAME, meta.name());
+    }
+
+    public void captureAll() {
+        if (current != null) current = captureAll(current);
+    }
+
+    /**
+     * Captures the current workspace's state without writing it anywhere.
+     *
+     * <p>The snapshot is built from the open workspace's schema version and id, so one must be
+     * open. Said plainly here rather than left to a null dereference: callers that reach this
+     * at start-up are asking a question with no answer, and both the message and the exception
+     * type match {@link #save()}.</p>
+     *
+     * @return the captured state
+     * @throws IllegalStateException when no workspace is open
+     */
+    public WorkspaceMetadata captureAllCurrent() {
+        if (current == null) throw new IllegalStateException("No workspace open");
+        return captureAll(current);
+    }
+
+    private WorkspaceMetadata captureAll(WorkspaceMetadata base) {
+        java.util.Map<String, Object> connections = null, rest = null, tree = null, fp = null, val = null;
+        for (WorkspaceStateProvider p : providers) {
+            Object snap = p.capture();
+            switch (p.providerId()) {
+                case "connections" -> connections = asMap(snap);
+                case "rest-workbench" -> rest = asMap(snap);
+                case "tree-tabs" -> tree = asMap(snap);
+                case "fhirpath" -> fp = asMap(snap);
+                case "validation" -> val = asMap(snap);
+            }
+        }
+        return new WorkspaceMetadata(base.schemaVersion(), base.workspaceId(), base.name(), connections, rest, tree, fp, val);
+    }
+
+    public void restoreAll(WorkspaceMetadata meta) {
+        for (WorkspaceStateProvider p : providers) {
+            Object snap = switch (p.providerId()) {
+                case "connections" -> meta.connections();
+                case "rest-workbench" -> meta.restWorkbench();
+                case "tree-tabs" -> meta.treeTabs();
+                case "fhirpath" -> meta.fhirPath();
+                case "validation" -> meta.validation();
+                default -> null;
+            };
+            if (snap != null) p.restore(snap);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private java.util.Map<String, Object> asMap(Object o) {
+        if (o instanceof java.util.Map) return (java.util.Map<String, Object>) o;
+        return java.util.Map.of();
+    }
+
+    public boolean isDirty() { return dirty; }
+    public void markDirty() { dirty = true; }
+    public Path getCurrentPath() { return currentPath; }
+    public WorkspaceMetadata getCurrent() { return current; }
+}
+

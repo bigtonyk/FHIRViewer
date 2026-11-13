@@ -3,9 +3,8 @@
 How to point FHIRViewer at a FHIR server, read resources from it, and write
 changes back.
 
-This guide describes the behaviour as it is in the `server-rest-integration`
-branch. Where something is deliberately not built yet, it says so rather than
-describing an ideal.
+This guide describes the behaviour of the current build. Where something is
+deliberately not built yet, it says so rather than describing an ideal.
 
 ---
 
@@ -650,7 +649,7 @@ under **Tools → Run Server Operation...** — see
 | PATCH | Yes | Yes | Yes |
 | `$`-operations | Yes | Yes | Yes |
 | Administration operations | No | No | **Yes** — the Firely administration API |
-| Vendor screens | None | None | Declared, not yet implemented |
+| Vendor screens | None | None | None (the menu was removed) |
 
 **Standard FHIR REST** is the right choice for anything that speaks ordinary
 FHIR REST. The two vendor plugins extend it, so they support everything it
@@ -726,10 +725,6 @@ message, that is why.
 An empty name, or a base URL not starting with `http://` or `https://`, is
 refused with a message at the bottom of the dialog.
 
-**"None of the configured servers offers extra tools."**
-Correct for a Standard REST or Smile CDR server. See
-Server Tools, which has been removed (see [section 10](#10-server-plugins)).
-
 **A search returns nothing.**
 Check the resource type. A server that supports `Patient` may not support
 whatever you asked for, and **Tools → Server Status and Capabilities...** lists
@@ -754,8 +749,8 @@ panel at the bottom of the window. Warnings do not block a save.
 
 **The save reported a conflict.**
 Somebody else changed the resource. You were offered reload or overwrite; the
-
-correct.
+choice was deliberately not made for you. Reload unless you are certain your
+version is correct.
 
 **A write succeeded but the next save says conflicts cannot be detected.**
 The server does not report a `meta.versionId`. Nothing is wrong with the
@@ -790,10 +785,22 @@ authentication, the same error messages, the same TLS behaviour.
 | **Path** | The rest, e.g. `Patient/123` or `/Patient?name=Smith`. The full address is previewed underneath as you type. |
 | **Query parameters** | A grid of name and value. A name may repeat — `_include` often does — and the order you type is the order that is sent. |
 | **Headers** | Any header you need: `If-Match`, `Prefer`, `_format`, a vendor's own. |
-| **Request body** | Enabled only for a method that can carry one. |
+| **Request body** | The JSON to send, for a method that can carry one (`POST`, `PUT`, `PATCH`). **Content type** defaults to `application/fhir+json`. |
 
 The **Send** button refuses to send an incomplete request and tells you which field is
 missing, rather than opening a connection first.
+
+### Copying the resource you are viewing into the body
+
+**Use viewer resource** — beside the **Request body** title — fills the body with the JSON
+of whatever is open in the main viewer. With a search result on screen that is the fastest
+way to start a `PUT Patient/123`: open the resource, open the console, press the button,
+check the id, and send.
+
+The button switches the method to `POST` when the current one cannot carry a body (`GET` is
+the default when the console opens) and says so on the status line; a `PUT` or `PATCH`
+already showing is left alone. When nothing is open in the viewer, the button says so and
+changes nothing.
 
 ### Authentication
 
@@ -831,7 +838,9 @@ this tool should make for you.
 Four tabs:
 
 - **Body** — the raw response, exactly as the server sent it, whatever it turned out to be.
-  Use **Copy body** or **Save body to file...** when you need it elsewhere.
+  The box is **editable**, so the fastest fix for a rejected write is to correct the JSON
+  right where the server's complaint is visible. Use **Copy body** or **Save body to
+  file...** when you need it elsewhere.
 - **Bundle entries** — when the answer is a Bundle, its entries are listed here. Double-click
   one to open that resource in the main viewer; you rarely want the wrapper when you wanted
   a search result.
@@ -890,7 +899,7 @@ Stated plainly, so nothing here reads as working when it does not.
 | **Smile CDR's connection half has no automated test** | Its test file is disabled. The operation declarations added here are covered separately. |
 | **Most specification operations are unverified** | Four were run against a public server. The rest come from the specification and may not be implemented by your server. See [How far this has been checked](#the-specifications-operations-on-every-server). |
 | **Console requests are not saved** | The console holds one request at a time and keeps nothing between sessions — no saved collections, no request history, no `{{variable}}` environment. You can copy a request out as cURL and paste it back. |
-| **SMART on FHIR is not supported** | The console can *use* a bearer token and can *fetch* one with an OAuth client-credentials grant. It does not run an authorization-code flow, open a browser, or refresh an expired token. Re-fetch when one expires. |
+| **The REST console does not run SMART authorization** | It can *use* a bearer token and can *fetch* one with an OAuth client-credentials grant. The separate **SMART Launch Workbench** runs Authorization Code + PKCE in the system browser; use it when you need a SMART token. The console does not refresh an expired token, so re-fetch when one expires. |
 | **Console credentials are never stored** | A password or token typed into the console is forgotten when the window closes, and is not part of what it remembers. Use the server manager to store one that should persist. |
 | **The console's request body is not remembered** | Everything else about the last request is, including the URL, parameters and headers. The body is left out because it is usually a patient resource. |
 | **Very large responses are held in memory** | The whole body is loaded as text. A multi-hundred-megabyte bulk export is not something this handles well. |
@@ -900,9 +909,7 @@ Stated plainly, so nothing here reads as working when it does not.
 
 - [`Current-Plugin-Architecture.md`](../architecture/Current-Plugin-Architecture.md) —
   how the pieces fit together, for anyone extending this.
-- [`Phase-7-Open-Save-from-FHIR-Server.md`](../plans/Phase-7-Open-Save-from-FHIR-Server.md) —
-  the design decisions behind Open and Save.
-- [`REST-Integration-Progress.md`](../plans/REST-Integration-Progress.md) —
-  what is done and what is outstanding across the whole integration.
-
-viewer will not pick for you. Reload unless you are certain your version is
+- [`USER-GUIDE-SMART.md`](../smartonfhir/USER-GUIDE-SMART.md) — the SMART Launch
+  Workbench, for token-based access instead of a server password.
+- [`Scripting-Guide.md`](../scripting/Scripting-Guide.md) — automating reads and
+  searches from the Scripting Console.

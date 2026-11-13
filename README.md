@@ -27,9 +27,9 @@ what does the specification say about it?*
 
 | Tool | Version used | Notes |
 |------|--------------|-------|
-| JDK | 21 or newer (verified on JDK 25) | `maven.compiler.release=21` |
+| JDK | 21 (Microsoft Build of OpenJDK 21) | `maven.compiler.release=21` |
 | Maven | 3.9+ | or use the bundled `mvnw` / `mvnw.cmd` wrapper |
-| JavaFX | 25.0.4 | resolved by Maven, no manual SDK install needed |
+| JavaFX | 21.0.8 | resolved by Maven, no manual SDK install needed |
 | HAPI FHIR | 8.12.0 | R4 model, parsers, validation |
 
 The first build downloads HAPI FHIR and the R4 validation resources, which takes a
@@ -48,14 +48,25 @@ mvn javafx:run
 mvn javafx:run "-Djavafx.args=C:\path\to\patient.json"
 
 # run from the packaged output instead (after mvn package; uses target/lib)
-java -cp "target/classes;target/lib/*" com.example.fhirviewer.Launcher   # Windows
-java -cp "target/classes:target/lib/*" com.example.fhirviewer.Launcher   # macOS / Linux
+java -cp "target/classes;target/lib/*" com.spiraleyes.fhirviewer.Launcher   # Windows
+java -cp "target/classes:target/lib/*" com.spiraleyes.fhirviewer.Launcher   # macOS / Linux
 ```
 
-Use `com.example.fhirviewer.Launcher`, not `Main`: `Main` extends
+Use `com.spiraleyes.fhirviewer.Launcher`, not `Main`: `Main` extends
 `javafx.application.Application`, and the JVM launcher refuses such a main class when
 JavaFX is on the class path instead of the module path (*"JavaFX runtime components are
 missing"*). `mvn javafx:run` uses the module path and therefore `Main`.
+
+### Helper scripts in the repository root
+
+None of these is needed to build, test or package the application, and CI uses none of
+them. They are conveniences for running a tree that has already been built:
+
+| Script | What it does |
+|--------|--------------|
+| `launch-app.cmd`, `launch-app.ps1` | Starts the viewer from `target/classes` plus `target/lib` with a JDK already on `PATH`, without Maven. Both expect `mvnw package` to have run first. |
+| `ci-launch-console.ps1` | The same launch, but builds the `--module-path` for the platform-specific JavaFX jars explicitly and keeps a console attached, so start-up errors are visible instead of vanishing with `javaw`. |
+| `ci-check-window.ps1` | Diagnostic for "it started but no window appeared": lists Java processes whose command line mentions the viewer and enumerates visible windows to find it. |
 
 ## What the application does
 
@@ -104,7 +115,7 @@ The JavaFX UI is fully separated from FHIR processing; the UI never talks to HAP
 directly.
 
 ```
-com.example.fhirviewer
+com.spiraleyes.fhirviewer
 |
 +-- Main.java ................. JavaFX entry point
 |
@@ -164,7 +175,11 @@ hard-coded**.
 
 ## Tests
 
-`mvn test` runs the JUnit 5 suite:
+`mvn test` runs the JUnit 5 suite, which holds 110 test classes. The table below names
+the ones covering the core path; the rest sit in the same tree, under `server/rest`,
+`server/smart`, `ui`, `service/scripting` and `workspace`. The two UI suites need a
+display and skip themselves when no graphics environment is available, which is why CI
+runs the Linux leg under Xvfb.
 
 | Test class | Covers |
 |------------|--------|
@@ -252,6 +267,22 @@ Maven, the platform specific JavaFX jars already sit in `target/lib` for the pla
 that performed the build. Build the package on the target operating system to produce
 a native bundle - jpackage cannot cross-compile.
 
+```bat
+:: Windows (app-image; add --type msi for an installer)
+jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-2.0.0.jar ^
+  --main-class com.spiraleyes.fhirviewer.Launcher --type app-image
+```
+
+```bash
+# macOS / Linux
+jpackage --name FHIRViewer --input target/lib --main-jar fhir-viewer-2.0.0.jar \
+  --main-class com.spiraleyes.fhirviewer.Launcher --type app-image
+```
+
+Because JavaFX is resolved by Maven, the platform specific JavaFX jars already sit in
+`target/lib` for the platform that performed the build. Build the package on the target
+operating system to produce a native bundle.
+
 A bare `jpackage` command over `target/lib` is not enough on its own: the runtime it
 packs would miss modules the application reaches from the class path, and the app
 would then fail at startup. The module list lives with the `jpackage` invocation in
@@ -279,7 +310,7 @@ The working documents live under `docs/`, out of the repository root:
 - **`docs/notes/`** — the original project plan and the loose requirement notes the
   plans were written from.
 - **`docs/architecture/`** — assessments of the code as it actually stands. Start with
-  `Current-Plugin-Architecture.md` before changing anything in `com.example.fhirviewer.server`
+  `Current-Plugin-Architecture.md` before changing anything in `com.spiraleyes.fhirviewer.server`
   or the FHIR server dialogs: it records the plugin API, the UI/service/plugin path, the
   reusable HTTP/authentication/FHIR infrastructure, and the gaps the REST integration
   work has to fill.
@@ -288,9 +319,8 @@ Nothing outside `docs/` is required to build, test or run the application.
 
 ## Roadmap (from the plan's future enhancements)
 
-Drag and drop, FHIR server connectivity, FHIRPath evaluation, resource comparison,
-search within a resource, StructureDefinition browsing,
-terminology lookup, multiple FHIR versions, themes and recent files.
+Drag and drop, resource comparison, search within a resource, StructureDefinition
+browsing, terminology lookup, multiple FHIR versions and recent files.
 
 ## License
 

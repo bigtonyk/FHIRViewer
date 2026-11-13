@@ -181,7 +181,7 @@ fhir-viewer/
 
 Suggested package organization:
 
-com.example.fhirviewer
+com.spiraleyes.fhirviewer
 |
 +-- Main.java
 +-- ui/

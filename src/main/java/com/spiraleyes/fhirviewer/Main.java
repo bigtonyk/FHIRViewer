@@ -1,0 +1,70 @@
+package com.spiraleyes.fhirviewer;
+
+import java.util.List;
+
+import com.spiraleyes.fhirviewer.ui.MainWindow;
+import com.spiraleyes.fhirviewer.ui.ThemeManager;
+
+import javafx.application.Application;
+import javafx.scene.Scene;
+import javafx.scene.image.Image;
+import javafx.stage.Stage;
+
+/**
+ * Application entry point.
+ *
+ * <p>Creates the JavaFX window and hands over to {@link MainWindow}. All FHIR work
+ * happens behind <code>com.spiraleyes.fhirviewer.service.FhirService</code>.</p>
+ *
+ * <p>An optional first command line argument names a FHIR file to open at startup,
+ * which also makes the application usable from a file association.</p>
+ */
+public class Main extends Application {
+
+    private static final double INITIAL_WIDTH = 1180;
+    private static final double INITIAL_HEIGHT = 760;
+    private static final double MINIMUM_WIDTH = 860;
+    private static final double MINIMUM_HEIGHT = 520;
+
+    @Override
+    public void start(Stage stage) {
+        // The window opens the previous session's workspace itself: it owns the workspace,
+        // and the service once created here was discarded before the window was built, so
+        // nothing it restored was ever visible.
+        MainWindow mainWindow = new MainWindow(stage, getHostServices());
+
+        Scene scene = new Scene(mainWindow.getRoot(), INITIAL_WIDTH, INITIAL_HEIGHT);
+        new ThemeManager().apply(scene, ThemeManager.Theme.PRIMER_LIGHT);
+        stage.setTitle("FHIR Resource Viewer");
+        applyWindowIcon(stage);
+        stage.setScene(scene);
+        stage.setMinWidth(MINIMUM_WIDTH);
+        stage.setMinHeight(MINIMUM_HEIGHT);
+        stage.show();
+
+        openRequestedResource(mainWindow);
+    }
+
+    /** The upper-left window icon, exported from FHIRViewer.ico (JavaFX cannot read .ico). */
+    private void applyWindowIcon(Stage stage) {
+        try (java.io.InputStream in = Main.class.getResourceAsStream("/FHIRViewer-icon-64.png")) {
+            if (in != null) {
+                stage.getIcons().add(new Image(in));
+            }
+        } catch (java.io.IOException | RuntimeException ignored) {
+            // Branding is a nicety; a missing icon must never stop startup.
+        }
+    }
+
+    /** Opens the file named on the command line, if one was supplied. */
+    private void openRequestedResource(MainWindow mainWindow) {
+        List<String> arguments = getParameters().getRaw();
+        if (!arguments.isEmpty() && !arguments.get(0).isBlank()) {
+            mainWindow.openOnStartup(arguments.get(0));
+        }
+    }
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+}
