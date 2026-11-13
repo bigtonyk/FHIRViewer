@@ -29,7 +29,7 @@ Suggested values: Not started, In progress, Complete, Blocked, Deferred.
 
 ## Execution model decisions
 - Interactive JShell session lifecycle:
-- Saved workflow fresh-session behavior:
+- Saved workflow session behavior:
 - Script storage/metadata approach:
 - Target server/environment selection:
 - Parameter handling:

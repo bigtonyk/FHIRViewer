@@ -36,12 +36,12 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
     <!--
-      Source/target level. Java 21 bytecode runs on the JDK 21 runtime used to
-      build and launch the application.
+      Release level, and the only compiler level this build sets: the plugin is
+      configured with <release>, so source/target would be inert here and would
+      silently disagree the first time one of the three was bumped. Java 21
+      bytecode runs on the JDK 21 runtime used to build and launch.
     -->
     <maven.compiler.release>21</maven.compiler.release>
-    <maven.compiler.source>21</maven.compiler.source>
-    <maven.compiler.target>21</maven.compiler.target>
 
     <!--
       JavaFX 21.0.8: the newest 21.x line, which runs on the JDK 21 build.
@@ -292,25 +292,6 @@
       </plugin>
 
       <!--
-        Lets 'mvn clean' succeed after a dist package.
-
-        jpackage marks FHIRViewer.exe read-only. maven-clean-plugin has no
-        attribute handling, so on Windows it reports only "Failed to delete
-        ...\FHIRViewer.exe" and leaves target/ half-deleted, after which every
-        later build fails for a reason unrelated to the change being built.
-        This is the recurring "mvn clean fails on this project" report, and
-        the application being open is a red herring: nothing holds the file.
-
-        In the main build rather than the dist profile, because a profile is
-        only active when asked for and 'mvn clean' does not ask. Bound inside
-        the profile this step is silently skipped - no warning, and nothing in
-        the output to say so.
-
-        Runs before the clean plugin's own execution. Reads the helper from the
-        source tree, because the clean is about to delete target. When nothing
-        has been packed the directory is absent and this is a no-op.
-      -->
-      <!--
         Makes 'mvn clean' succeed after a dist package.
 
         jpackage marks FHIRViewer.exe read-only. maven-clean-plugin's default
@@ -322,7 +303,10 @@
         nothing holds the file.
 
         Implemented as an extra fileset in this plugin rather than as a step
-        bound to a phase. Two other approaches were tried and failed:
+        bound to a phase, and configured in the main build rather than inside
+        the dist profile: a profile is only active when asked for, and
+        'mvn clean' does not ask, so the step would be skipped there. Two other
+        approaches were tried and failed:
 
           - a separate exec step on the clean phase: Maven orders same-phase
             executions by the lifecycle mapping, not by declaration, so this

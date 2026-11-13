@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,8 +20,10 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.spiraleyes.fhirviewer.fhir.FhirContextFactory;
 import com.spiraleyes.fhirviewer.service.PackageInstaller.InstallPlan;
+import com.spiraleyes.fhirviewer.service.PackageInstaller.InstallResult;
 import com.spiraleyes.fhirviewer.service.PackageInstaller.PlannedPackage;
 import com.spiraleyes.fhirviewer.service.PackageInstaller.Status;
+import com.spiraleyes.fhirviewer.service.PackageInstaller.VersionConflict;
 import com.spiraleyes.fhirviewer.service.PackageRegistryService.PackageInfo;
 
 
@@ -38,6 +41,7 @@ class PackageInstallerTest {
     private static final String DEPENDENCY = "example.dependency";
     private static final String TRANSITIVE = "example.transitive";
     private static final String CORE = "hl7.fhir.r4.core";
+    private static final String MISSING = "example.missing";
 
     @Test
     @DisplayName("plan pins the version a dependency declares")
@@ -151,6 +155,95 @@ class PackageInstallerTest {
                 .filter(key -> key.equals(ROOT + "#1.0.0")).count(),
                 "a circular dependency must not be downloaded twice: "
                         + fixture.source().fetched);
+    }
+
+    @Test
+    @DisplayName("plan reports a dependency required at two different versions")
+    void planReportsConflictingDependencyVersions(@TempDir Path dir) throws IOException {
+        Fixture fixture = new Fixture(dir);
+        Map<String, String> rootDependencies = new LinkedHashMap<>();
+        rootDependencies.put(DEPENDENCY, "2.1.0");
+        rootDependencies.put(TRANSITIVE, "1.0.0");
+        fixture.publish(ROOT, "1.0.0", rootDependencies);
+        fixture.publish(TRANSITIVE, "1.0.0", Map.of(DEPENDENCY, "3.0.0"));
+        fixture.publish(DEPENDENCY, "2.1.0", Map.of());
+        fixture.publish(DEPENDENCY, "3.0.0", Map.of());
+
+        InstallPlan plan = fixture.installer().plan(ROOT, "");
+
+        assertEquals(1, plan.conflicts().size(),
+                "one package is required at two versions: " + plan.conflicts());
+        VersionConflict conflict = plan.conflicts().get(0);
+        assertEquals(DEPENDENCY, conflict.packageId());
+        assertEquals(Set.of("2.1.0", "3.0.0"),
+                Set.of(conflict.plannedVersion(), conflict.requestedVersion()),
+                "the conflict must name both versions: " + conflict.describe());
+        PlannedPackage dependency = plan.packages().stream()
+                .filter(pkg -> pkg.packageId().equals(DEPENDENCY))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(dependency.version(), conflict.plannedVersion(),
+                "the conflict must say which version will be installed: " + conflict.describe());
+        assertEquals(1, fixture.source().fetched.stream()
+                .filter(key -> key.startsWith(DEPENDENCY + "#")).count(),
+                "only the winning version is downloaded: " + fixture.source().fetched);
+        assertTrue(plan.describe().contains("Version conflicts:"),
+                "the summary the user confirms must not drop the conflict: " + plan.describe());
+    }
+
+    @Test
+    @DisplayName("plan reports no conflict when two paths require the same version")
+    void planReportsNoConflictForMatchingVersions(@TempDir Path dir) throws IOException {
+        Fixture fixture = new Fixture(dir);
+        Map<String, String> rootDependencies = new LinkedHashMap<>();
+        rootDependencies.put(DEPENDENCY, "2.1.0");
+        rootDependencies.put(TRANSITIVE, "1.0.0");
+        fixture.publish(ROOT, "1.0.0", rootDependencies);
+        fixture.publish(TRANSITIVE, "1.0.0", Map.of(DEPENDENCY, "2.1.0"));
+        fixture.publish(DEPENDENCY, "2.1.0", Map.of());
+
+        InstallPlan plan = fixture.installer().plan(ROOT, "");
+
+        assertTrue(plan.conflicts().isEmpty(),
+                "agreeing requirements are not a conflict: " + plan.conflicts());
+        assertFalse(plan.describe().contains("Version conflicts:"), plan.describe());
+    }
+
+    @Test
+    @DisplayName("install does not fail on a dependency an earlier install left unmet")
+    void installIgnoresUnmetDependencyOfAnEarlierInstall(@TempDir Path dir) throws IOException {
+        Fixture fixture = new Fixture(dir);
+        fixture.publish(ROOT, "1.0.0", Map.of());
+        fixture.manager().loadPackageFromFile(
+                fixture.publish(DEPENDENCY, "1.0.0", Map.of(MISSING, "9.9.9")));
+        assertTrue(fixture.manager().getUnmetDependencies()
+                .contains(MISSING + "#9.9.9"),
+                "the fixture must leave an unmet dependency behind: "
+                        + fixture.manager().getUnmetDependencies());
+
+        InstallPlan plan = fixture.installer().plan(ROOT, "");
+        InstallResult result = fixture.installer().install(plan);
+
+        assertTrue(result.isSuccess(),
+                "an unrelated package must install cleanly: " + result.describe());
+        assertFalse(result.describe().contains(MISSING),
+                "an earlier install's unmet dependency must not be reported here: "
+                        + result.describe());
+    }
+
+    @Test
+    @DisplayName("install reports a dependency this install leaves unmet")
+    void installReportsNewlyUnmetDependency(@TempDir Path dir) throws IOException {
+        Fixture fixture = new Fixture(dir);
+        Path file = fixture.publish(DEPENDENCY, "1.0.0", Map.of(MISSING, "9.9.9"));
+        InstallPlan plan = new InstallPlan(DEPENDENCY, "1.0.0", List.of(new PlannedPackage(
+                DEPENDENCY, "1.0.0", "4.0.1", Status.TO_INSTALL, "", file)), List.of());
+
+        InstallResult result = fixture.installer().install(plan);
+
+        assertFalse(result.isSuccess(), "the unmet dependency must still be reported");
+        assertTrue(result.describe().contains("missing dependency " + MISSING + "#9.9.9"),
+                "this install's own gap must be reported: " + result.describe());
     }
 
     /**

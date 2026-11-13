@@ -3,6 +3,7 @@ package com.spiraleyes.fhirviewer.workspace;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,6 +25,25 @@ class WorkspaceArchiveRoundTripTest {
         WorkspaceArchiveWriter.write(file, meta);
         WorkspaceMetadata read = WorkspaceArchiveReader.read(file);
         assertEquals(meta, read);
+    }
+
+    @Test
+    void relativeFileNameWithNoDirectoryIsSaved() throws Exception {
+        // Path.of("name").getParent() is null, which WorkspaceService.saveAs accepts: the save
+        // belongs in the working directory, not in an exception the status line renders as
+        // "Failed to save workspace: null".
+        WorkspaceMetadata meta = new WorkspaceMetadata(
+                WorkspaceMetadata.CURRENT_SCHEMA_VERSION,
+                UUID.randomUUID(), "Relative");
+        Path file = Path.of("fhirviewer-relative-target-" + UUID.randomUUID()
+                + ".fhirworkspace");
+        try {
+            WorkspaceArchiveWriter.write(file, meta);
+            assertEquals(meta, WorkspaceArchiveReader.read(file));
+        } finally {
+            Files.deleteIfExists(file);
+            Files.deleteIfExists(Path.of(file.getFileName().toString() + ".tmp"));
+        }
     }
 
     @Test

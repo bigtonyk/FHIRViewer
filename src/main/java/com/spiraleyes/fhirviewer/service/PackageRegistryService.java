@@ -9,12 +9,16 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
-import java.util.logging.Logger;
+import java.util.regex.Pattern;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,7 +41,20 @@ public final class PackageRegistryService {
     /** FHIR package registry root; packuments live at {@code <root>/<package id>}. */
     public static final String REGISTRY_URL = "https://packages.fhir.org";
 
-    private static final Logger logger = Logger.getLogger(PackageRegistryService.class.getName());
+    /**
+     * Deadline for one registry request. Twenty seconds is what the REST client falls back to
+     * for a server that names none; without it a registry that accepts the connection and then
+     * stalls leaves the search or install thread blocked for the life of the process.
+     */
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
+
+    /**
+     * What a FHIR package id and a semver version look like. Both arrive in registry metadata
+     * and become part of a file name, so nothing else is allowed through.
+     */
+    private static final Pattern FILE_NAME_PART = Pattern.compile("[A-Za-z0-9._+-]+");
+
+    private static final Logger logger = LoggerFactory.getLogger(PackageRegistryService.class);
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -46,6 +63,7 @@ public final class PackageRegistryService {
 
     public PackageRegistryService() {
         this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(REQUEST_TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
         this.objectMapper = new ObjectMapper();
@@ -161,7 +179,7 @@ public final class PackageRegistryService {
                     return info;
                 }
             }
-            logger.warning("No " + targetFhirVersion + " release of " + id
+            logger.warn("No " + targetFhirVersion + " release of " + id
                     + " is published; using the newest version " + versions.get(0).getVersion());
         }
         return versions.get(0);
@@ -198,6 +216,7 @@ public final class PackageRegistryService {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
+                    .timeout(REQUEST_TIMEOUT)
                     .header("Accept", "application/json")
                     .GET()
                     .build();
@@ -367,13 +386,21 @@ public final class PackageRegistryService {
         String label = packageInfo.getPackageId() + " " + packageInfo.getVersion();
         try {
             Files.createDirectories(destination);
-            Path targetPath = destination.resolve(fileNameOf(packageInfo));
+            Path targetPath = destination.resolve(fileNameOf(packageInfo)).normalize();
+            // fileNameOf rejects separators already; this keeps the promise if that check is
+            // ever loosened, because the body handler writes to whatever path it is given.
+            if (!destination.toAbsolutePath().normalize()
+                    .equals(targetPath.toAbsolutePath().normalize().getParent())) {
+                throw new PackageRegistryException("Package " + label
+                        + " would be saved outside the package directory.", null);
+            }
             if (Files.isRegularFile(targetPath) && Files.size(targetPath) > 0) {
                 logger.info("Reusing installed package file " + targetPath);
                 return targetPath;
             }
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(packageInfo.getDownloadUrl()))
+                    .timeout(REQUEST_TIMEOUT)
                     .header("Accept", "application/octet-stream")
                     .GET()
                     .build();
@@ -395,9 +422,28 @@ public final class PackageRegistryService {
         }
     }
 
-    /** The file name a package version is stored under. */
+    /**
+     * The file name a package version is stored under.
+     *
+     * <p>The id and version come from the registry's packument, so they are checked before they
+     * become a path: a value with a separator or {@code ..} in it would otherwise resolve
+     * outside the package directory and the download would follow it there.</p>
+     *
+     * @throws PackageRegistryException when the id or version could not be part of a file name
+     */
     public static String fileNameOf(PackageInfo packageInfo) {
-        return packageInfo.getPackageId() + "-" + packageInfo.getVersion() + ".tgz";
+        String packageId = packageInfo.getPackageId();
+        String version = packageInfo.getVersion();
+        if (!isFileNamePart(packageId) || !isFileNamePart(version)) {
+            throw new PackageRegistryException("The registry named package '" + packageId
+                    + "' version '" + version + "', which is not a package id and version this"
+                    + " application can store.", null);
+        }
+        return packageId + "-" + version + ".tgz";
+    }
+
+    private static boolean isFileNamePart(String part) {
+        return part != null && FILE_NAME_PART.matcher(part).matches();
     }
 
     /** One published version of a package. */

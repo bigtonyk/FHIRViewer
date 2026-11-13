@@ -10,8 +10,10 @@ you trust.
 Open the scripting workspace from the application menu. The console provides an
 editor, Run / Stop / Reset, Open / Save, and a console output pane.
 
-- **Run** evaluates the editor buffer in the interactive session (state
-  persists between runs).
+- **Run** evaluates the editor buffer. The unsaved editor keeps the interactive
+  session (state persists between runs); a buffer opened from or saved to a file
+  runs in a fresh session of its own, so each saved-script run starts clean and
+  leaves nothing behind.
 - **Reset Session** discards all interactive state and starts fresh.
 - **Open / Save** load and store script files.
 - Compile errors, runtime exceptions, and output appear in the console pane.
@@ -79,7 +81,38 @@ String v = server.fhirVersion();
 
 Assertions throw `AssertionError` on failure:
 `assertTrue`, `assertFalse`, `assertEquals`, `fail`. Saved tests run in a fresh
-session independent of interactive history.
+session per run, so declarations from earlier runs or other scripts are not
+visible to them.
+
+### Suites
+
+A buffer can hold several cases. A line whose only content is `// case: name`
+starts a case, and everything up to the next marker is that case's source. A
+buffer without markers is one case named after the file. Text before the first
+marker is refused rather than treated as a shared setup, because every case
+takes a fresh session and could not use it anyway. Case names must be unique: a
+repeated name is refused when the suite is parsed, because two results under one
+name cannot be told apart in the report. Every case needs source: a marker
+followed immediately by another marker or by the end of the file is refused
+rather than passing as a test that checked nothing, and a body holding only
+comments is refused for the same reason. Comment markers inside a string
+literal are source, not comments.
+
+**Run Tests** runs every case in its own JShell session and shows the passed,
+failed and stopped counts on a separate line above the output, so a verdict is
+never mixed into what a script printed. A case passes only when it finishes with
+no compile errors, exceptions or assertion failures; a failure does not stop the
+remaining cases, and each failing case is named with its first diagnostic.
+Pressing **Stop** interrupts the current case, reports it as stopped rather than
+failed, and does not start the remaining cases. If a run ends before every case
+ran, the report shows the executed count against the suite's size — for example
+`1 of 2 case(s) ran` — so a partial total is not read as the number of cases the
+suite holds. The report line
+carries the counts and that first diagnostic; the **Test details** tab carries every
+case's printed output and all of its diagnostics and exceptions, while the **Output**
+tab stays ordinary run output. Opening another file or loading the example clears
+the previous suite's report and details, because they described the buffer that was
+replaced. Like Run, the first execution asks for the trust acknowledgement.
 
 ## SMART on FHIR
 
@@ -103,9 +136,15 @@ synthetic identifiers and read-only operations by default.
 
 ## Scripting automation
 
-Saved scripts and test suites run in a fresh JShell session independent of
-interactive history. Use `test` assertions; results are reported as passed/failed
-with a summary. Destructive tests must be clearly marked and use synthetic data.
+Opening a saved script loads its text into the editor and never runs it. A buffer
+with a file behind it runs in a fresh JShell session each time, so a saved script
+starts clean and leaves no state behind. The unsaved editor keeps the interactive
+session, and **Reset Session** discards that state.
+Use the `test` assertions to check what a script found; a failed assertion appears
+in the output as an `AssertionError` with its message, like any other exception.
+Treat every script that writes or deletes as destructive and point it at synthetic
+data. Press **Run** to execute a workflow script as one buffer, or **Run Tests** to
+execute its `// case:` suites without leaving the console.
 
 ## API reference details
 

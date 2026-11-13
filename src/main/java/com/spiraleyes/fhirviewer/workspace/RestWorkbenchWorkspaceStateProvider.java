@@ -8,18 +8,16 @@ import com.spiraleyes.fhirviewer.ui.RestParameterList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.prefs.Preferences;
 
 /**
  * Capture/restore boundary for REST workbench state.
  *
  * <p>Serialises saved requests and supported drafts (method, path, parameters, safe headers,
- * body reference). Excludes authorisation/secrets. Restore populates workbench state only;
- * it never auto-executes a request.</p>
+ * and no request body). Excludes authorisation/secrets and the body, which is usually a
+ * patient resource. Restore populates workbench state only; it never auto-executes a
+ * request.</p>
  */
 public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvider {
-
-    private static final String NODE = "com/example/fhirviewer/restConsole";
 
     @Override
     public String providerId() {
@@ -31,7 +29,6 @@ public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvid
     public Object capture() {
         Map<String, Object> out = new LinkedHashMap<>();
         try {
-            Preferences node = Preferences.userRoot().node(NODE);
             RestConsoleState state = RestConsoleState.load(null);
             out.put("serverBaseUrl", state.serverBaseUrl());
             out.put("method", state.method() == null ? null : state.method().name());
@@ -43,8 +40,8 @@ public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvid
             out.put("authKind", state.authKind() == null ? null : state.authKind().name());
             out.put("userName", state.userName());
             // Deliberately NOT captured: password, token (the remembered console
-            // password field is also a credential).
-            out.put("body", state.body());        } catch (Exception ignored) {
+            // password field is also a credential), and the request body.
+        } catch (Exception ignored) {
             // Preferences unavailable — workspace still opens
         }
         return out;
@@ -56,7 +53,6 @@ public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvid
         if (!(snapshot instanceof Map)) return;
         Map<String, Object> entries = (Map<String, Object>) snapshot;
         try {
-            Preferences node = Preferences.userRoot().node(NODE);
             RestMethod method = RestMethod.GET;
             Object m = entries.get("method");
             if (m instanceof String s) {
@@ -84,8 +80,7 @@ public class RestWorkbenchWorkspaceStateProvider implements WorkspaceStateProvid
                     asString(entries.get("contentType")),
                     authKind,
                     asString(entries.get("userName")),
-                    0, 0, 0,
-                    asString(entries.get("body"))
+                    0, 0, 0
             );
             state.save();
         } catch (Exception ignored) {

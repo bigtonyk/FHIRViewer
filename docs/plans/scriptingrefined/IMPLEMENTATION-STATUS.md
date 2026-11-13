@@ -18,14 +18,14 @@
 |---|---|---|
 | 1. Interactive console and saved `.jsh` files | Complete | Coordinator race fixed; unit tests pass; packaging module list updated |
 | 2. FHIRViewer scripting API and write policy | Complete | fhir/viewer/validation/server/log facades |
-| 3. Automated testing and repeatable workflows | Partial | ScriptTestRunner/TestApi; focused runner tests added; suite execution, progress/cancel, report export, destructive labeling, and UI not yet implemented |
+| 3. Automated testing and repeatable workflows | In progress | Initial slice: `service/scripting/testing` parses `// case:` suites, `ScriptingCoordinator.runSuite` runs each case sequentially in a fresh `ScriptingSession` (stop interrupts the current case and skips the rest), and `SuiteRunResult` reports passed, failed and stopped counts that the console shows above the output pane, with each case's output and full diagnostics in a separate Test details tab; a stopped case is not counted as a failure, and opening another file clears the previous suite's results. The earlier engine was deleted in `7724874` because nothing could start it (R6-7 in `docs/CODE-ANALYSIS-ISSUES-ROUND6.md`). Still to build: per-check counts and names, skip/error verdicts, a suite screen, explicit target-server selection, progress reporting and report export. |
 | 4. SMART on FHIR integration | Complete | SmartApi |
 | 5. Advanced scripting and batch workflows | In progress | ScriptParameter and partial collections/reporting |
 | 6. Scripting API documentation | Complete | docs/scripting/Scripting-Guide.md |
 
 ## Execution model decisions
-- Interactive JShell session lifecycle: ScriptingCoordinator owns one ScriptingSession; created lazily, reset closes/recreates, close on dialog hide/shutdown.
-- Saved workflow fresh-session behavior: ScriptTestRunner creates isolated sessions; not auto-run on open.
+- Interactive JShell session lifecycle: ScriptingCoordinator owns one interactive ScriptingSession; created lazily, reset closes/recreates, close on dialog hide/shutdown.
+- Saved workflow session behavior: a buffer with a file behind it (opened or saved) runs in a fresh `ScriptingSession` created for that run and closed when it ends, so saved scripts are repeatable and leave nothing behind; the unsaved editor keeps the interactive session, which Reset Session replaces. There is still no workflow runner that starts a saved script on its own.
 - Script storage/metadata approach: `.jsh` files via FileChooser; ScriptParameter metadata for workflows.
 - Target server/environment selection: ScriptBindings binds active server; explicit target shown.
 - Parameter handling: ScriptParameter typed/required/optional with defaults and redaction.
@@ -53,4 +53,4 @@
 - Results: 20 tests run, 0 failures, 0 errors; packaged app-image build succeeded.
 - Known limitations: advanced Phase 5 features remain partial; packaged runtime smoke-tested only via successful jpackage build.
 - Packaging/platform checks: jpackage app-image built successfully on Windows with jdk.jshell and jdk.compiler in module list.
-- Recommended next step: continue Phase 5 advanced scripting work.
+- Recommended next step: decide whether Phase 3 is built properly (starting with the saved-suite format) before continuing Phase 5 advanced scripting work.

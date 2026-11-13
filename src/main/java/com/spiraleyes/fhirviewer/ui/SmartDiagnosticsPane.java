@@ -1,6 +1,7 @@
 package com.spiraleyes.fhirviewer.ui;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -83,7 +84,10 @@ final class SmartDiagnosticsPane extends VBox {
             Files.createDirectories(dir);
             Path file = dir.resolve("smart-diagnostics-"
                     + Instant.now().toString().replace(':', '-') + ".txt");
-            Files.writeString(file, text);
+            // UTF-8 explicitly: the default is the platform charset, and an exported log
+            // with a non-ASCII character in it - a server name, a message from a server -
+            // should read the same on the machine that opens it as it did here.
+            Files.writeString(file, text, StandardCharsets.UTF_8);
             status.setText("Diagnostics exported to " + file);
         } catch (IOException e) {
             status.setText("Could not export diagnostics: "

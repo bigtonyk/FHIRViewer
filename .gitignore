@@ -30,3 +30,16 @@ Thumbs.db
 *.dmg
 *.deb
 *.rpm
+
+# Scratch output and exploratory sources: root-level working files, never part of the build
+/facts*.txt
+/fix_script.py
+/inv.txt
+/out.txt
+/probe.txt
+/script-test-output.txt
+/test-log.txt
+/test-out.txt
+/test-output.txt
+/workspace-tree.txt
+/spike/

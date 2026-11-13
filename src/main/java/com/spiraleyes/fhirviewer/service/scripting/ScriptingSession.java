@@ -130,24 +130,36 @@ public final class ScriptingSession implements AutoCloseable {
         if (normalized.isBlank()) {
             return ScriptRunResult.failed("There is nothing to run — the editor is empty.");
         }
-        // A stop aimed at an earlier run must not colour this one, but a stop that
-        // arrived before this run started (racing the worker) must still apply.
+        // The coordinator only issues a Stop while a run is in flight, so one seen here
+        // arrived after the previous run finished and before this one registered: it is
+        // aimed at this run. The run it stops clears the flag when it ends (see the
+        // finally below), which is what keeps an old Stop from ending the next run.
         long myRun = runCounter.incrementAndGet();
         currentRunId = myRun;
         if (stopPending) {
-            if (stoppedRunId == 0 || stoppedRunId == myRun) {
-                // Stop arrived before a run was in flight (or this exact run): apply.
-                stopPending = false;
-                stoppedRunId = myRun;
-            } else {
-                // Stop targeted an earlier run: stale, clear it.
+            stopPending = false;
+            stoppedRunId = myRun;
+        } else if (stoppedRunId != myRun) {
+            // Do not clear a stop that landed while this check was running: it wrote its own
+            // run id after seeing this run's, and clearing it here threw that Stop away and
+            // let the snippet run to completion. Only a stop that is already spent is cleared.
+            stoppedRunId = 0;
+        }
+        try {
+            return execute(normalized, bindings, start);
+        } finally {
+            if (stoppedRunId == myRun) {
                 stopPending = false;
                 stoppedRunId = 0;
             }
-        } else {
-            stoppedRunId = 0;
         }
+    }
 
+    /**
+     * One run's body: analyse, split, then evaluate. Separated from {@link #run} so the
+     * stop state that run owns is cleared however it ends, including an early refusal.
+     */
+    private ScriptRunResult execute(String normalized, ScriptBindings bindings, long start) {
         Split split = split(normalized);
         if (split.stuckAt() != null) {
             return incomplete(split.stuckAt(), start);
@@ -179,11 +191,47 @@ public final class ScriptingSession implements AutoCloseable {
     /** Stops the snippets running right now, from any thread. Best effort, and honest about it. */
     public void stop() {
         stopPending = true;
-        stoppedRunId = currentRunId;
+        long runToStop = currentRunId;
+        stoppedRunId = runToStop;
         JShell current = shell;
-        if (current != null) {
-            current.stop();
+        if (current != null && runToStop != 0) {
+            // One call is not enough. Measured against a snippet sleeping for a minute,
+            // JShell's own stop left it running in one case out of three - it is timing
+            // dependent and sometimes falls before the snippet is actually executing. The
+            // retry is bounded and on a daemon thread, so the Stop button still returns at
+            // once, and the run id guard stops it touching a later run.
+            retryStop(current, runToStop);
         }
+    }
+
+    /**
+     * Repeats {@link JShell#stop()} briefly until the run it was aimed at is over.
+     *
+     * <p>Only ever interrupts the run whose id it was given: once that run ends,
+     * {@link #run} clears {@code stoppedRunId} and this returns at its next check.</p>
+     */
+    private void retryStop(JShell target, long runToStop) {
+        Thread retry = new Thread(() -> {
+            for (int attempt = 0; attempt < 20; attempt++) {
+                try {
+                    target.stop();
+                } catch (RuntimeException engineGone) {
+                    // A closed engine has nothing left to interrupt.
+                    return;
+                }
+                try {
+                    Thread.sleep(40);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                if (closed || stoppedRunId != runToStop) {
+                    return;
+                }
+            }
+        }, "fhirviewer-scripting-stop");
+        retry.setDaemon(true);
+        retry.start();
     }
 
     /**

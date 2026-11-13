@@ -46,9 +46,37 @@ jobs:
           # artifacts are downloaded once instead of on every run.
           cache: maven
 
-      - name: Build and test
-        # 'verify' compiles, runs the full test suite and builds the jar.
-        # The javafx-maven-plugin is not bound to a lifecycle phase (it is only
-        # run manually via `mvn javafx:run`), so CI never tries to open a window.
+      # ServerUiSmokeTest and SmartLaunchWorkbenchUiTest build real screens on a
+      # JavaFX toolkit and skip themselves when GraphicsEnvironment reports no
+      # display. The Windows runner has a desktop session; ubuntu-latest does not, so
+      # without this the Linux leg skipped the only tests that assemble scene graphs —
+      # exactly the regression class they exist to catch (a dialog whose constructor
+      # throws while building its scene graph).
+      - name: Install a virtual display (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends xvfb
+          # The JavaFX GTK backend needs libgtk-3. The runner image ships it, but the
+          # package was renamed in 24.04, so try both spellings rather than pin one.
+          sudo apt-get install --yes --no-install-recommends libgtk-3-0t64 \
+            || sudo apt-get install --yes --no-install-recommends libgtk-3-0 \
+            || true
+
+      - name: Build and test (Windows)
+        if: runner.os == 'Windows'
+        # 'verify' compiles, runs the full test suite and builds the jar. The
+        # javafx-maven-plugin is not bound to a lifecycle phase (it is only run
+        # manually via `mvn javafx:run`), so nothing here opens the main window.
         run: ./mvnw --batch-mode --no-transfer-progress verify
+        shell: bash
+
+      - name: Build and test under Xvfb (Linux)
+        if: runner.os == 'Linux'
+        # xvfb-run supplies the display the UI suites need; -a picks a free display
+        # number so a stale lock cannot fail the run.
+        run: >-
+          xvfb-run -a --server-args="-screen 0 1920x1080x24"
+          ./mvnw --batch-mode --no-transfer-progress verify
         shell: bash

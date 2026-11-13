@@ -177,18 +177,11 @@ public final class DataTypeFormatter {
     }
 
     private String summarizeCoding(IBase coding) {
+        // The system is shown whether or not it is well known: without it two
+        // codings with the same code from different systems read identically.
+        String inParens = joinNonBlank(
+                friendlySystemName(firstText(coding, "system")), firstText(coding, "code"));
         String display = firstText(coding, "display");
-        String code = firstText(coding, "code");
-        String systemLabel = friendlySystemName(firstText(coding, "system"));
-        // Only well known systems are shown with their code; unknown canonical
-        // URLs would add noise without helping a human reader.
-        if (systemLabel == null || !SYSTEM_NAMES.containsValue(systemLabel)) {
-            if (display != null && !display.isBlank()) {
-                return display;
-            }
-            return code == null ? "" : code;
-        }
-        String inParens = joinNonBlank(systemLabel, code);
         if (inParens.isBlank()) {
             return display == null ? "" : display;
         }
@@ -417,7 +410,58 @@ public final class DataTypeFormatter {
 
     /** Reduces XHTML markup to plain text, used for Narrative contents. */
     private static String stripXhtml(String xhtml) {
-        return xhtml.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
+        String text = xhtml.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
+        return decodeEntities(text);
+    }
+
+    /**
+     * Decodes the five XML entities and numeric character references. Decoding
+     * runs after the tags are removed, so an escaped angle bracket stays text.
+     */
+    private static String decodeEntities(String text) {
+        if (text.indexOf('&') < 0) {
+            return text;
+        }
+        StringBuilder sb = new StringBuilder(text.length());
+        int index = 0;
+        while (index < text.length()) {
+            char c = text.charAt(index);
+            int semicolon = c == '&' ? text.indexOf(';', index + 1) : -1;
+            String decoded = semicolon < 0 ? null : entity(text.substring(index + 1, semicolon));
+            if (decoded == null) {
+                sb.append(c);
+                index++;
+            } else {
+                sb.append(decoded);
+                index = semicolon + 1;
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String entity(String name) {
+        return switch (name) {
+            case "amp" -> "&";
+            case "lt" -> "<";
+            case "gt" -> ">";
+            case "quot" -> "\"";
+            case "apos" -> "'";
+            default -> numericEntity(name);
+        };
+    }
+
+    private static String numericEntity(String name) {
+        if (name.length() < 2 || name.charAt(0) != '#') {
+            return null;
+        }
+        try {
+            int code = name.charAt(1) == 'x' || name.charAt(1) == 'X'
+                    ? Integer.parseInt(name.substring(2), 16)
+                    : Integer.parseInt(name.substring(1));
+            return new String(Character.toChars(code));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /** <code>patient-race</code> becomes <code>Patient Race</code>. */

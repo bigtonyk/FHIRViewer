@@ -46,8 +46,10 @@ import com.spiraleyes.fhirviewer.server.ServerSession;
  *
  * <p><b>Threading.</b> A client is created on the calling thread and is then safe to share.
  * Requests block, so the caller must not be the JavaFX application thread. The
- * {@code HttpClient}'s own asynchronous work is given a small daemon pool so the default
- * common pool is neither used nor kept alive by a background thread.
+ * {@code HttpClient}'s own asynchronous work runs on a daemon pool owned by this instance,
+ * so the default common pool is neither used nor kept alive by a background thread.
+ * {@link #close()} shuts that pool and the client down, so a discarded client releases its
+ * selector thread and pooled connections instead of holding them until garbage collection.
  */
 public final class JdkHttpRestClient implements RestClient {
 
@@ -67,6 +69,14 @@ public final class JdkHttpRestClient implements RestClient {
     private final String administrationBaseUrl;
     private final Duration timeout;
     private final HttpClient httpClient;
+    /**
+     * Whether {@link #httpClient} was built here, and must therefore be closed here.
+     *
+     * <p>A client handed in through a constructor seam belongs to whoever passed it — a test
+     * stub, or a plugin sharing one client between several of these — so shutting it down on
+     * this instance's close would pull it out from under its owner.</p>
+     */
+    private final boolean ownsHttpClient;
     private final RestOutcomeParser outcomeParser;
     private final ExecutorService executor;
     private final RequestHeaders authentication;
@@ -211,7 +221,8 @@ public final class JdkHttpRestClient implements RestClient {
             thread.setDaemon(true);
             return thread;
         });
-        this.httpClient = httpClient == null ? newHttpClient() : httpClient;
+        this.ownsHttpClient = httpClient == null;
+        this.httpClient = ownsHttpClient ? newHttpClient() : httpClient;
     }
 
     @Override
@@ -296,13 +307,26 @@ public final class JdkHttpRestClient implements RestClient {
 
     @Override
     public void close() {
+        // Since Java 21 the JDK client listens on its own selector thread and owns a
+        // connection pool, neither of which the executor below governs: shutting the
+        // executor down alone left both alive until GC, once per client the plugin layer
+        // created. Only a client built here is shut down here; a supplied one is not ours.
+        if (ownsHttpClient) {
+            httpClient.shutdown();
+        }
         executor.shutdown();
         try {
+            if (ownsHttpClient && !httpClient.awaitTermination(Duration.ofSeconds(2))) {
+                httpClient.shutdownNow();
+            }
             if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
                 executor.shutdownNow();
             }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
+            if (ownsHttpClient) {
+                httpClient.shutdownNow();
+            }
             executor.shutdownNow();
         }
     }

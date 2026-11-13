@@ -30,6 +30,7 @@ import com.spiraleyes.fhirviewer.server.SearchPageLinks;
 import com.spiraleyes.fhirviewer.server.SearchRequest;
 import com.spiraleyes.fhirviewer.server.SearchResultPage;
 import com.spiraleyes.fhirviewer.server.ServerCapabilities;
+import com.spiraleyes.fhirviewer.server.ServerOrigin;
 
 /**
  * The FHIR server search dialog, following the plan's workflow: select a server, load
@@ -41,10 +42,24 @@ import com.spiraleyes.fhirviewer.server.ServerCapabilities;
  * (name/value), which keeps the UI simple while staying generic for every resource type
  * the server's CapabilityStatement advertises.</p>
  *
- * <p>The dialog returns a {@link LoadedResource}, so the caller can display the resource
- * in the existing Pretty/JSON/tree views without a second rendering path.</p>
+ * <p>The dialog returns a {@link Picked}, so the caller can display the resource in the
+ * existing Pretty/JSON/tree views without a second rendering path and still knows which
+ * server produced it.</p>
  */
-public class ServerSearchDialog extends Dialog<LoadedResource> {
+public class ServerSearchDialog extends Dialog<ServerSearchDialog.Picked> {
+
+    /**
+     * What "Open in viewer" produced: the resource and where it came from.
+     *
+     * <p>The origin is what lets a later Save to FHIR Server update the resource instead of
+     * creating a copy of it. A {@code null} origin means the result carried no id, so it
+     * cannot be written back at all - see {@link #pickedFor}.</p>
+     */
+    public record Picked(LoadedResource resource, ServerOrigin origin) {
+        public Picked {
+            Objects.requireNonNull(resource, "resource");
+        }
+    }
 
     /** One background attempt, bridged from the shared helper's own attempt type. */
     private record Attempt<T>(T value, String failure) {
@@ -240,7 +255,7 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
             // null for every press of "Open in viewer", so a picked resource was
             // discarded and the window never received anything to show.
             IBaseResource resource = openType.equals(button) ? selectedResource() : null;
-            return resource == null ? null : asLoadedResource(resource);
+            return resource == null ? null : pickedFor(resource, serverBox.getValue());
         });
 
         restoreLastSearch();
@@ -379,15 +394,27 @@ public class ServerSearchDialog extends Dialog<LoadedResource> {
         return results.getSelectionModel().getSelectedItem();
     }
 
-    /** Wraps the picked resource for the existing viewer; no second rendering path. */
-    private LoadedResource asLoadedResource(IBaseResource resource) {
+    /**
+     * Wraps the picked resource for the existing viewer, with the server that produced it.
+     *
+     * <p>A search result is an ordinary server resource, so the origin carries the type, id
+     * and version a later write needs. A result without an id is shown without an origin on
+     * purpose: an origin with no id means "create", and opening a search hit must never turn
+     * a later Save into a new resource by accident.</p>
+     */
+    static Picked pickedFor(IBaseResource resource,
+            com.spiraleyes.fhirviewer.server.FhirServerConfiguration server) {
         String id = resource.getIdElement() == null || !resource.getIdElement().hasIdPart()
                 ? null
                 : resource.getIdElement().getIdPart();
         String label = resource.fhirType() + (id == null ? "" : "/" + id);
-        com.spiraleyes.fhirviewer.server.FhirServerConfiguration server = serverBox.getValue();
         String source = server == null ? label : label + " (from " + server.name() + ")";
-        return new LoadedResource(resource, ResourceFormat.JSON, source, null);
+        LoadedResource loaded = new LoadedResource(resource, ResourceFormat.JSON, source, null);
+        ServerOrigin origin = server == null || id == null
+                ? null
+                : ServerOrigin.of(server.pluginId(), server.baseUrl(), resource.fhirType(), id,
+                        ServerResourceActions.versionOf(resource));
+        return new Picked(loaded, origin);
     }
 
     /** Reads the chosen server's capabilities and fills the resource type list. */

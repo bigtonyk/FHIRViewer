@@ -20,6 +20,7 @@ import org.hl7.fhir.r4.model.Period;
 import org.hl7.fhir.r4.model.Quantity;
 import org.hl7.fhir.r4.model.Reference;
 import org.hl7.fhir.r4.model.StringType;
+import org.hl7.fhir.r4.model.XhtmlType;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -78,6 +79,20 @@ class DataTypeFormatterTest {
         Coding coding = new Coding("http://loinc.org", "8867-4", null);
 
         assertEquals("(LOINC 8867-4)", summarize(coding));
+    }
+
+    @Test
+    @DisplayName("Unknown systems are shown for codings and quantities alike")
+    void showsUnknownSystems() {
+        Coding coding = new Coding("http://example.org/race", "white", "White");
+        Quantity quantity = new Quantity()
+                .setValue(new BigDecimal("72"))
+                .setUnit("beats/minute")
+                .setSystem("http://example.org/units")
+                .setCode("/min");
+
+        assertEquals("White (example.org/race white)", summarize(coding));
+        assertEquals("72 beats/minute (example.org/units /min)", summarize(quantity));
     }
 
     @Test
@@ -191,6 +206,16 @@ class DataTypeFormatterTest {
                 formatter.textOf(new DateTimeType("2024-05-01T10:15:00Z")));
         assertEquals("2024-05-01",
                 formatter.textOf(new DateTimeType("2024-05-01")));
+    }
+
+    @Test
+    @DisplayName("Narrative text decodes entities after removing the markup")
+    void stripsMarkupAndDecodesEntities() {
+        XhtmlType xhtml = new XhtmlType();
+        xhtml.setValue("<div xmlns=\"http://www.w3.org/1999/xhtml\">"
+                + "<p>Smith &amp; Sons</p><p>5 &lt; 7 &#39;quoted&#x27;</p></div>");
+
+        assertEquals("Smith & Sons 5 < 7 'quoted'", formatter.textOf(xhtml));
     }
 
     @Test

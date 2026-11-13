@@ -7,7 +7,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.logging.Logger;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.hl7.fhir.utilities.json.model.JsonObject;
 import org.hl7.fhir.utilities.json.model.JsonProperty;
@@ -23,7 +25,7 @@ import org.hl7.fhir.utilities.npm.NpmPackage;
  */
 public final class NpmPackageReader {
 
-    private static final Logger logger = Logger.getLogger(NpmPackageReader.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(NpmPackageReader.class);
 
     private NpmPackageReader() {
     }
@@ -134,7 +136,7 @@ public final class NpmPackageReader {
         try {
             return safe(npm.fhirVersion());
         } catch (RuntimeException e) {
-            logger.fine("Package " + canonical + " declares no FHIR version: " + e.getMessage());
+            logger.debug("Package " + canonical + " declares no FHIR version: " + e.getMessage());
             return "";
         }
     }

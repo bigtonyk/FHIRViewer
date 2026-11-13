@@ -16,7 +16,7 @@ Add an interactive Java 21 JShell workspace and basic saved `.jsh` file handling
 10. Close sessions on reset and application shutdown.
 11. Show a trust warning before first execution: Java scripts run with the user's permissions and are not sandboxed.
 12. Include harmless examples using arithmetic, strings, collections, and method definitions.
-13. Establish the distinction between the persistent interactive session and the later fresh-session saved-workflow/test runner; do not implement a full workflow engine in this phase.
+13. Establish the session model the console uses: one interactive session serves the unsaved editor and Reset Session replaces it, while a buffer with a file behind it runs in a fresh session created for that run and closed when it ends; no separate workflow or test runner exists in this phase.
 
 ## Notes
 - Prefer `JShell.builder()` and public `jdk.jshell` APIs.

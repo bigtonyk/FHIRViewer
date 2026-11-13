@@ -8,10 +8,17 @@ import java.util.List;
 import java.util.Optional;
 
 import com.spiraleyes.fhirviewer.TreeAssert;
+import com.spiraleyes.fhirviewer.fhir.FhirContextFactory;
+import com.spiraleyes.fhirviewer.model.ElementInfo;
 import com.spiraleyes.fhirviewer.model.LoadedResource;
 import com.spiraleyes.fhirviewer.model.ResourceNode;
 import com.spiraleyes.fhirviewer.service.FhirService;
 
+import org.hl7.fhir.r4.model.Coding;
+import org.hl7.fhir.r4.model.Extension;
+import org.hl7.fhir.r4.model.HumanName;
+import org.hl7.fhir.r4.model.Patient;
+import org.hl7.fhir.r4.model.StringType;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -205,7 +212,28 @@ class PrettyModelBuilderTest {
 
         assertEquals("Alice Grey", requireRow(contact.rows(), "Name").value());
         assertEquals("+1-555-0111 (phone work)", requireRow(contact.rows(), "Telecom").value());
-        assertEquals("Administration", requireRow(contact.rows(), "Purpose").value());
+        assertEquals("Administration (terminology.hl7.org/CodeSystem/v2-0131 ADMIN)",
+                requireRow(contact.rows(), "Purpose").value());
+    }
+
+    @Test
+    @DisplayName("An extension with sub-extensions shows its children instead of only its title")
+    void nestedExtensionShowsItsChildren() {
+        HumanName name = new HumanName().setFamily("Smith");
+        Extension race = new Extension("http://example.org/fhir/StructureDefinition/patient-race");
+        race.addExtension("race", new Coding("http://example.org/race", "white", "White"));
+        race.addExtension("text", new StringType("White"));
+        name.addExtension(race);
+        Patient patient = new Patient();
+        patient.addName(name);
+
+        PrettyDocument document =
+                new PrettyModelBuilder(FhirContextFactory.r4ModelAdapter()).build(patient);
+
+        PrettyBlock section = requireBlock(document.sections(), "Patient Race");
+        assertEquals("Race = White (example.org/race white)",
+                requireRow(section.rows(), "Extension 1").value());
+        assertEquals("Text = White", requireRow(section.rows(), "Extension 2").value());
     }
 
     @Test
@@ -232,8 +260,83 @@ class PrettyModelBuilderTest {
     void primitiveNodeBecomesSingleRow() {
         PrettyDocument document = focusedDocument("patient.json", "Patient.name[0].family");
 
-        assertEquals("string", document.resourceType());
+        assertEquals("Family", document.resourceType());
         assertEquals("Smith", requireRow(document.rows(), "Family").value());
+    }
+
+    @Test
+    @DisplayName("A focused primitive is titled with the element name, not the datatype")
+    void primitiveNodeIsTitledWithItsElementName() {
+        PrettyDocument document = focusedDocument("patient.json", "Patient.birthDate");
+
+        assertEquals("Birth Date", document.resourceType());
+        assertEquals("1974-12-25", requireRow(document.rows(), "Birth Date").value());
+    }
+
+    @Test
+    @DisplayName("A path naming a value that is not there falls back to the whole document")
+    void outOfRangePathShowsTheWholeDocument() {
+        LoadedResource loaded = service.openSample("/fhir/patient.json");
+        ResourceNode root = new ResourceNode("Patient", ElementInfo.builder()
+                .path("Patient")
+                .name("Patient")
+                .kind(ElementInfo.Kind.RESOURCE)
+                .build());
+        ResourceNode stale = new ResourceNode("[4]", ElementInfo.builder()
+                .path("Patient.identifier[4]")
+                .name("identifier")
+                .typeCode("Identifier")
+                .kind(ElementInfo.Kind.COMPLEX)
+                .build());
+        root.addChild(stale);
+
+        PrettyDocument document = service.buildPrettyView(loaded.getResource(), stale);
+
+        assertEquals("Patient", document.resourceType(),
+                "an unresolvable path must not render another identifier as if it matched");
+        assertEquals("000-00-0000", requireRow(
+                requireBlock(document.sections(), "Identifier 2").rows(), "Value").value());
+        assertEquals("MRN-12345", requireRow(
+                requireBlock(document.sections(), "Identifier 1").rows(), "Value").value());
+    }
+
+    @Test
+    @DisplayName("A group node with an out-of-range parent index falls back to the whole document")
+    void outOfRangeGroupPathShowsTheWholeDocument() {
+        LoadedResource loaded = service.openSample("/fhir/patient.json");
+        ResourceNode root = new ResourceNode("Patient", ElementInfo.builder()
+                .path("Patient")
+                .name("Patient")
+                .kind(ElementInfo.Kind.RESOURCE)
+                .build());
+        // A group node for a repeating primitive, whose parent index names no name.
+        ResourceNode group = new ResourceNode("given", ElementInfo.builder()
+                .path("Patient.name[7].given")
+                .name("given")
+                .typeCode("string")
+                .cardinality(0, Integer.MAX_VALUE)
+                .kind(ElementInfo.Kind.PRIMITIVE)
+                .build());
+        group.addChild(new ResourceNode("[0]", ElementInfo.builder()
+                .path("Patient.name[7].given[0]")
+                .name("given")
+                .typeCode("string")
+                .kind(ElementInfo.Kind.PRIMITIVE)
+                .build()));
+        group.addChild(new ResourceNode("[1]", ElementInfo.builder()
+                .path("Patient.name[7].given[1]")
+                .name("given")
+                .typeCode("string")
+                .kind(ElementInfo.Kind.PRIMITIVE)
+                .build()));
+        root.addChild(group);
+
+        PrettyDocument document = service.buildPrettyView(loaded.getResource(), group);
+
+        assertEquals("Patient", document.resourceType(),
+                "a group path whose parent index does not exist must not resolve another name");
+        assertEquals("Smith", requireRow(
+                requireBlock(document.sections(), "Name 1").rows(), "Family").value());
     }
 
     @Test
@@ -265,7 +368,7 @@ class PrettyModelBuilderTest {
     void primitiveGroupNodeJoinsValues() {
         PrettyDocument document = focusedDocument("patient.json", "Patient.name[0].given");
 
-        assertEquals("string", document.resourceType());
+        assertEquals("Given", document.resourceType());
         assertEquals("John, Jacob", requireRow(document.rows(), "Given").value());
     }
 

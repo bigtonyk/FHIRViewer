@@ -119,8 +119,11 @@ public final class PrettyModelBuilder {
         } else {
             renderInto(body, element, 0);
         }
+        // A primitive is titled after the element the reader selected; its datatype
+        // ("string", "date") is vocabulary this view exists to hide.
+        String title = element instanceof IPrimitiveType<?> ? friendly(elementName) : element.fhirType();
         return new PrettyDocument(
-                element.fhirType(),
+                title,
                 null,
                 List.of(),
                 body.rows(),
@@ -168,8 +171,13 @@ public final class PrettyModelBuilder {
                         index + 1, 1, elementName));
             }
         }
+        // Primitive repeats are titled by element, like a focused primitive; only a
+        // repeating complex value shows its datatype.
+        String title = first instanceof IPrimitiveType<?>
+                ? friendly(elementName)
+                : property.typeCode();
         return new PrettyDocument(
-                property.typeCode(),
+                title,
                 null,
                 List.of(),
                 body.rows(),
@@ -191,7 +199,12 @@ public final class PrettyModelBuilder {
             if (property == null || property.values().isEmpty()) {
                 return null;
             }
-            current = property.values().get(Math.min(index, property.values().size() - 1));
+            if (index < 0 || index >= property.values().size()) {
+                // A path that names a value which is not there must not resolve to a
+                // different one: the caller falls back to the whole document instead.
+                return null;
+            }
+            current = property.values().get(index);
         }
         return current;
     }
@@ -207,7 +220,10 @@ public final class PrettyModelBuilder {
             if (property == null || property.values().isEmpty()) {
                 return null;
             }
-            current = property.values().get(Math.min(index, property.values().size() - 1));
+            if (index < 0 || index >= property.values().size()) {
+                return null;
+            }
+            current = property.values().get(index);
         }
         return findProperty(current, segmentName(segments[segments.length - 1]));
     }
@@ -273,7 +289,7 @@ public final class PrettyModelBuilder {
                 if (!joined.isBlank()) {
                     target.row(label, joined, property.name());
                 }
-            } else if (formatter.isSummarizable(first) && !topLevel) {
+            } else if (formatter.isSummarizable(first) && !topLevel && !isContainerExtension(first)) {
                 addSummaryRows(target, label, values, property.name());
             } else if (depth >= MAX_DEPTH) {
                 target.row(label, "(recursion limit reached)", property.name());
@@ -284,6 +300,22 @@ public final class PrettyModelBuilder {
                 }
             }
         }
+    }
+
+    /**
+     * True for an extension built from sub-extensions: it has no value[x], so
+     * summarising it would show only its name and hide the children.
+     */
+    private boolean isContainerExtension(IBase value) {
+        if (!"Extension".equals(value.fhirType())) {
+            return false;
+        }
+        for (ElementProperty property : adapter.propertiesOf(value)) {
+            if (property.name().startsWith("value") && !property.values().isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** One or more rows with a one line summary per value. */

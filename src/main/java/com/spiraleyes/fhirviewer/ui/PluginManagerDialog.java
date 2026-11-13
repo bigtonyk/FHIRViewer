@@ -6,8 +6,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Consumer;
-import java.util.logging.Logger;
 import java.util.prefs.BackingStoreException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.spiraleyes.fhirviewer.server.FhirServerPlugin;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
@@ -68,7 +70,7 @@ import javafx.stage.Window;
  * credential saved here could never authenticate anything.</p>
  */
 public class PluginManagerDialog extends Dialog<Void> {
-    private static final Logger logger = Logger.getLogger(PluginManagerDialog.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(PluginManagerDialog.class);
 
     private static final double MIN_WIDTH = 1120;
     private static final double PREF_WIDTH = 1300;
@@ -79,7 +81,10 @@ public class PluginManagerDialog extends Dialog<Void> {
     private static final String PLUGIN_FOLDER_KEY = "pluginFolder";
 
     /** The preferences node this dialog stores its own settings under. */
-    private static final String PREFERENCE_NODE = "com/example/fhirviewer/pluginManager";
+    private static final String PREFERENCE_NODE = "com/spiraleyes/fhirviewer/pluginManager";
+
+    /** Where earlier builds kept the same setting; carried over, then emptied. */
+    private static final String LEGACY_PREFERENCE_NODE = "com/example/fhirviewer/pluginManager";
 
     private final FhirServerPluginRegistry registry;
     private final PluginSettingsStore settingsStore;
@@ -148,8 +153,7 @@ public class PluginManagerDialog extends Dialog<Void> {
         try {
             return preferenceNode().get(PLUGIN_FOLDER_KEY, "");
         } catch (RuntimeException | BackingStoreException e) {
-            logger.log(java.util.logging.Level.FINE,
-                    "could not read the remembered plugin folder", e);
+            logger.debug("could not read the remembered plugin folder", e);
             return "";
         }
     }
@@ -159,14 +163,31 @@ public class PluginManagerDialog extends Dialog<Void> {
         try {
             preferenceNode().put(PLUGIN_FOLDER_KEY, folder == null ? "" : folder);
         } catch (RuntimeException | BackingStoreException e) {
-            logger.log(java.util.logging.Level.FINE,
-                    "could not remember the plugin folder", e);
+            logger.debug("could not remember the plugin folder", e);
         }
     }
 
-    /** The single preferences node this dialog owns. */
+    /**
+     * The single preferences node this dialog owns.
+     *
+     * <p>Scoped to the application's own package. An earlier build used a placeholder package
+     * name; its one setting is carried over on first read and the old node emptied, so there
+     * is one source from here on and the remembered plugin folder still appears.</p>
+     */
     private static java.util.prefs.Preferences preferenceNode() throws BackingStoreException {
-        return java.util.prefs.Preferences.userRoot().node(PREFERENCE_NODE);
+        java.util.prefs.Preferences current =
+                java.util.prefs.Preferences.userRoot().node(PREFERENCE_NODE);
+        java.util.prefs.Preferences legacy =
+                java.util.prefs.Preferences.userRoot().node(LEGACY_PREFERENCE_NODE);
+        if (current.get(PLUGIN_FOLDER_KEY, null) == null) {
+            String remembered = legacy.get(PLUGIN_FOLDER_KEY, null);
+            if (remembered != null) {
+                current.put(PLUGIN_FOLDER_KEY, remembered);
+                current.flush();
+            }
+        }
+        legacy.remove(PLUGIN_FOLDER_KEY);
+        return current;
     }
 
     /**
@@ -387,7 +408,7 @@ public class PluginManagerDialog extends Dialog<Void> {
             try {
                 chooser.setInitialDirectory(Path.of(folderField.getText().trim()).toFile());
             } catch (RuntimeException e) {
-                logger.log(java.util.logging.Level.FINE, "ignoring unusable folder path", e);
+                logger.debug("ignoring unusable folder path", e);
             }
         }
         java.io.File chosen = chooser.showDialog(getOwner());

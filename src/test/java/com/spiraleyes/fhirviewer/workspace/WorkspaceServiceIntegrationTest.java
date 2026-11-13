@@ -8,7 +8,9 @@ import com.spiraleyes.fhirviewer.service.IgPackageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -141,6 +143,55 @@ class WorkspaceServiceIntegrationTest {
         Map<String, Object> secondEntry = (Map<String, Object>) secondConns.get("Local HAPI");
         assertEquals(firstEntry.get("name"), secondEntry.get("name"));
         assertEquals(firstEntry.get("baseUrl"), secondEntry.get("baseUrl"));
+    }
+
+    @Test
+    void aProviderFailureLeavesTheOpenWorkspaceInPlace() throws Exception {
+        // An archive that is valid to read, so the failure comes from applying it.
+        WorkspaceService saving = newService();
+        saving.newWorkspace("Next");
+        saving.captureAll();
+        Path file = dir.resolve("next.fhirworkspace");
+        saving.saveAs(file);
+
+        // The five real providers all swallow bad input, so this seam is the only way to
+        // reach the failure path.
+        WorkspaceService service = new WorkspaceService(List.of(new WorkspaceStateProvider() {
+            @Override
+            public String providerId() {
+                return "connections";
+            }
+
+            @Override
+            public Object capture() {
+                return Map.of();
+            }
+
+            @Override
+            public void restore(Object snapshot) {
+                throw new IllegalStateException("provider failed");
+            }
+        }));
+        service.newWorkspace("Current");
+        service.markDirty();
+
+        assertThrows(IOException.class, () -> service.open(file));
+
+        assertEquals("Current", service.getCurrent().name(),
+                "a failed open must leave the workspace that was already open");
+        assertNull(service.getCurrentPath(), "and must not adopt the archive's path");
+        assertTrue(service.isDirty(), "and must not make unsaved work look saved");
+    }
+
+    @Test
+    void captureAllCurrentSaysNothingIsOpenRatherThanNpe() {
+        WorkspaceService service = new WorkspaceService();
+
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                service::captureAllCurrent);
+
+        assertEquals("No workspace open", e.getMessage(),
+                "the trap should fail the way save() does, not with a bare NPE");
     }
 
     @Test

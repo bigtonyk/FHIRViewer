@@ -77,7 +77,7 @@ class ConnectionsWorkspaceStateProviderTest {
     }
 
     @Test
-    void restoreWithMissingPluginWarnsButDoesNotConnect() {
+    void restoreSkipsAServerWhosePluginIsMissing() {
         FhirServerManager manager = new FhirServerManager();
         FhirServerPluginRegistry registry = new FhirServerPluginRegistry(); // empty: no plugins registered
 
@@ -90,9 +90,59 @@ class ConnectionsWorkspaceStateProviderTest {
         snap.put("Ghost Server", entry);
 
         ConnectionsWorkspaceStateProvider p = new ConnectionsWorkspaceStateProvider(manager, registry);
-        // Should not throw, should not auto-connect (manager.servers() unchanged)
         p.restore(snap);
-        assertTrue(manager.servers().isEmpty());
+
+        assertTrue(manager.servers().isEmpty(),
+                "a server with no plugin cannot answer a request, so it is not added");
+    }
+
+    @Test
+    void restoreAddsAServerThatIsNotConfigured() {
+        FhirServerManager manager = new FhirServerManager();
+        FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+        registry.register(new StandardFhirRestPlugin());
+
+        Map<String, Object> entry = new java.util.LinkedHashMap<>();
+        entry.put("id", "archived-id");
+        entry.put("name", "Archived Server");
+        entry.put("baseUrl", "https://archived.example.org/fhir");
+        entry.put("fhirVersion", "R4");
+        entry.put("pluginId", StandardFhirRestPlugin.PLUGIN_ID);
+        entry.put("timeoutMillis", 5000);
+
+        new ConnectionsWorkspaceStateProvider(manager, registry)
+                .restore(Map.of("Archived Server", entry));
+
+        assertEquals(1, manager.servers().size());
+        FhirServerConfiguration restored = manager.servers().get(0);
+        assertEquals("Archived Server", restored.name());
+        assertEquals("https://archived.example.org/fhir", restored.baseUrl());
+        // The id is the credential key: keeping it lets an already-saved password resolve.
+        assertEquals("archived-id", restored.credentialKey());
+        assertEquals(5000, restored.timeoutMillis());
+    }
+
+    @Test
+    void restoreLeavesAnAlreadyConfiguredServerAlone() {
+        FhirServerManager manager = new FhirServerManager();
+        manager.add(ServerDefinition.named("Shared", "https://current.example.org/fhir")
+                .id("current-id")
+                .build());
+        FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+        registry.register(new StandardFhirRestPlugin());
+
+        Map<String, Object> entry = new java.util.LinkedHashMap<>();
+        entry.put("id", "old-id");
+        entry.put("name", "Shared");
+        entry.put("baseUrl", "https://old.example.org/fhir");
+        entry.put("pluginId", StandardFhirRestPlugin.PLUGIN_ID);
+
+        new ConnectionsWorkspaceStateProvider(manager, registry)
+                .restore(Map.of("Shared", entry));
+
+        assertEquals(1, manager.servers().size());
+        assertEquals("https://current.example.org/fhir", manager.servers().get(0).baseUrl());
+        assertEquals("current-id", manager.servers().get(0).credentialKey());
     }
 
     @Test

@@ -1,0 +1,273 @@
+package com.spiraleyes.fhirviewer.ui;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Predicate;
+import java.util.prefs.Preferences;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import com.spiraleyes.fhirviewer.server.FhirServerManager;
+import com.spiraleyes.fhirviewer.workspace.FhirPathWorkspaceStateProvider;
+import com.spiraleyes.fhirviewer.workspace.TreeTabsWorkspaceStateProvider;
+import com.spiraleyes.fhirviewer.workspace.WorkspaceService;
+
+/**
+ * The workspace wiring between the window's file actions and the service behind them.
+ *
+ * <p>This is the test that was missing when H6 happened: nothing anywhere built these two
+ * classes together, so four links in the chain (a service that never opened anything, a
+ * dirty flag nobody set, snapshots nobody took, a Save that could only fail) stayed invisible
+ * through a fully green suite. It asserts the wiring, not the dialogs: the paths that need a
+ * {@code FileChooser} or a modal prompt are exactly the ones a headless test cannot drive.</p>
+ *
+ * <p>The stage is {@code null} because nothing here opens a dialog - a clean workspace's
+ * close decision and the start-up open are both decided without one. Preferences are the
+ * application's real {@code workspace} node, so each test snapshots and restores it: a test
+ * run must not decide what the developer's next session reopens.</p>
+ */
+class WorkspaceWiringTest {
+
+    @TempDir
+    Path dir;
+
+    private String originalHome;
+    private Map<String, String> savedPreferences;
+
+    /** Every actions object this test built, so its recovery thread can be stopped. */
+    private final List<WorkspaceActions> openedActions = new ArrayList<>();
+
+    @BeforeEach
+    void isolateTheRun() throws Exception {
+        originalHome = System.getProperty("user.home");
+        System.setProperty("user.home", dir.resolve("home").toString());
+
+        Preferences node = workspacePreferences();
+        savedPreferences = new LinkedHashMap<>();
+        for (String key : node.keys()) {
+            savedPreferences.put(key, node.get(key, ""));
+        }
+        node.clear();
+        node.flush();
+    }
+
+    @AfterEach
+    void restoreTheRun() throws Exception {
+        // Close the recovery services these tests built: each owns a snapshot thread that can
+        // still write into the temp home while JUnit is deleting it.
+        for (WorkspaceActions actions : openedActions) {
+            actions.close();
+        }
+
+        Preferences node = workspacePreferences();
+        node.clear();
+        savedPreferences.forEach((key, value) -> node.put(key, value));
+        node.flush();
+
+        if (originalHome == null) {
+            System.clearProperty("user.home");
+        } else {
+            System.setProperty("user.home", originalHome);
+        }
+    }
+
+    @Test
+    @DisplayName("Start-up opens the workspace the previous session left behind")
+    void startUpOpensTheRecordedWorkspace() throws Exception {
+        Path archive = recordedWorkspace("Smoke Workspace");
+
+        WorkspaceService service = new WorkspaceService();
+        List<String> messages = new ArrayList<>();
+        WorkspaceActions actions = actionsFor(service, messages);
+
+        actions.openLastWorkspace();
+
+        assertNotNull(service.getCurrent(),
+                "start-up must open the workspace, or Save has nothing to write over");
+        assertEquals("Smoke Workspace", service.getCurrent().name());
+        assertEquals(archive, service.getCurrentPath());
+        assertFalse(service.isDirty(), "merely opening a workspace must not make it dirty");
+        assertTrue(messages.stream().anyMatch(m -> m.contains("last workspace")),
+                messages.toString());
+    }
+
+    @Test
+    @DisplayName("Start-up with nothing recorded invents no workspace")
+    void startUpWithoutARecordedWorkspaceOpensNothing() {
+        WorkspaceService service = new WorkspaceService();
+        List<String> messages = new ArrayList<>();
+
+        actionsFor(service, messages).openLastWorkspace();
+
+        assertNull(service.getCurrent(),
+                "a fresh session must start with no workspace, so the first Save asks where");
+        assertEquals(List.of(), messages);
+    }
+
+    @Test
+    @DisplayName("Declining the start-up restore leaves the session without a workspace")
+    void decliningTheRestoreOpensNothing() throws Exception {
+        recordedWorkspace("Unwanted");
+        WorkspaceService service = new WorkspaceService();
+        List<String> messages = new ArrayList<>();
+
+        actionsFor(service, messages, name -> false).openLastWorkspace();
+
+        assertNull(service.getCurrent(),
+                "a declined restore must not open the workspace it offered");
+        assertTrue(messages.stream().anyMatch(m -> m.contains("without the last workspace")),
+                messages.toString());
+    }
+
+    @Test
+    @DisplayName("Tree and FHIRPath state given to the service is saved and restored")
+    void viewStateRoundTripsThroughAWorkspace() throws Exception {
+        Map<String, Object> treeState = new LinkedHashMap<>();
+        treeState.put("selected", "Patient.name[0]");
+        WorkspaceService saved = new WorkspaceService(new FhirServerManager(), null, null,
+                new TreeTabsWorkspaceStateProvider(() -> treeState, null),
+                new FhirPathWorkspaceStateProvider(() -> List.of("Patient.name"), null));
+        saved.newWorkspace("View State");
+        Path archive = dir.resolve("view-state.fhirworkspace");
+        saved.saveAs(archive);
+
+        Map<String, Object> appliedTree = new LinkedHashMap<>();
+        List<String> appliedExpressions = new ArrayList<>();
+        WorkspaceService opened = new WorkspaceService(new FhirServerManager(), null, null,
+                new TreeTabsWorkspaceStateProvider(null, appliedTree::putAll),
+                new FhirPathWorkspaceStateProvider(() -> List.of(),
+                        (expressions, contextRef) -> appliedExpressions.addAll(expressions)));
+
+        opened.open(archive);
+
+        assertEquals("Patient.name[0]", appliedTree.get("selected"),
+                "the tree selection must come back with the workspace");
+        assertEquals(List.of("Patient.name"), appliedExpressions,
+                "the saved expressions must come back with the workspace");
+    }
+
+    @Test
+    @DisplayName("A recorded workspace whose archive has moved is forgotten")
+    void aMissingArchiveIsForgotten() throws Exception {
+        Path gone = dir.resolve("moved-away.fhirworkspace");
+        Preferences node = workspacePreferences();
+        node.put("lastPath", gone.toString());
+        node.put("lastId", "0f0f0f0f-0000-0000-0000-000000000000");
+        node.put("lastName", "Gone");
+        node.flush();
+
+        WorkspaceService service = new WorkspaceService();
+        actionsFor(service, new ArrayList<>()).openLastWorkspace();
+
+        assertNull(service.getCurrent());
+        assertNull(node.get("lastPath", null),
+                "a path that no longer exists must not be offered again next time");
+    }
+
+    @Test
+    @DisplayName("A change the workspace captures makes it savable")
+    void aWorkspaceChangeMarksItDirty() throws Exception {
+        recordedWorkspace("Changes");
+        WorkspaceService service = new WorkspaceService();
+        service.openLastFromPreferences();
+        assertFalse(service.isDirty());
+
+        actionsFor(service, new ArrayList<>()).markWorkspaceChanged();
+
+        assertTrue(service.isDirty(),
+                "a server or package change must give the workspace something to save");
+    }
+
+    @Test
+    @DisplayName("Closing a clean workspace asks nothing")
+    void closingACleanWorkspaceAsksNothing() throws Exception {
+        recordedWorkspace("Clean");
+        WorkspaceService service = new WorkspaceService();
+        service.openLastFromPreferences();
+
+        // A prompt here would open a modal dialog; the test would hang rather than pass.
+        assertTrue(actionsFor(service, new ArrayList<>()).closeDecision());
+    }
+
+    /** Writes a workspace archive and records it as the previous session's, as a save would. */
+    private Path recordedWorkspace(String name) throws Exception {
+        WorkspaceService saved = new WorkspaceService();
+        saved.newWorkspace(name);
+        Path archive = dir.resolve(name.replace(' ', '-') + ".fhirworkspace");
+        saved.saveAs(archive);
+        assertTrue(Files.isRegularFile(archive), "the archive must exist for the test to test");
+        return archive;
+    }
+
+    private WorkspaceActions actionsFor(WorkspaceService service, List<String> messages) {
+        return actionsFor(service, messages, name -> true);
+    }
+
+    /**
+     * Actions whose start-up restore question is answered by the test: the production prompt is
+     * modal, so a headless run supplies the answer instead of showing it.
+     */
+    private WorkspaceActions actionsFor(WorkspaceService service, List<String> messages,
+            Predicate<String> restore) {
+        WorkspaceActions actions =
+                new WorkspaceActions(null, service, new ThemeManager(), messages::add, restore);
+        openedActions.add(actions);
+        return actions;
+    }
+
+    private static Preferences workspacePreferences() throws Exception {
+        return Preferences.userRoot().node(WorkspaceService.PREFERENCES_NODE);
+    }
+
+    @Test
+    @DisplayName("A workspace an earlier build recorded is picked up and its old node emptied")
+    void preferencesFromAnEarlierBuildAreMigrated() throws Exception {
+        Path archive = recordedWorkspace("Migrated");
+        workspacePreferences().clear();
+        Preferences legacy = Preferences.userRoot().node("workspace");
+        legacy.put("lastPath", archive.toString());
+        legacy.put("lastId", "11111111-1111-1111-1111-111111111111");
+        legacy.put("lastName", "Migrated");
+        legacy.flush();
+
+        WorkspaceService service = new WorkspaceService();
+
+        assertTrue(service.openLastFromPreferences() != null,
+                "a workspace an earlier build recorded must still reopen");
+        assertEquals(0, Preferences.userRoot().node("workspace").keys().length,
+                "the bare workspace node must not survive as a second source of truth");
+    }
+
+    @Test
+    @DisplayName("The recovery directory can be moved off the home directory")
+    void recoveryHomeFollowsAProperty() {
+        String previous = System.getProperty(WorkspaceActions.RECOVERY_HOME_PROPERTY);
+        Path elsewhere = dir.resolve("recovery");
+        try {
+            System.setProperty(WorkspaceActions.RECOVERY_HOME_PROPERTY, elsewhere.toString());
+
+            assertEquals(elsewhere, WorkspaceActions.recoveryHome());
+        } finally {
+            if (previous == null) {
+                System.clearProperty(WorkspaceActions.RECOVERY_HOME_PROPERTY);
+            } else {
+                System.setProperty(WorkspaceActions.RECOVERY_HOME_PROPERTY, previous);
+            }
+        }
+        assertEquals(Path.of(System.getProperty("user.home", ".")), WorkspaceActions.recoveryHome());
+    }
+}

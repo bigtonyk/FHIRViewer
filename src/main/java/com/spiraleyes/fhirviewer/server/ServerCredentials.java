@@ -37,7 +37,7 @@ public final class ServerCredentials {
     private static final Logger log = LoggerFactory.getLogger(ServerCredentials.class);
 
     private final PluginSettingsStore store;
-    private final Supplier<String> passphrase;
+    private final Supplier<char[]> passphrase;
 
     /** A resolver that always answers anonymous, for callers with no settings to offer. */
     public ServerCredentials() {
@@ -47,9 +47,10 @@ public final class ServerCredentials {
     /**
      * @param store      where saved settings live; {@code null} means nothing is saved
      * @param passphrase supplies the passphrase that unlocks them, or {@code null} when
-     *                   the user has not given one this session
+     *                   the user has not given one this session; each array it returns is
+     *                   wiped once the credential has been resolved
      */
-    public ServerCredentials(PluginSettingsStore store, Supplier<String> passphrase) {
+    public ServerCredentials(PluginSettingsStore store, Supplier<char[]> passphrase) {
         this.store = store;
         this.passphrase = passphrase == null ? () -> null : passphrase;
     }
@@ -57,26 +58,16 @@ public final class ServerCredentials {
     /**
      * A resolver reading its passphrase from a {@link ServerPassphrase}.
      *
-     * <p>The usual construction, because {@link SecretBox} takes a {@code String} while
-     * the passphrase is better held as a wipeable {@code char[]}. The temporary
-     * {@code String} here is the one unavoidable copy, and it is discarded as soon as
-     * the decryption returns.
+     * <p>The usual construction. The session passphrase is held as a wipeable {@code char[]},
+     * and it reaches the key derivation as one: {@link #copy()} hands out a fresh array per
+     * request and this resolver wipes it afterwards, so no {@code String} of the passphrase is
+     * made on the way.
      */
     public static ServerCredentials from(PluginSettingsStore store, ServerPassphrase passphrase) {
         if (passphrase == null) {
             return new ServerCredentials(store, () -> null);
         }
-        return new ServerCredentials(store, () -> {
-            char[] copy = passphrase.copy();
-            if (copy == null) {
-                return null;
-            }
-            try {
-                return new String(copy);
-            } finally {
-                Arrays.fill(copy, '\0');
-            }
-        });
+        return new ServerCredentials(store, passphrase::copy);
     }
 
 
@@ -113,8 +104,8 @@ public final class ServerCredentials {
         if (!saved.hasCredentials()) {
             return AnonymousServerAuthentication.INSTANCE;
         }
-        String secret = passphrase.get();
-        if (secret == null || secret.isEmpty()) {
+        char[] secret = passphrase.get();
+        if (secret == null || secret.length == 0) {
             // The user saved a password but has not unlocked it this session. That is a
             // normal state, not an error: the plugin manager clears the passphrase field
             // after saving precisely so it is not left lying around.
@@ -122,15 +113,15 @@ public final class ServerCredentials {
                     server.name());
             return AnonymousServerAuthentication.INSTANCE;
         }
-        if (TransportSecurity.exposesCredentials(server.baseUrl())) {
-            // The credential is about to be put on the wire in a form anyone on the path can
-            // read. Not refused - http to a non-loopback host is the user's decision, and a
-            // check they cannot see past would just be worked around - but recorded, because
-            // the save-time warning may have been days and several restarts ago.
-            log.warn("using a saved credential for {} over a connection that is not encrypted",
-                    server.name());
-        }
         try {
+            if (TransportSecurity.exposesCredentials(server.baseUrl())) {
+                // The credential is about to be put on the wire in a form anyone on the path can
+                // read. Not refused - http to a non-loopback host is the user's decision, and a
+                // check they cannot see past would just be worked around - but recorded, because
+                // the save-time warning may have been days and several restarts ago.
+                log.warn("using a saved credential for {} over a connection that is not encrypted",
+                        server.name());
+            }
             return BasicServerAuthentication.from(store.unlockForServer(server, secret));
         } catch (SecretBoxException e) {
             // The passphrase is wrong or the file is damaged. SecretBox reports both the
@@ -142,6 +133,10 @@ public final class ServerCredentials {
         } catch (IOException e) {
             log.info("saved credentials for {} could not be read: {}", server.name(), e.toString());
             return AnonymousServerAuthentication.INSTANCE;
+        } finally {
+            // This is the resolver's own copy, so wiping it costs the supplier nothing and
+            // leaves no readable passphrase behind for the duration of the request.
+            Arrays.fill(secret, '\0');
         }
     }
 

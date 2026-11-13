@@ -215,7 +215,7 @@ public class StandardFhirRestPluginTest {
             FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
             registry.register(plugin);
             FhirServerService service = new FhirServerService(registry,
-                    new ServerCredentials(store, () -> "pass phrase"));
+                    new ServerCredentials(store, () -> "pass phrase".toCharArray()));
 
             lastAuthorization.set(null);
             SearchResultPage page = service.search(session.server(),

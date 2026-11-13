@@ -84,6 +84,9 @@ class ServerUiSmokeTest {
         try {
             Platform.startup(STARTED::countDown);
             STARTED.await(30, TimeUnit.SECONDS);
+        } catch (IllegalStateException alreadyStarted) {
+            // Another UI test class started the toolkit first. That is the state this class
+            // wants, not a reason to skip every test it has.
         } catch (Throwable toolkitProblem) {
             // Recorded rather than thrown: an unavailable toolkit must skip the test, not
             // fail it. A real defect in the screens still fails the test below.
@@ -161,14 +164,17 @@ class ServerUiSmokeTest {
      */
     private void awaitOperations(int expected) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        int[] seen = {0};
         while (System.nanoTime() < deadline) {
-            int[] seen = {0};
             runOnFxThread(() -> seen[0] = built.operationCount());
             if (seen[0] >= expected) {
                 return;
             }
             Thread.sleep(50);
         }
+        // A timeout used to return quietly, so a screen that never filled let the test run
+        // on and fail somewhere unrelated - or pass without having checked anything.
+        assertEquals(expected, seen[0], "the operation list never reached " + expected);
     }
 
     @Test
@@ -752,8 +758,10 @@ class ServerUiSmokeTest {
             dialog.close();
         });
 
-        // The search runs on a worker; give it a moment before asking whether it landed.
-        Thread.sleep(1500);
+        // The search runs on a worker: wait for the memory to fill instead of sleeping a
+        // fixed 1.5 s and hoping, which is what made this either slow or flaky.
+        waitUntil("pressing Search recorded nothing within ten seconds",
+                () -> memory.last() != null);
 
         assertNotNull(memory.last(),
                 "pressing Search did not record anything, so the next opening cannot "
@@ -1027,7 +1035,12 @@ class ServerUiSmokeTest {
             fresh.close();
         });
 
-        Thread.sleep(1500);
+        // A request, if the screen wrongly made one, arrives on a worker. Watch for it and
+        // fail as soon as it appears, rather than sleeping a fixed 1.5 s and hoping.
+        long deadline = System.currentTimeMillis() + 500;
+        while (requests.get() == 0 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10);
+        }
         assertEquals(0, requests.get(),
                 "opening the screen with no search to restore should not talk to the server");
     }
@@ -1483,14 +1496,15 @@ class ServerUiSmokeTest {
 
     private void awaitCount(int expected, ServerOperationDialog dialog) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        int[] seen = {0};
         while (System.nanoTime() < deadline) {
-            int[] seen = {0};
             runOnFxThread(() -> seen[0] = dialog.operationCount());
             if (seen[0] >= expected) {
                 return;
             }
             Thread.sleep(50);
         }
+        assertEquals(expected, seen[0], "the operation list never reached " + expected);
     }
 
     @Test
@@ -1541,7 +1555,7 @@ class ServerUiSmokeTest {
                     List.of(new RestParameterList.Parameter("name", "Smith"),
                             new RestParameterList.Parameter("_include", "Patient:organization")),
                     List.of(new RestParameterList.Parameter("Prefer", "return=representation")),
-                    "application/fhir+json", ServerAuthKind.BASIC, "alice", 1400, 820, 0.5, "");
+                    "application/fhir+json", ServerAuthKind.BASIC, "alice", 1400, 820, 0.5);
             remembered.save();
 
             AtomicReference<RestRequestPane> pane = new AtomicReference<>();

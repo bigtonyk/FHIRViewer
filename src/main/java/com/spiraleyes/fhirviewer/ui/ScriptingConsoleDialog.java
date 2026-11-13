@@ -10,20 +10,23 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import javafx.application.Platform;
 import javafx.geometry.Insets;
-import javafx.geometry.Orientation;
+import javafx.geometry.Pos;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
-import javafx.scene.control.Separator;
 import javafx.scene.control.SplitPane;
+import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
 import javafx.scene.control.TextArea;
-import javafx.scene.layout.HBox;
+import javafx.scene.control.Tooltip;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
@@ -31,6 +34,9 @@ import javafx.stage.FileChooser;
 import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptRunResult;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
+import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteCaseResult;
+import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteRunResult;
+import com.spiraleyes.fhirviewer.service.scripting.testing.TestSuite;
 import com.spiraleyes.fhirviewer.service.scripting.api.FhirApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.LogApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
@@ -45,17 +51,17 @@ import com.spiraleyes.fhirviewer.server.FhirServerService;
  * The Scripting Console: a multiline Java editor over a read-only output
  * console, running the buffer through an embedded JShell.
  *
- * <p>Shaped after {@link RestConsoleDialog} Ã¢â‚¬â€ a workspace {@code Dialog} with a
- * SplitPane of two halves and a status line that never lies Ã¢â‚¬â€ rather than
+ * <p>Shaped after {@link RestConsoleDialog} — a workspace {@code Dialog} with a
+ * SplitPane of two halves and a status line that never lies — rather than
  * after any modal form: the editor and the output belong on screen together,
  * and Run/Stop/Reset/Open/Save/Save As/Example/Clear Output are the content of
  * the job, not decoration around it. The dialog themes and sizes itself, the
  * way {@link UserGuideDialog} does, instead of going through
- * {@code applyDialogTheme}: that helper pins every dialog it touches to 620px,
+ * {@code DialogTheme.apply}: that helper pins every dialog it touches to 620px,
  * and a scripting workspace at 620px is a form the panels collide in.</p>
  *
- * <p><b>Scripts are ordinary Java and are not sandboxed.</b> The first Run Ã¢â‚¬â€
- * and the first Run after opening a file, which arrives from outside Ã¢â‚¬â€ asks
+ * <p><b>Scripts are ordinary Java and are not sandboxed.</b> The first Run —
+ * and the first Run after opening a file, which arrives from outside — asks
  * for an explicit acknowledgement before anything executes, and nothing ever
  * runs on its own: not on dialog open, not on file open, not on anything but
  * the Run button.</p>
@@ -76,8 +82,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     private final TextArea editor = new TextArea();
     private final TextArea output = new TextArea();
+    private final TextArea suiteDetails = new TextArea();
+    private TabPane bottomTabs;
     private final Label statusLabel = new Label();
     private final Button runButton = new Button("Run");
+    private final Label runModeLabel = new Label();
+    private final Button runTestsButton = new Button("Run Tests");
+    private final Label suiteReport = new Label();
     private final Button stopButton = new Button("Stop");
     private final Button resetButton = new Button("Reset Session");
     private final Button openButton = new Button("Open\u2026");
@@ -86,7 +97,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private final Button exampleButton = new Button("Example");
     private final Button clearButton = new Button("Clear Output");
 
-    private final ScriptingCoordinator coordinator = new ScriptingCoordinator();
+    private final ScriptingCoordinator coordinator;
     private final List<String> stylesheets;
 
     private static File lastDirectory;
@@ -107,6 +118,21 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     public ScriptingConsoleDialog(ThemeManager themeManager,
             FhirService fhirService, FhirServerService serverService,
             FhirServerManager serverManager) {
+        this(themeManager, fhirService, serverService, serverManager, new ScriptingCoordinator());
+    }
+
+    /**
+     * Builds the console over the given coordinator, so a UI test can drive suite
+     * results the real session factory cannot produce. Package-private: production
+     * callers use the public constructor. The dialog closes the coordinator when it
+     * is hidden, so a caller must not share one with another window.
+     */
+    ScriptingConsoleDialog(ThemeManager themeManager, FhirService fhirService,
+            FhirServerService serverService, FhirServerManager serverManager,
+            ScriptingCoordinator coordinator) {
+        if (coordinator == null) {
+            throw new IllegalArgumentException("A scripting coordinator is required.");
+        }
         if (themeManager == null) {
             throw new IllegalArgumentException("A theme manager is required.");
         }
@@ -114,6 +140,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             throw new IllegalArgumentException("The scripting services are required.");
         }
 
+        this.coordinator = coordinator;
         bindings = new ScriptBindings(
                 new FhirApi(serverService, serverManager, WritePolicy.READ_ONLY),
                 new ViewerApi(fhirService),
@@ -132,10 +159,27 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         statusLabel.setWrapText(true);
         statusLabel.setMaxWidth(Double.MAX_VALUE);
         setStatus("Ready. Write a script, then press Run.");
-        HBox toolbar = new HBox(8, runButton, stopButton, resetButton, 
-                new Separator(Orientation.VERTICAL), openButton, saveButton, saveAsButton, 
-                new Separator(Orientation.VERTICAL), exampleButton, 
-                new Separator(Orientation.VERTICAL), clearButton);
+        runModeLabel.getStyleClass().add("app-subtitle");
+        runModeLabel.setTooltip(new Tooltip("A saved script runs in a fresh JShell session"
+                + " and leaves nothing behind; the unsaved editor keeps the interactive"
+                + " session until Reset Session."));
+        updateRunModeLabel();
+        runTestsButton.setTooltip(new Tooltip("Runs each // case: block as a test in a session"
+                + " of its own; counts appear above the panes and each case's output goes"
+                + " to the Test details tab."));
+        suiteReport.getStyleClass().add("app-subtitle");
+        suiteReport.setWrapText(true);
+        suiteReport.setMaxWidth(Double.MAX_VALUE);
+        suiteReport.setManaged(false);
+        suiteReport.setVisible(false);
+        // A FlowPane, not an HBox: the controls plus the mode label are wider than the
+        // 820px minimum dialog, and an HBox would squeeze the buttons or clip the label
+        // instead of moving the overflow to a second row.
+        FlowPane toolbar = new FlowPane(8, 8, runButton, runTestsButton, runModeLabel,
+                stopButton, resetButton, openButton, saveButton, saveAsButton, exampleButton,
+                clearButton);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+        runTestsButton.setOnAction(event -> onRunTests());
         openButton.setOnAction(event -> onOpen());
         saveButton.setOnAction(event -> onSave(false));
         saveAsButton.setOnAction(event -> onSave(true));
@@ -145,11 +189,19 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         resetButton.setOnAction(event -> onReset());
         clearButton.setOnAction(event -> output.clear());
 
-        SplitPane split = new SplitPane(editor, output);
+        suiteDetails.setEditable(false);
+        suiteDetails.setWrapText(true);
+        Tab outputTab = new Tab("Output", output);
+        outputTab.setClosable(false);
+        Tab detailsTab = new Tab("Test details", suiteDetails);
+        detailsTab.setClosable(false);
+        bottomTabs = new TabPane(outputTab, detailsTab);
+        bottomTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        SplitPane split = new SplitPane(editor, bottomTabs);
         split.setOrientation(javafx.geometry.Orientation.VERTICAL);
         split.setDividerPositions(0.55);
 
-        VBox content = new VBox(8, toolbar, split, statusLabel);
+        VBox content = new VBox(8, toolbar, suiteReport, split, statusLabel);
         content.setPadding(new Insets(12));
         content.setPrefWidth(1180);
         content.setPrefHeight(640);
@@ -163,7 +215,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         getDialogPane().setMinHeight(540);
 
         // Dialog.close() is final, so cleanup goes here: hide fires for a Close
-        // press and a programmatic close alike Ã¢â‚¬â€ the arrangement SmartLaunchDialog
+        // press and a programmatic close alike — the arrangement SmartLaunchDialog
         // records in its own comment, for the same reason.
         setOnHidden(event -> coordinator.close());
         setOnCloseRequest(event -> {
@@ -177,7 +229,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     // Execution
     // ------------------------------------------------------------------
 
-    /** Runs the buffer Ã¢â‚¬â€ after the trust acknowledgement, and on the coordinator's worker. */
+    /** Runs the buffer — after the trust acknowledgement, and on the coordinator's worker. */
     private void onRun() {
         if (coordinator.isRunning()) {
             return;
@@ -185,13 +237,151 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (!ensureTrust()) {
             return;
         }
+        bottomTabs.getSelectionModel().select(0);
         String source = editor.getText();
+        // A buffer with a file behind it is a saved script: repeatability matters more
+        // than continuity, so it runs in its own session and leaves none behind. The
+        // unsaved editor stays on the interactive session until Reset.
+        boolean savedScript = currentFile != null;
         setBusy(true);
-        setStatus("Running \u2026");
-        coordinator.run(source, bindings, result -> Platform.runLater(() -> {
+        setStatus(savedScript ? "Running in a fresh session \u2026" : "Running \u2026");
+        Consumer<ScriptRunResult> done = result -> Platform.runLater(() -> {
             setBusy(false);
+            if (savedScript) {
+                appendRaw("[fresh session \u2014 closed after this run]");
+            }
             present(result);
+        });
+        if (savedScript) {
+            coordinator.runInFreshSession(source, bindings, done);
+        } else {
+            coordinator.run(source, bindings, done);
+        }
+    }
+
+    /**
+     * Parses the buffer as a suite and runs every case in its own session.
+     *
+     * <p>Counts go to the dedicated report label rather than the output pane, so a
+     * reader can tell a failed check from what the script printed. Nothing runs
+     * without the same trust acknowledgement as an ordinary Run.</p>
+     */
+    private void onRunTests() {
+        if (coordinator.isRunning()) {
+            return;
+        }
+        // A refusal or parse error must not leave the previous run's results looking current.
+        clearSuiteResults();
+        TestSuite suite;
+        try {
+            suite = TestSuite.parse(suiteName(), editor.getText());
+        } catch (IllegalArgumentException unreadable) {
+            showSuiteReport("Could not read tests: " + unreadable.getMessage());
+            setStatus("Could not read tests: " + unreadable.getMessage());
+            return;
+        }
+        if (!ensureTrust()) {
+            return;
+        }
+        setBusy(true);
+        showSuiteReport("Running " + suite.cases().size() + " test case(s) \u2026");
+        setStatus("Running " + suite.cases().size() + " test case(s) \u2026");
+        coordinator.runSuite(suite, bindings, result -> Platform.runLater(() -> {
+            setBusy(false);
+            presentSuite(result);
         }));
+    }
+
+    /** Shows the suite counts and every failure line, apart from console output. */
+    private void presentSuite(SuiteRunResult result) {
+        StringBuilder report = new StringBuilder();
+        if (!result.message().isBlank()) {
+            // The run stopped part-way: keep the reason and the counts of what did run.
+            report.append(result.message()).append('\n');
+        }
+        report.append("Tests: ")
+                .append(result.passedCount()).append(" passed, ")
+                .append(result.failedCount()).append(" failed");
+        if (result.stoppedCount() > 0) {
+            report.append(", ").append(result.stoppedCount()).append(" stopped");
+        }
+        // A partial run must not present the executed count as the suite's size.
+        if (result.planned() > result.total()) {
+            report.append(" (").append(result.total()).append(" of ").append(result.planned())
+                    .append(" case(s) ran, ").append(result.elapsed().toMillis()).append(" ms)");
+        } else {
+            report.append(" (").append(result.total()).append(" case(s), ")
+                    .append(result.elapsed().toMillis()).append(" ms)");
+        }
+        if (result.cancelled()) {
+            report.append(" \u2014 stopped");
+        }
+        for (SuiteCaseResult testCase : result.cases()) {
+            if (testCase.stopped()) {
+                // Stop is the user's action, not a failing test: name the case without a
+                // failure detail, so the counts and the lines below them agree.
+                report.append('\n').append("STOPPED ").append(testCase.name());
+            } else if (!testCase.passed()) {
+                report.append('\n').append("FAILED ").append(testCase.name())
+                        .append(": ").append(testCase.detail());
+            }
+        }
+        String text = report.toString();
+        showSuiteReport(text);
+        presentSuiteDetails(result);
+        setStatus(text.lines().findFirst().orElse(text));
+    }
+
+    /**
+     * Writes every case's printed output and full failure detail to the Test details tab.
+     * The output pane stays untouched, so its contents are only what a run printed.
+     */
+    private void presentSuiteDetails(SuiteRunResult result) {
+        StringBuilder details = new StringBuilder();
+        if (!result.message().isBlank()) {
+            details.append(result.message()).append('\n');
+        }
+        for (SuiteCaseResult testCase : result.cases()) {
+            details.append("case: ").append(testCase.name()).append(" \u2014 ")
+                    .append(testCase.status()).append('\n');
+            for (ScriptRunResult.Entry entry : testCase.entries()) {
+                details.append("  [").append(label(entry.kind())).append("] ")
+                        .append(entry.text()).append('\n');
+            }
+            details.append('\n');
+        }
+        suiteDetails.setText(details.toString());
+        suiteDetails.positionCaret(0);
+        bottomTabs.getSelectionModel().select(1);
+    }
+
+    private void showSuiteReport(String text) {
+        suiteReport.setText(text);
+        suiteReport.setManaged(true);
+        suiteReport.setVisible(true);
+    }
+
+    /** Drops an earlier suite's verdict line until the new run has something to say. */
+    private void hideSuiteReport() {
+        suiteReport.setText("");
+        suiteReport.setManaged(false);
+        suiteReport.setVisible(false);
+    }
+
+    /**
+     * Removes the previous suite's verdict and details, and returns to the output tab.
+     * Called when a suite run starts, and whenever the buffer they described is replaced
+     * by opening a file or loading the example.
+     */
+    private void clearSuiteResults() {
+        suiteDetails.clear();
+        hideSuiteReport();
+        bottomTabs.getSelectionModel().select(0);
+    }
+
+    /** The suite name shown in the report: the file name, or "buffer" when untitled. */
+    private String suiteName() {
+        return currentFile == null ? "buffer" : currentFile.getFileName().toString();
     }
 
     /** Asks the running script to stop; the run's own result lands when it ends. */
@@ -210,7 +400,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         coordinator.reset(() -> Platform.runLater(() -> {
             setBusy(false);
             appendRaw("[session reset]");
-            setStatus("Session reset Ã¢â‚¬â€ variables, methods and classes"
+            setStatus("Session reset — variables, methods and classes"
                     + " from the previous session are gone.");
         }));
     }
@@ -255,6 +445,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         };
     }
 
+    /** Names the session the next Run will use, so a saved buffer cannot look interactive. */
+    private void updateRunModeLabel() {
+        runModeLabel.setText(currentFile == null
+                ? "Run: interactive session"
+                : "Run: fresh session (saved script)");
+    }
+
     private void appendRaw(String line) {
         output.appendText(line + "\n");
         output.positionCaret(output.getLength());
@@ -262,6 +459,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     private void setBusy(boolean busy) {
         runButton.setDisable(busy);
+        runTestsButton.setDisable(busy);
         resetButton.setDisable(busy);
         openButton.setDisable(busy);
         saveButton.setDisable(busy);
@@ -272,6 +470,61 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     private void setStatus(String message) {
         statusLabel.setText(message == null || message.isBlank() ? " " : message);
+    }
+
+    /** The run-mode label, for tests. */
+    Label runModeLabelForTest() {
+        return runModeLabel;
+    }
+
+    /** The Example button, for tests. */
+    Button exampleButtonForTest() {
+        return exampleButton;
+    }
+
+    /** The Save button, for tests. */
+    Button saveButtonForTest() {
+        return saveButton;
+    }
+
+    /** The buffer's file, or empty when the buffer is untitled; for tests. */
+    Optional<Path> boundFileForTest() {
+        return Optional.ofNullable(currentFile);
+    }
+
+    /** The editor's current text, for tests. */
+    String editorTextForTest() {
+        return editor.getText();
+    }
+
+    /** Replaces the editor text, for tests. */
+    void setEditorTextForTest(String text) {
+        editor.setText(text);
+    }
+
+    /** The Run Tests button, for tests. */
+    Button runTestsButtonForTest() {
+        return runTestsButton;
+    }
+
+    /** The suite report label, for tests. */
+    Label suiteReportForTest() {
+        return suiteReport;
+    }
+
+    /** The output pane's text, for tests. */
+    String outputTextForTest() {
+        return output.getText();
+    }
+
+    /** The Test details tab's text, for tests. */
+    String suiteDetailsTextForTest() {
+        return suiteDetails.getText();
+    }
+
+    /** Renders a suite result without running one, for tests. */
+    void presentSuiteForTest(SuiteRunResult result) {
+        presentSuite(result);
     }
 
 
@@ -296,15 +549,15 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         warning.setHeaderText("Scripts are not sandboxed");
         warning.setContentText("Java scripts run with the same permissions as FHIRViewer itself:"
                 + " they can read files, use the network, start processes and inspect the"
-                + " environment. Only run scripts you trust Ã¢â‚¬â€ this includes any file you open.\n\n"
+                + " environment. Only run scripts you trust — this includes any file you open.\n\n"
                 + "FHIRViewer never runs scripts on its own; nothing executes"
-                + " until you press Run.");
+                + " until you press Run or Run Tests.");
         ButtonType runAnyway = new ButtonType("Run Script", ButtonBar.ButtonData.OK_DONE);
         warning.getButtonTypes().setAll(runAnyway, ButtonType.CANCEL);
         warning.getDialogPane().getStylesheets().addAll(stylesheets);
         Optional<ButtonType> answer = warning.showAndWait();
         if (answer.isEmpty() || answer.get() != runAnyway) {
-            setStatus("Run cancelled Ã¢â‚¬â€ scripts are not sandboxed.");
+            setStatus("Run cancelled — scripts are not sandboxed.");
             return false;
         }
         trustAcknowledged = true;
@@ -343,8 +596,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         editor.setText(content);
         savedContent = content;
         currentFile = file.toPath();
+        updateRunModeLabel();
+        // The verdicts on screen belong to the buffer that was just replaced.
+        clearSuiteResults();
         trustAcknowledged = false;
-        setStatus("Opened " + file.getName() + " Ã¢â‚¬â€ running will ask for trust again.");
+        setStatus("Opened " + file.getName() + " — running will ask for trust again.");
     }
 
     /**
@@ -364,12 +620,16 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
         savedContent = editor.getText();
         currentFile = target;
+        updateRunModeLabel();
         setStatus("Saved " + target.getFileName() + ".");
         return true;
     }
 
-    /** The save-file chooser with the `.jsh` filter preselected. */
-    private Path chooseSaveLocation() {
+    /**
+     * The save-file chooser with the `.jsh` filter preselected. Protected so a UI smoke test
+     * can answer it with a temporary path instead of opening a native dialog.
+     */
+    protected Path chooseSaveLocation() {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Save script");
         chooser.setInitialFileName(currentFile == null ? "untitled.jsh"
@@ -404,7 +664,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
         editor.setText(example);
         savedContent = example;
-        setStatus("Example loaded Ã¢â‚¬â€ press Run to execute it.");
+        // The example is not the file that was open: keep the buffer untitled so Save asks
+        // for a location instead of overwriting that file, and Run stays interactive.
+        currentFile = null;
+        updateRunModeLabel();
+        // The verdicts on screen belong to the buffer that was just replaced.
+        clearSuiteResults();
+        setStatus("Example loaded into an untitled buffer — press Run to execute it.");
     }
 
     /** The bundled example text, or null when the resource is missing. */
