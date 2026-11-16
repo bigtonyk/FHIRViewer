@@ -147,6 +147,7 @@ public final class ScriptBindings {
                 "import com.spiraleyes.fhirviewer.server.ServerWriteResult;",
                 "import com.spiraleyes.fhirviewer.service.scripting.api.SearchResults;",
                 "import com.spiraleyes.fhirviewer.service.scripting.api.WriteDeniedException;",
+                "import com.spiraleyes.fhirviewer.service.scripting.api.WriteOutcomeUnknownException;",
                 "import com.spiraleyes.fhirviewer.service.scripting.BatchErrorPolicy;",
                 "final " + fhirApi + " fhir = " + bindings + ".current().fhir;",
                 "final " + viewerApi + " viewer = " + bindings + ".current().viewer;",

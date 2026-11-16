@@ -222,4 +222,97 @@ class FhirApiTest {
         assertThrows(ScriptApiException.class, () -> api.read("", "1"));
         assertThrows(ScriptApiException.class, () -> api.read("Patient", "   "));
     }
+
+    @Test
+    void aStoredReferenceStopsWritingWhenTheGrantIsRevoked() {
+        WritePolicy policy = WritePolicy.enabled();
+        FhirApi held = new FhirApi(service, manager, policy);
+
+        policy.revoke();
+
+        assertThrows(WriteDeniedException.class, () -> held.create(patient("1", "Smith")));
+        assertEquals(0, service.createCalls, "revocation must happen before the request");
+    }
+
+    @Test
+    void aGrantBoundToAServerRefusesAnotherActiveServer() {
+        WriteJournal journal = new WriteJournal();
+        WritePolicy policy = WritePolicy.enabled(null, manager.active().orElseThrow(), journal,
+                0, null, null);
+        FhirApi bound = new FhirApi(service, manager, policy);
+        ServerDefinition other = ServerDefinition.named("Other", "http://other.example.com/fhir")
+                .pluginId("standard-rest").build();
+        manager.add(other);
+        manager.setActive(other);
+
+        assertThrows(WriteDeniedException.class, () -> bound.create(patient("1", "Smith")));
+        assertEquals(0, service.createCalls, "the wrong server must never receive the write");
+    }
+
+    @Test
+    void aSuccessfulWriteIsJournaledWithoutTheResourceBody() {
+        WriteJournal journal = new WriteJournal();
+        WritePolicy policy = WritePolicy.enabled(null, manager.active().orElseThrow(), journal,
+                0, null, null);
+        FhirApi journaled = new FhirApi(service, manager, policy);
+        service.writeResult = ServerWriteResult.created("created-9", "v3");
+
+        journaled.create(patient("1", "Smith"));
+
+        assertEquals(1, journal.size());
+        WriteJournal.Entry entry = journal.entries().get(0);
+        assertEquals("create", entry.operation());
+        assertEquals("Patient", entry.resourceType());
+        assertEquals("created-9", entry.resourceId());
+        assertEquals("v3", entry.versionId());
+        assertEquals(WriteJournal.Status.SUCCEEDED, entry.status());
+        assertFalse(entry.toString().contains("Smith"), "the journal must not keep the body");
+    }
+
+    @Test
+    void aTimedOutWriteIsReportedAsOutcomeUnknown() {
+        WriteJournal journal = new WriteJournal();
+        WritePolicy policy = WritePolicy.enabled(null, manager.active().orElseThrow(), journal,
+                0, null, null);
+        FhirApi journaled = new FhirApi(service, manager, policy);
+        service.writeFailure = new ServerOperationException(
+                ServerOperationException.Kind.TIMEOUT, "deadline passed");
+
+        WriteOutcomeUnknownException failure = assertThrows(WriteOutcomeUnknownException.class,
+                () -> journaled.create(patient("1", "Smith")));
+
+        assertTrue(failure.getMessage().contains("may have been applied") ||
+                failure.getMessage().contains("outcome is unknown"), failure.getMessage());
+        assertEquals(1, service.createCalls);
+        assertEquals(WriteJournal.Status.UNKNOWN, journal.entries().get(0).status());
+    }
+
+    @Test
+    void patchAndDeleteSendTheVersionWhenOneIsSupplied() {
+        service.patchResult = ServerWriteResult.updated("1", "v4");
+        writes.patch("Patient", "1", "{\"active\":false}", PatchFormat.JSON_MERGE_PATCH, "v3");
+        writes.delete("Patient", "1", "v4");
+
+        assertEquals("v3", service.lastPatchOrigin.versionId());
+        assertEquals("v4", service.lastDeleteOrigin.versionId());
+    }
+
+    @Test
+    void aWriteBudgetPausesAtTheLimitAndResumesWhenApproved() {
+        AtomicReference<Integer> promptedAt = new AtomicReference<>();
+        WritePolicy policy = WritePolicy.enabled(null, manager.active().orElseThrow(),
+                new WriteJournal(), 2, (completed, target) -> {
+                    promptedAt.set(completed);
+                    return true;
+                }, null);
+        FhirApi budgeted = new FhirApi(service, manager, policy);
+        service.writeResult = ServerWriteResult.created("created", "v1");
+
+        budgeted.create(patient("1", "Smith"));
+        budgeted.create(patient("2", "Jones"));
+        budgeted.create(patient("3", "Brown"));
+
+        assertEquals(2, promptedAt.get(), "the prompt must happen at the configured limit");
+        assertEquals(3, service.createCalls);
+    }
 }

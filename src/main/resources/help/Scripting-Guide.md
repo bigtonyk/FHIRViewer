@@ -52,17 +52,24 @@ Signatures:
 - `ServerWriteResult create(IBaseResource resource)` — requires the write opt-in.
 - `ServerWriteResult update(IBaseResource resource)` — requires the write opt-in and a server id.
 - `ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format)` — requires the write opt-in.
+- `ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format, String versionId)` — also sends `If-Match`.
 - `void delete(String resourceType, String resourceId)` — requires the write opt-in and a confirmation.
+- `void delete(String resourceType, String resourceId, String versionId)` — also sends `If-Match`.
 
 SearchResults: `resources()`, `total()`, `nextPageToken()`, `previousPageToken()`,
 `hasNextPage()`, `hasPreviousPage()`, `size()`. Paging: `fhir.nextPage(token)`,
 `fhir.previousPage(token)`.
 
 Writes are off when the console opens. Tick **Allow server writes** and approve the warning
-that names the active server. The setting lasts for that console window only; opening a
-file or loading the example turns it off again. While it is off, `create`, `update`, `patch`
-and `delete` throw `WriteDeniedException` before any request is made. Reads and searches
-are unaffected.
+that names the active server. The grant lasts for that console window only, is bound to that
+one server, and is revoked immediately when you turn it off or open another file. It also
+turns off after 15 minutes without a write. While it is off, `create`, `update`, `patch` and
+`delete` throw `WriteDeniedException` before any request is made. Reads and searches are
+unaffected.
+
+A run may make 50 writes before the console asks whether to continue with another batch.
+The **Writes** tab records each attempt (operation, resource, version, result and duration)
+without storing request bodies, and the run summary shows the counts.
 
 Only `fhir` writes are enabled. `server` remains an inspection API. Writes use the active
 server's saved credentials, not the SMART session. Deleting a resource asks for
@@ -190,13 +197,18 @@ if (patient != null) {
 }
 ```
 
-`patch` changes named parts and needs the format explicitly:
+`patch` changes named parts and needs the format explicitly. Pass the version when you have
+it so the server can reject a stale patch:
 
 ```java
 var patched = fhir.patch("Patient", "example-id",
-        "{\"active\":false}", PatchFormat.JSON_MERGE_PATCH);
+        "{\"active\":false}", PatchFormat.JSON_MERGE_PATCH, "3");
 log.info("Patched version " + patched.versionId());
 ```
+
+If a write times out after it may have been sent, `fhir` throws
+`WriteOutcomeUnknownException` instead of an ordinary failure. Read or search before
+retrying: the server may already have applied the change.
 
 ### Delete with confirmation
 
@@ -204,7 +216,7 @@ Delete stops for a confirmation naming the server and resource. Cancelling preve
 request:
 
 ```java
-fhir.delete("Patient", "example-id");
+fhir.delete("Patient", "example-id", "3");
 ```
 
 Writes cannot be undone. `ServerWriteResult` exposes `resourceId()`, `versionId()` and
@@ -345,7 +357,9 @@ execute its `// case:` suites without leaving the console.
 - `ServerWriteResult create(IBaseResource resource)` (write opt-in)
 - `ServerWriteResult update(IBaseResource resource)` (write opt-in)
 - `void delete(String resourceType, String resourceId)` (write opt-in; confirms first)
+- `void delete(String resourceType, String resourceId, String versionId)` (write opt-in; confirms first; sends `If-Match`)
 - `ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format)` (write opt-in)
+- `ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format, String versionId)` (write opt-in; sends `If-Match`)
 - `SearchResults nextPage(String pageToken)`
 - `SearchResults previousPage(String pageToken)`
 

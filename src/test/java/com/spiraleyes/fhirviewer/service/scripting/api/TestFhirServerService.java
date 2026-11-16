@@ -27,6 +27,7 @@ class TestFhirServerService extends FhirServerService {
     ServerOperationException searchFailure;
     ServerOperationException capabilitiesFailure;
     ServerWriteResult writeResult = ServerWriteResult.created("new-id", "v1");
+    ServerOperationException writeFailure;
     boolean supportsWrite = true;
 
     TestFhirServerService() {
@@ -68,6 +69,9 @@ class TestFhirServerService extends FhirServerService {
     public ServerWriteResult create(FhirServerConfiguration server, IBaseResource resource)
             throws ServerOperationException {
         createCalls++;
+        if (writeFailure != null) {
+            throw writeFailure;
+        }
         return writeResult;
     }
 
@@ -76,17 +80,30 @@ class TestFhirServerService extends FhirServerService {
             ServerOrigin origin) throws ServerOperationException {
         updateCalls++;
         lastUpdateOrigin = origin;
+        if (writeFailure != null) {
+            throw writeFailure;
+        }
         return writeResult;
     }
 
     int deleteCalls;
     int patchCalls;
+    ServerOrigin lastPatchOrigin;
+    ServerOrigin lastDeleteOrigin;
     ServerWriteResult patchResult = ServerWriteResult.updated("patched-id", "v2");
 
     @Override
     public ServerWriteResult patch(FhirServerConfiguration server, ServerOrigin origin, String body,
             PatchFormat format) throws ServerOperationException {
         patchCalls++;
+        lastPatchOrigin = origin;
+        if (writeFailure != null) {
+            throw writeFailure;
+        }
+        if (format == null) {
+            throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
+                    "A patch needs a format.");
+        }
         return patchResult == null ? writeResult : patchResult;
     }
 
@@ -94,6 +111,10 @@ class TestFhirServerService extends FhirServerService {
     public void delete(FhirServerConfiguration server, ServerOrigin origin)
             throws ServerOperationException {
         deleteCalls++;
+        lastDeleteOrigin = origin;
+        if (writeFailure != null) {
+            throw writeFailure;
+        }
     }
 
     @Override

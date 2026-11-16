@@ -5,6 +5,12 @@
 - **Status:** Implemented on `scriptwrite`; focused and full suites pass
 - **Date:** 2026-11-16
 
+**Follow-up safety work (2026-11-16):** the grant is live, revocable and bound to
+the approved server; every attempt appears in a body-free write journal with a
+per-run summary; a run has a 50-write budget and an idle grant expires after 15
+minutes; patch and delete accept a known version for `If-Match`; and a timed-out
+write raises `WriteOutcomeUnknownException` instead of inviting a blind retry.
+
 ## Goal
 
 Let a user run `fhir.create`, `fhir.update`, `fhir.patch`, and `fhir.delete` from
@@ -273,6 +279,13 @@ Extend `ScriptingConsoleSmokeTest` or add `ScriptingWriteAccessTest`:
 - Opening a file or loading the example turns writes off.
 - Changing to another writable server, or removing the active one, turns writes
   off before Run or Run Tests.
+- Turning writes off revokes a `fhir` reference retained by the interactive session.
+- A write budget pauses at its limit, and an idle grant is refused before the UI
+  timer catches up.
+- The Writes tab records success, failure, cancellation and an unknown outcome
+  without resource bodies, and the run summary separates those counts.
+- Timed-out writes are reported as unknown outcomes, and patch/delete send a
+  supplied version.
 - The checkbox is disabled during a run.
 - With writes on, a `fhir.create` script reaches the fake server; with writes
   off, it is refused before the fake server is called.

@@ -471,6 +471,168 @@ class ScriptingConsoleSmokeTest {
     }
 
     @Test
+    @DisplayName("Turning writes off revokes an old fhir reference kept by the session")
+    void turningWritesOffRevokesOldReferences() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole console = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            console.allowWritesForTest().fire();
+            ScriptBindings enabled = console.bindingsForTest();
+
+            console.allowWritesForTest().fire();
+
+            assertFalse(console.allowWritesForTest().isSelected());
+            assertThrows(WriteDeniedException.class,
+                    () -> enabled.fhir.create(new Patient()));
+            assertEquals(0, service.createCalls,
+                    "the old reference must be refused before the server is reached");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("An enabled grant refuses a different active server immediately")
+    void enabledGrantIsBoundToItsServer() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            FhirServerManager manager = managerWithServer();
+            WriteProbeConsole console = new WriteProbeConsole(service, manager,
+                    summary -> true, true);
+            console.allowWritesForTest().fire();
+            ScriptBindings enabled = console.bindingsForTest();
+
+            ServerDefinition other = ServerDefinition.named("Other", "http://other.example.com/fhir")
+                    .pluginId("standard-rest").build();
+            manager.add(other);
+            manager.setActive(other);
+
+            assertThrows(WriteDeniedException.class,
+                    () -> enabled.fhir.create(new Patient()));
+            assertEquals(0, service.createCalls,
+                    "the grant must not follow the active server to a new target");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("A successful write appears in the Writes journal")
+    void successfulWriteAppearsInJournal() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole console = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            console.allowWritesForTest().fire();
+
+            console.bindingsForTest().fhir.create(new Patient());
+
+            String journal = console.writeJournalTextForTest();
+            assertTrue(journal.contains("[create] Patient/created-1 version v1 — ok"), journal);
+            assertTrue(journal.contains("Write Test"), journal);
+            assertFalse(journal.contains("Smith"), "the journal must not include a body");
+            assertEquals(1, console.writeJournalForTest().size());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("A run shows a write summary separately from its output")
+    void runShowsWriteSummary() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.setEditorTextForTest("fhir.create(new org.hl7.fhir.r4.model.Patient());");
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        AtomicBoolean trustAnswered = new AtomicBoolean();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+        Thread helper = new Thread(() -> {
+            while (done.getCount() > 0) {
+                Platform.runLater(() -> {
+                    try {
+                        if (!trustAnswered.get() && acknowledgeTrustPrompt()) {
+                            trustAnswered.set(true);
+                        }
+                        if (console.writeSummaryForTest().contains("1 succeeded") &&
+                                !console.runButtonForTest().isDisable()) {
+                            done.countDown();
+                        }
+                    } catch (Throwable problem) {
+                        failure.compareAndSet(null, problem);
+                        done.countDown();
+                    }
+                });
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException interrupted) {
+                    return;
+                }
+            }
+        }, "scripting-console-write-summary");
+        helper.setDaemon(true);
+        helper.start();
+        Platform.runLater(() -> {
+            try {
+                console.runButtonForTest().fire();
+            } catch (Throwable problem) {
+                failure.compareAndSet(null, problem);
+                done.countDown();
+            }
+        });
+
+        boolean finished;
+        try {
+            finished = done.await(20, TimeUnit.SECONDS);
+        } finally {
+            helper.interrupt();
+        }
+        if (failure.get() != null) {
+            throw new AssertionError("the write summary run failed", failure.get());
+        }
+        assertTrue(finished, "the write summary did not appear");
+        assertEquals("Writes: 1 succeeded.", onFxThread(console::writeSummaryForTest));
+        assertEquals(1, service.createCalls);
+        onFxThread(() -> {
+            console.setEditorTextForTest("");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("The console turns writes off when the grant stops being usable")
+    void consoleTurnsOffWhenGrantStopsBeingUsable() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole console = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            console.allowWritesForTest().fire();
+
+            console.writePolicyForTest().revoke();
+            console.checkWriteExpiryForTest();
+
+            assertFalse(console.allowWritesForTest().isSelected());
+            assertEquals("Writes: off", console.writeModeLabelForTest().getText());
+            assertTrue(console.statusTextForTest().contains("after inactivity")
+                    || console.statusTextForTest().contains("turned off"));
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
     @DisplayName("A run turns writes off when the active server disappears")
     void runWithoutWritableTargetTurnsWritesOff() throws Exception {
         requireToolkit();

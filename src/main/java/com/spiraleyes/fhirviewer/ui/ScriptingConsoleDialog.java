@@ -15,6 +15,9 @@ import java.util.concurrent.FutureTask;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -53,6 +56,7 @@ import com.spiraleyes.fhirviewer.service.scripting.api.SmartApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.TestApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ValidationApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ViewerApi;
+import com.spiraleyes.fhirviewer.service.scripting.api.WriteJournal;
 import com.spiraleyes.fhirviewer.service.scripting.api.WritePolicy;
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
@@ -89,12 +93,17 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private static final DateTimeFormatter TIME = DateTimeFormatter
             .ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault());
 
+    private static final int WRITE_BUDGET = 50;
+    private static final java.time.Duration WRITE_IDLE_TIMEOUT = java.time.Duration.ofMinutes(15);
+
     /** The bundled example the Example button loads; the session tests run it directly. */
     static final String EXAMPLE_RESOURCE = "/scripts/scripting-example.jsh";
 
     private final TextArea editor = new TextArea();
     private final TextArea output = new TextArea();
     private final TextArea suiteDetails = new TextArea();
+    private final TextArea writeJournalView = new TextArea();
+    private final Label writeSummaryLabel = new Label();
     private TabPane bottomTabs;
     private final Label statusLabel = new Label();
     private final Button runButton = new Button("Run");
@@ -124,6 +133,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private final SmartApi smartApi;
     private final BatchProcessor batch = new BatchProcessor();
     private final WritePolicy.Confirmation writeConfirmation;
+    private final WriteJournal writeJournal = new WriteJournal();
+    private final Timeline writeExpiryCheck = new Timeline(
+            new KeyFrame(javafx.util.Duration.seconds(15), event -> checkWriteExpiry()));
 
     private static File lastDirectory;
     private Path currentFile;
@@ -133,6 +145,12 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     /** The script API objects exposed to every run; replaced when the write policy changes. */
     private ScriptBindings bindings;
+
+    /** The live grant behind the current opt-in; replaced when the policy changes. */
+    private WritePolicy writePolicy = WritePolicy.READ_ONLY;
+
+    /** Index into the journal where the current Run or Run Tests began. */
+    private int journalRunStart;
 
     /** The server named in the warning that enabled writes, or null when writes are off. */
     private FhirServerConfiguration writeTarget;
@@ -199,7 +217,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         this.writeConfirmation = writeConfirmation == null
                 ? this::confirmWriteOnFxThread
                 : writeConfirmation;
-        bindings = createBindings(WritePolicy.READ_ONLY);
+        writeJournal.addListener(this::journalEntryAdded);
+        writeExpiryCheck.setCycleCount(Animation.INDEFINITE);
+        bindings = createBindings(writePolicy);
 
         this.stylesheets = List.copyOf(themeManager.stylesheets());
 
@@ -230,6 +250,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         suiteReport.setMaxWidth(Double.MAX_VALUE);
         suiteReport.setManaged(false);
         suiteReport.setVisible(false);
+        writeSummaryLabel.getStyleClass().add("app-subtitle");
+        writeSummaryLabel.setWrapText(true);
+        writeSummaryLabel.setMaxWidth(Double.MAX_VALUE);
+        writeSummaryLabel.setManaged(false);
+        writeSummaryLabel.setVisible(false);
         // A FlowPane, not an HBox: the controls plus the mode label are wider than the
         // 820px minimum dialog, and an HBox would squeeze the buttons or clip the label
         // instead of moving the overflow to a second row.
@@ -255,17 +280,21 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
         suiteDetails.setEditable(false);
         suiteDetails.setWrapText(true);
+        writeJournalView.setEditable(false);
+        writeJournalView.setWrapText(false);
         Tab outputTab = new Tab("Output", output);
         outputTab.setClosable(false);
         Tab detailsTab = new Tab("Test details", suiteDetails);
         detailsTab.setClosable(false);
-        bottomTabs = new TabPane(outputTab, detailsTab);
+        Tab writesTab = new Tab("Writes", writeJournalView);
+        writesTab.setClosable(false);
+        bottomTabs = new TabPane(outputTab, detailsTab, writesTab);
         bottomTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         SplitPane split = new SplitPane(editor, bottomTabs);
         split.setOrientation(javafx.geometry.Orientation.VERTICAL);
         split.setDividerPositions(0.55);
 
-        VBox content = new VBox(8, toolbar, suiteReport, split, statusLabel);
+        VBox content = new VBox(8, toolbar, writeSummaryLabel, suiteReport, split, statusLabel);
         content.setPadding(new Insets(12));
         content.setPrefWidth(1180);
         content.setPrefHeight(640);
@@ -281,7 +310,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         // Dialog.close() is final, so cleanup goes here: hide fires for a Close
         // press and a programmatic close alike — the arrangement SmartLaunchDialog
         // records in its own comment, for the same reason.
-        setOnHidden(event -> coordinator.close());
+        setOnHidden(event -> {
+            writeExpiryCheck.stop();
+            writePolicy.revoke();
+            coordinator.close();
+        });
         setOnCloseRequest(event -> {
             if (dirty() && !confirmDiscard()) {
                 event.consume();
@@ -301,12 +334,20 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     /** Applies a write policy and keeps the toolbar and the next run in step. */
     private void applyWrites(boolean enabled) {
+        writePolicy.revoke();
         WritePolicy policy = enabled
-                ? WritePolicy.enabled(writeConfirmation)
+                ? WritePolicy.enabled(writeConfirmation, serverManager.active().orElse(null),
+                        writeJournal, WRITE_BUDGET, this::confirmWriteBudgetOnFxThread,
+                        WRITE_IDLE_TIMEOUT)
                 : WritePolicy.READ_ONLY;
+        writePolicy = policy;
         bindings = createBindings(policy);
         writeTarget = enabled ? serverManager.active().orElse(null) : null;
         allowWrites.setSelected(enabled);
+        writeExpiryCheck.stop();
+        if (enabled) {
+            writeExpiryCheck.play();
+        }
         updateWriteModeLabel();
     }
 
@@ -343,12 +384,21 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             return true;
         }
         FhirServerConfiguration server = serverManager.active().orElse(null);
-        if (server != null && server == writeTarget && serverService.supportsWrite(server)) {
+        if (server != null && server == writeTarget && serverService.supportsWrite(server)
+                && writePolicy.isEnabled()) {
             return true;
         }
         applyWrites(false);
-        setStatus("Server writes were turned off: the active server changed or can no longer accept writes.");
+        setStatus("Server writes were turned off: the active server changed, the grant expired, or it can no longer accept writes.");
         return false;
+    }
+
+    /** Stops an idle grant even if no Run starts before the deadline. */
+    private void checkWriteExpiry() {
+        if (allowWrites.isSelected() && !writePolicy.isEnabled()) {
+            applyWrites(false);
+            setStatus("Server writes turned off after inactivity. Enable them again to continue.");
+        }
     }
 
     private void updateWriteModeLabel() {
@@ -420,6 +470,46 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         return alert.showAndWait().filter(delete::equals).isPresent();
     }
 
+    /** Marshals a budget prompt to the FX thread; scripts call from the worker. */
+    private boolean confirmWriteBudgetOnFxThread(int completedWrites, String target) {
+        if (Platform.isFxApplicationThread()) {
+            return showBudgetConfirmation(completedWrites, target);
+        }
+        FutureTask<Boolean> prompt = new FutureTask<>(
+                () -> showBudgetConfirmation(completedWrites, target));
+        try {
+            Platform.runLater(prompt);
+        } catch (IllegalStateException toolkitUnavailable) {
+            return false;
+        }
+        try {
+            return prompt.get();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException failed) {
+            return false;
+        }
+    }
+
+    private boolean showBudgetConfirmation(int completedWrites, String target) {
+        Window owner = ownerWindow();
+        if (owner == null) {
+            return false;
+        }
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(owner);
+        alert.setTitle("Write budget reached");
+        alert.setHeaderText("This run has made " + completedWrites + " writes.");
+        alert.setContentText("Continue writing to " + target + "?"
+                + " Another batch of " + WRITE_BUDGET + " is allowed if you continue.");
+        ButtonType keepWriting = new ButtonType("Continue", ButtonBar.ButtonData.OK_DONE);
+        ButtonType stop = new ButtonType("Stop Writes", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(keepWriting, stop);
+        alert.getDialogPane().getStylesheets().addAll(stylesheets);
+        return alert.showAndWait().filter(keepWriting::equals).isPresent();
+    }
+
     private Window ownerWindow() {
         if (getDialogPane() == null || getDialogPane().getScene() == null) {
             return null;
@@ -454,6 +544,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (!ensureTrust()) {
             return;
         }
+        writePolicy.beginRun();
+        journalRunStart = writeJournal.size();
+        hideWriteSummary();
         bottomTabs.getSelectionModel().select(0);
         String source = editor.getText();
         // A buffer with a file behind it is a saved script: repeatability matters more
@@ -503,6 +596,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (!ensureTrust()) {
             return;
         }
+        writePolicy.beginRun();
+        journalRunStart = writeJournal.size();
+        hideWriteSummary();
         setBusy(true);
         showSuiteReport("Running " + suite.cases().size() + " test case(s) \u2026");
         setStatus("Running " + suite.cases().size() + " test case(s) \u2026");
@@ -549,6 +645,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         String text = report.toString();
         showSuiteReport(text);
         presentSuiteDetails(result);
+        showWriteSummary();
         setStatus(text.lines().findFirst().orElse(text));
     }
 
@@ -596,6 +693,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private void clearSuiteResults() {
         suiteDetails.clear();
         hideSuiteReport();
+        hideWriteSummary();
         bottomTabs.getSelectionModel().select(0);
     }
 
@@ -633,6 +731,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
         output.positionCaret(output.getLength());
         long millis = result.elapsed().toMillis();
+        showWriteSummary();
         switch (result.status()) {
             case COMPLETED -> {
                 if (result.snippetCount() == 0) {
@@ -677,6 +776,59 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         output.positionCaret(output.getLength());
     }
 
+    /** Shows what this run wrote, separately from the script's printed output. */
+    private void showWriteSummary() {
+        List<WriteJournal.Entry> entries = writeJournal.entriesFrom(journalRunStart);
+        if (entries.isEmpty()) {
+            hideWriteSummary();
+            return;
+        }
+        writeSummaryLabel.setText(WriteJournal.summary(entries));
+        writeSummaryLabel.setManaged(true);
+        writeSummaryLabel.setVisible(true);
+    }
+
+    private void hideWriteSummary() {
+        writeSummaryLabel.setText("");
+        writeSummaryLabel.setManaged(false);
+        writeSummaryLabel.setVisible(false);
+    }
+
+    /** Appends one body-free journal line on the FX thread. */
+    private void journalEntryAdded(WriteJournal.Entry entry) {
+        if (Platform.isFxApplicationThread()) {
+            appendJournalEntry(entry);
+        } else {
+            Platform.runLater(() -> appendJournalEntry(entry));
+        }
+    }
+
+    private void appendJournalEntry(WriteJournal.Entry entry) {
+        String resource = entry.resourceId() == null
+                ? entry.resourceType()
+                : entry.resourceType() + "/" + entry.resourceId();
+        String version = entry.versionId() == null ? "" : " version " + entry.versionId();
+        String outcome = switch (entry.status()) {
+            case SUCCEEDED -> "ok";
+            case FAILED -> "failed";
+            case UNKNOWN -> "outcome unknown";
+            case CANCELLED -> "cancelled";
+        };
+        String detail = entry.detail().isBlank() ? "" : " — " + entry.detail();
+        writeJournalView.appendText(TIME.format(entry.at()) + " [" + entry.operation() + "] "
+                + resource + version + " — " + outcome + " (" + entry.elapsed().toMillis()
+                + " ms) — " + entry.serverName() + detail + "\n");
+        writeJournalView.positionCaret(writeJournalView.getLength());
+    }
+
+    /** Clears the journal when the buffer is replaced, so entries match the visible script. */
+    private void clearWriteJournal() {
+        writeJournal.clear();
+        writeJournalView.clear();
+        journalRunStart = 0;
+        hideWriteSummary();
+    }
+
     private void setBusy(boolean busy) {
         runButton.setDisable(busy);
         runTestsButton.setDisable(busy);
@@ -696,6 +848,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     /** The run-mode label, for tests. */
     Label runModeLabelForTest() {
         return runModeLabel;
+    }
+
+    /** The status line's text, for tests. */
+    String statusTextForTest() {
+        return statusLabel.getText();
     }
 
     /** The Example button, for tests. */
@@ -761,6 +918,31 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     /** The output pane's text, for tests. */
     String outputTextForTest() {
         return output.getText();
+    }
+
+    /** The write journal pane's text, for tests. */
+    String writeJournalTextForTest() {
+        return writeJournalView.getText();
+    }
+
+    /** The per-run write summary, for tests. */
+    String writeSummaryForTest() {
+        return writeSummaryLabel.getText();
+    }
+
+    /** The write journal, for tests. */
+    WriteJournal writeJournalForTest() {
+        return writeJournal;
+    }
+
+    /** The current live grant, for tests. */
+    WritePolicy writePolicyForTest() {
+        return writePolicy;
+    }
+
+    /** Runs the idle-expiry check on the FX thread, for tests. */
+    void checkWriteExpiryForTest() {
+        checkWriteExpiry();
     }
 
     /** The Test details tab's text, for tests. */
@@ -862,6 +1044,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         updateRunModeLabel();
         // The verdicts on screen belong to the buffer that was just replaced.
         clearSuiteResults();
+        clearWriteJournal();
         // A file arrives from outside: it must not inherit write access either.
         applyWrites(false);
         trustAcknowledged = false;
@@ -936,6 +1119,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         updateRunModeLabel();
         // The verdicts on screen belong to the buffer that was just replaced.
         clearSuiteResults();
+        clearWriteJournal();
         applyWrites(false);
         setStatus("Example loaded into an untitled buffer — press Run to execute it.");
     }

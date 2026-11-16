@@ -4,9 +4,15 @@
 
 - The Scripting Console can opt into server writes. **Allow server writes** is
   off by default and resets when a file or the example is loaded.
+- The grant is bound to the server named in the warning and is revoked
+  immediately when writes are turned off. A 50-write budget pauses long runs,
+  and an unused grant expires after 15 minutes.
 - With writes enabled, `fhir.create`, `fhir.update`, and `fhir.patch` can change
   the active server; `fhir.delete` requires confirmation before the request is
   sent.
+- The **Writes** tab records each attempt and each run shows a write summary.
+  Patch and delete accept an optional version for `If-Match`, and a timed-out
+  write is reported as an unknown outcome rather than a safe retry.
 - Writes use the active server's saved credentials, not the SMART session;
   `smart` remains read-only.
 

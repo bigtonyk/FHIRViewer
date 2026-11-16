@@ -157,7 +157,10 @@ class UserGuideContentTest {
                     org.hl7.fhir.instance.model.api.IBaseResource.class);
             FhirApi.class.getMethod("patch", String.class, String.class, String.class,
                     PatchFormat.class);
+            FhirApi.class.getMethod("patch", String.class, String.class, String.class,
+                    PatchFormat.class, String.class);
             FhirApi.class.getMethod("delete", String.class, String.class);
+            FhirApi.class.getMethod("delete", String.class, String.class, String.class);
             ViewerApi.class.getMethod("showResource",
                     org.hl7.fhir.instance.model.api.IBaseResource.class);
         });
@@ -184,6 +187,12 @@ class UserGuideContentTest {
         assertTrue(guide.contains("fhir.delete"), "the delete example must be present");
         assertTrue(guide.contains("saved credentials"),
                 "the guide must distinguish saved credentials from SMART");
+        assertTrue(guide.contains("50 writes"),
+                "the guide must document the write budget");
+        assertTrue(guide.contains("WriteOutcomeUnknownException"),
+                "the guide must document an uncertain write outcome");
+        assertTrue(guide.contains("Writes** tab"),
+                "the guide must point at the write journal");
     }
 
     @Test

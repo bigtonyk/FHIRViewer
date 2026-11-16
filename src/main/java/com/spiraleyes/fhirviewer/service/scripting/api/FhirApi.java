@@ -1,5 +1,6 @@
 package com.spiraleyes.fhirviewer.service.scripting.api;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -26,6 +27,11 @@ import com.spiraleyes.fhirviewer.server.ServerWriteResult;
  * <p>Reads are the default and always allowed. A script that wants to create,
  * update, patch or delete must run with an enabled write policy, otherwise every write
  * is refused with a clear message before any request is made.
+ *
+ * <p>The write policy is checked again for every operation. That makes turning
+ * writes off in the console revoke an old {@code fhir} reference a script kept in
+ * the interactive session, and refuses a write if the active server changed after
+ * the grant was approved.
  *
  * <p>Network calls happen on whatever thread runs the script -- the console's
  * worker thread, never the JavaFX thread -- so a slow server freezes nothing but
@@ -103,12 +109,17 @@ public class FhirApi {
     public ServerWriteResult create(IBaseResource resource) {
         writePolicy.requireWrite();
         Objects.requireNonNull(resource, "resource");
+        String type = resource.fhirType();
         FhirServerConfiguration server = activeServer("create");
+        writePolicy.requireWrite(server, "create");
+        long started = System.nanoTime();
         try {
-            return serverService.create(server, resource);
+            ServerWriteResult result = serverService.create(server, resource);
+            record(server, "create", type, result.resourceId(), result.versionId(),
+                    WriteJournal.Status.SUCCEEDED, "", started);
+            return result;
         } catch (ServerOperationException e) {
-            throw new ScriptApiException("Cannot create " + resource.fhirType() + " on "
-                    + server.name() + ": " + e.getMessage(), e);
+            throw failedWrite("create", type, null, null, "on", server, e, started);
         }
     }
 
@@ -121,23 +132,37 @@ public class FhirApi {
         if (id == null || !id.hasIdPart()) {
             throw new ScriptApiException("Cannot update " + type + ": it has no server id.");
         }
+        String resourceId = id.getIdPart();
         FhirServerConfiguration server = activeServer("update");
+        writePolicy.requireWrite(server, "update");
         String versionId = null;
         IBaseMetaType meta = resource.getMeta();
         if (meta != null) {
             versionId = meta.getVersionId();
         }
+        long started = System.nanoTime();
         try {
-            return serverService.update(server, resource,
-                    ServerOrigin.of(server.pluginId(), server.baseUrl(), type, id.getIdPart(), versionId));
+            ServerWriteResult result = serverService.update(server, resource,
+                    ServerOrigin.of(server.pluginId(), server.baseUrl(), type, resourceId, versionId));
+            record(server, "update", type, resourceId, result.versionId(),
+                    WriteJournal.Status.SUCCEEDED, "", started);
+            return result;
         } catch (ServerOperationException e) {
-            throw new ScriptApiException("Cannot update " + type + "/" + id.getIdPart()
-                    + " on " + server.name() + ": " + e.getMessage(), e);
+            throw failedWrite("update", type, resourceId, versionId, "on", server, e, started);
         }
     }
 
     /** Applies a partial update (patch) to one resource. Refused unless writes are enabled. */
     public ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format) {
+        return patch(resourceType, resourceId, body, format, null);
+    }
+
+    /**
+     * Applies a partial update with a known version. Passing the version sends
+     * {@code If-Match}, so the server can refuse a patch against a stale copy.
+     */
+    public ServerWriteResult patch(String resourceType, String resourceId, String body,
+            PatchFormat format, String versionId) {
         writePolicy.requireWrite();
         require(resourceType, resourceId);
         if (body == null || body.isBlank()) {
@@ -145,32 +170,53 @@ public class FhirApi {
         }
         Objects.requireNonNull(format, "format");
         FhirServerConfiguration server = activeServer("patch");
+        writePolicy.requireWrite(server, "patch");
+        String version = blankToNull(versionId);
+        long started = System.nanoTime();
         try {
-            return serverService.patch(server,
-                    ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, null),
+            ServerWriteResult result = serverService.patch(server,
+                    ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, version),
                     body, format);
+            record(server, "patch", resourceType, resourceId, result.versionId(),
+                    WriteJournal.Status.SUCCEEDED, "", started);
+            return result;
         } catch (ServerOperationException e) {
-            throw new ScriptApiException("Cannot patch " + resourceType + "/" + resourceId
-                    + " on " + server.name() + ": " + e.getMessage(), e);
+            throw failedWrite("patch", resourceType, resourceId, version, "on", server, e, started);
         }
     }
 
     /** Deletes one resource by type and id. Refused unless writes are enabled. */
     public void delete(String resourceType, String resourceId) {
+        delete(resourceType, resourceId, null);
+    }
+
+    /**
+     * Deletes one resource with a known version. Passing the version sends
+     * {@code If-Match}, so the server can refuse to delete a resource that changed
+     * after it was read.
+     */
+    public void delete(String resourceType, String resourceId, String versionId) {
         writePolicy.requireWrite();
         require(resourceType, resourceId);
         FhirServerConfiguration server = activeServer("delete");
+        writePolicy.requireWrite(server, "delete");
+        String version = blankToNull(versionId);
         String summary = "Delete " + resourceType + "/" + resourceId + " on " + server.name()
-                + " (" + server.baseUrl() + ")";
+                + " (" + server.baseUrl() + ")"
+                + (version == null ? "" : " version " + version);
+        long started = System.nanoTime();
         if (!writePolicy.confirmDestructive(summary)) {
+            record(server, "delete", resourceType, resourceId, version,
+                    WriteJournal.Status.CANCELLED, "cancelled", started);
             throw new WriteDeniedException("Delete cancelled.");
         }
         try {
             serverService.delete(server,
-                    ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, null));
+                    ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, version));
+            record(server, "delete", resourceType, resourceId, version,
+                    WriteJournal.Status.SUCCEEDED, "", started);
         } catch (ServerOperationException e) {
-            throw new ScriptApiException("Cannot delete " + resourceType + "/" + resourceId
-                    + " from " + server.name() + ": " + e.getMessage(), e);
+            throw failedWrite("delete", resourceType, resourceId, version, "from", server, e, started);
         }
     }
 
@@ -197,6 +243,39 @@ public class FhirApi {
         return serverManager.active().orElseThrow(() -> new ScriptApiException(
                 "No server is selected. Configure one in Tools > FHIR Servers... "
                         + "and select it before " + operation + "."));
+    }
+
+    /**
+     * Records one write and, when the transport timed out, reports that its outcome is
+     * unknown instead of presenting it as a clean failure a script could safely retry.
+     */
+    private ScriptApiException failedWrite(String operation, String resourceType, String resourceId,
+            String versionId, String preposition, FhirServerConfiguration server,
+            ServerOperationException failure, long started) {
+        boolean unknown = failure.kind() == ServerOperationException.Kind.TIMEOUT;
+        record(server, operation, resourceType, resourceId, versionId,
+                unknown ? WriteJournal.Status.UNKNOWN : WriteJournal.Status.FAILED,
+                failure.kind().name(), started);
+        if (unknown) {
+            return new WriteOutcomeUnknownException(operation, server, failure);
+        }
+        String target = resourceType + (resourceId == null ? "" : "/" + resourceId);
+        return new ScriptApiException("Cannot " + operation + " " + target + " " + preposition
+                + " " + server.name() + ": " + failure.getMessage(), failure);
+    }
+
+    private void record(FhirServerConfiguration server, String operation, String resourceType,
+            String resourceId, String versionId, WriteJournal.Status status, String detail,
+            long started) {
+        WriteJournal journal = writePolicy.journal();
+        if (journal != null) {
+            journal.record(server, operation, resourceType, resourceId, versionId, status, detail,
+                    Duration.ofNanos(Math.max(0L, System.nanoTime() - started)));
+        }
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static void require(String... values) {

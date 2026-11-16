@@ -89,6 +89,8 @@ public class ServerWriteTest {
 
         assertFalse(result.created());
         assertEquals("example-1", result.resourceId());
+        assertEquals("3", result.versionId(),
+                "the update outcome should carry the version the server assigned");
         assertEquals("PUT", lastMethod.get());
         assertEquals("W/2", lastIfMatch.get(), "a known version must be sent as If-Match");
     }
@@ -308,6 +310,8 @@ public class ServerWriteTest {
             status = 204;
             body = "";
         } else if ("PUT".equals(method)) {
+            exchange.getResponseHeaders().set("Location",
+                    baseUrl + "/Patient/example-1/_history/3");
             body = "";
         } else if (path.endsWith("/metadata")) {
             body = "{ \"resourceType\": \"CapabilityStatement\", \"status\": \"active\", "

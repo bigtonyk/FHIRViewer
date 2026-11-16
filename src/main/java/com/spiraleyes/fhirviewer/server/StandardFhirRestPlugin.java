@@ -560,14 +560,14 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
         try {
             IGenericClient client = newClient(session);
             applyIfMatch(client, origin);
-            client.update()
+            ca.uhn.fhir.rest.api.MethodOutcome outcome = client.update()
                     .resource(resource)
                     .withId(origin.resourceId())
                     .execute();
-            // HAPI's generic update builder discards the response body, so the new version
-            // is genuinely unknown here. The next write therefore cannot be conditional,
-            // which the UI reports honestly rather than implying a conflict check ran.
-            return ServerWriteResult.updated(origin.resourceId(), null);
+            // HAPI's update builder returns the outcome even when the response body is
+            // empty. Its Location/ETag carries the new version when the server reports one,
+            // so the next write can stay conditional instead of silently dropping If-Match.
+            return ServerWriteResult.updated(origin.resourceId(), versionPartOf(outcome));
         } catch (Exception failure) {
             throw convertFailure("update", failure);
         }
