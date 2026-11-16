@@ -2,6 +2,7 @@ package com.spiraleyes.fhirviewer.ui;
 
 import java.util.List;
 
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Control;
 import javafx.scene.control.Label;
@@ -60,6 +61,7 @@ final class ServerFormPanel {
     private final ComboBox<String> versionBox = new ComboBox<>();
     private final ComboBox<FhirServerPlugin> pluginBox = new ComboBox<>();
     private final ComboBox<ServerAuthKind> authBox = new ComboBox<>();
+    private final CheckBox writeProtected = new CheckBox("Read-only server (block writes)");
     private final TextField userField = new TextField();
     private final PasswordField secretField = new PasswordField();
     private final PasswordField passphraseField = new PasswordField();
@@ -148,6 +150,9 @@ final class ServerFormPanel {
         addRow(grid, row++, "FHIR version", versionBox);
         addRow(grid, row++, "Server type", pluginBox);
         addRow(grid, row++, "Authentication", authBox);
+        addRow(grid, row++, "Writes", writeProtected);
+        writeProtected.setTooltip(new Tooltip("Prevents Save to Server and scripting writes"
+                + " from changing this server. Reads and searches still work."));
         // Both of these need the increment. Without it they were added to the *same* row,
         // so the two labels were drawn on top of each other and the label column clipped
         // them to an ellipsis - reported as "labels overlapping" and "a label showing
@@ -168,7 +173,7 @@ final class ServerFormPanel {
     /** The fields a test drives, so it can fill the form as a user would. */
     List<Control> fields() {
         return List.of(serverBox, nameField, urlField, adminUrlField, versionBox, pluginBox,
-                authBox, userField, secretField, passphraseField);
+                authBox, writeProtected, userField, secretField, passphraseField);
     }
 
     /** The server selector, so the dialog can list the configured servers into it. */
@@ -300,6 +305,7 @@ final class ServerFormPanel {
         // itself is never echoed: a blank password field means "keep what is stored".
         authBox.getSelectionModel().select(
                 authKind == null ? com.spiraleyes.fhirviewer.server.ServerAuthKind.ANONYMOUS : authKind);
+        writeProtected.setSelected(definition.writeProtected());
         userField.setText(userName == null ? "" : userName);
         secretField.clear();
         passphraseField.clear();
@@ -321,6 +327,7 @@ final class ServerFormPanel {
             pluginBox.getSelectionModel().selectFirst();
         }
         authBox.getSelectionModel().select(ServerAuthKind.ANONYMOUS);
+        writeProtected.setSelected(false);
         userField.clear();
         secretField.clear();
         passphraseField.clear();
@@ -396,7 +403,8 @@ final class ServerFormPanel {
                 // Blank is the normal case and means "no separate administration origin".
                 // Passing it through unconditionally keeps an invalid value here reported as
                 // the same clear "must start with http:// or https://" the base URL gives.
-                .administrationBaseUrl(adminUrlField.getText());
+                .administrationBaseUrl(adminUrlField.getText())
+                .writeProtected(writeProtected.isSelected());
         if (previous != null) {
             builder.id(previous.id());
         }

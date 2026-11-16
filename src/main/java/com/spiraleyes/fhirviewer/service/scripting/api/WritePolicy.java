@@ -32,11 +32,12 @@ public final class WritePolicy {
     /** Writes are refused with a clear message. The safe default. */
     public static final WritePolicy READ_ONLY = new WritePolicy(false,
             "Writes are disabled. Enable the write policy explicitly before creating, updating, patching or deleting resources.",
-            null, null, null, 0, null, null, System::nanoTime);
+            null, null, null, 0, null, null, WriteScope.none(), System::nanoTime);
 
     /** Writes are permitted. Destructive operations are approved by default. */
     public static WritePolicy enabled() {
-        return new WritePolicy(true, null, null, null, null, 0, null, null, System::nanoTime);
+        return new WritePolicy(true, null, null, null, null, 0, null, null, WriteScope.all(),
+                System::nanoTime);
     }
 
     /**
@@ -46,7 +47,8 @@ public final class WritePolicy {
      * operation before any request is sent.
      */
     public static WritePolicy enabled(Confirmation confirmation) {
-        return new WritePolicy(true, null, confirmation, null, null, 0, null, null, System::nanoTime);
+        return new WritePolicy(true, null, confirmation, null, null, 0, null, null,
+                WriteScope.all(), System::nanoTime);
     }
 
     /**
@@ -65,16 +67,34 @@ public final class WritePolicy {
     public static WritePolicy enabled(Confirmation confirmation, FhirServerConfiguration target,
             WriteJournal journal, int writeBudget, BudgetConfirmation budgetConfirmation,
             Duration idleTimeout) {
+        return enabled(confirmation, target, journal, writeBudget, budgetConfirmation,
+                idleTimeout, WriteScope.all());
+    }
+
+    /** A live console grant narrowed to the operations and resource types in {@code scope}. */
+    public static WritePolicy enabled(Confirmation confirmation, FhirServerConfiguration target,
+            WriteJournal journal, int writeBudget, BudgetConfirmation budgetConfirmation,
+            Duration idleTimeout, WriteScope scope) {
         return new WritePolicy(true, null, confirmation, target, journal, writeBudget,
-                budgetConfirmation, idleTimeout, System::nanoTime);
+                budgetConfirmation, idleTimeout, scope == null ? WriteScope.all() : scope,
+                System::nanoTime);
     }
 
     /** Package-private clock seam for deterministic expiry tests. */
     static WritePolicy enabled(Confirmation confirmation, FhirServerConfiguration target,
             WriteJournal journal, int writeBudget, BudgetConfirmation budgetConfirmation,
             Duration idleTimeout, LongSupplier nanoTime) {
+        return enabled(confirmation, target, journal, writeBudget, budgetConfirmation, idleTimeout,
+                WriteScope.all(), nanoTime);
+    }
+
+    /** Package-private clock seam with an explicit scope. */
+    static WritePolicy enabled(Confirmation confirmation, FhirServerConfiguration target,
+            WriteJournal journal, int writeBudget, BudgetConfirmation budgetConfirmation,
+            Duration idleTimeout, WriteScope scope, LongSupplier nanoTime) {
         return new WritePolicy(true, null, confirmation, target, journal, writeBudget,
-                budgetConfirmation, idleTimeout, Objects.requireNonNull(nanoTime, "nanoTime"));
+                budgetConfirmation, idleTimeout, scope == null ? WriteScope.all() : scope,
+                Objects.requireNonNull(nanoTime, "nanoTime"));
     }
 
     /**
@@ -105,6 +125,7 @@ public final class WritePolicy {
     private final int writeBudget;
     private final BudgetConfirmation budgetConfirmation;
     private final Duration idleTimeout;
+    private final WriteScope scope;
     private final LongSupplier nanoTime;
     private final AtomicLong expiresAtNanos = new AtomicLong();
     private final AtomicInteger writesThisRun = new AtomicInteger();
@@ -113,7 +134,8 @@ public final class WritePolicy {
 
     private WritePolicy(boolean enabled, String reason, Confirmation confirmation,
             FhirServerConfiguration target, WriteJournal journal, int writeBudget,
-            BudgetConfirmation budgetConfirmation, Duration idleTimeout, LongSupplier nanoTime) {
+            BudgetConfirmation budgetConfirmation, Duration idleTimeout, WriteScope scope,
+            LongSupplier nanoTime) {
         this.enabled = new AtomicBoolean(enabled);
         this.reason = reason;
         this.confirmation = confirmation;
@@ -122,6 +144,7 @@ public final class WritePolicy {
         this.writeBudget = Math.max(0, writeBudget);
         this.budgetConfirmation = budgetConfirmation;
         this.idleTimeout = idleTimeout;
+        this.scope = scope == null ? WriteScope.all() : scope;
         this.nanoTime = nanoTime;
         touch();
     }
@@ -158,11 +181,33 @@ public final class WritePolicy {
      * the budget. A grant bound to a server refuses a different active server.
      */
     public void requireWrite(FhirServerConfiguration server, String operation) {
+        requireWrite(server, operation, null);
+    }
+
+    /**
+     * Checks a write against the target server and the operation/resource scope, then
+     * charges one attempt against the budget. A read-only server refuses every write
+     * even when a grant was approved before the flag was set.
+     */
+    public void requireWrite(FhirServerConfiguration server, String operation,
+            String resourceType) {
         requireWrite();
+        if (server != null && server.writeProtected()) {
+            throw new WriteDeniedException("Writes are disabled for " + describe(server)
+                    + " because it is marked read-only. Edit the server in Tools > FHIR"
+                    + " Servers to allow writes.");
+        }
         if (target != null && !sameServer(server, target)) {
             throw new WriteDeniedException("Writes are approved for " + describe(target)
                     + ", not " + describe(server) + ". Turn writes off and on again to approve"
                     + " a different server.");
+        }
+        if (!scope.allows(operation, resourceType)) {
+            throw new WriteDeniedException("The write scope for this grant does not allow "
+                    + operation + (resourceType == null || resourceType.isBlank()
+                            ? "" : " on " + resourceType)
+                    + ". This grant allows " + scope.describe()
+                    + ". Turn writes off and on again to change the scope.");
         }
         acquireBudget(server, operation);
         touch();
@@ -210,6 +255,11 @@ public final class WritePolicy {
     /** The journal for this grant, or {@code null} when the caller did not supply one. */
     public WriteJournal journal() {
         return journal;
+    }
+
+    /** The operations and resource types this grant permits. */
+    public WriteScope scope() {
+        return scope;
     }
 
     /** Writes attempted in the current budget batch, for tests and diagnostics. */
@@ -271,6 +321,7 @@ public final class WritePolicy {
     public String toString() {
         return "WritePolicy(enabled=" + isEnabled()
                 + (target == null ? "" : ", target=" + describe(target))
+                + ", scope=" + scope.describe()
                 + (reason().isEmpty() ? "" : ", reason=" + reason()) + ")";
     }
 }

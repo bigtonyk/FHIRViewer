@@ -19,6 +19,7 @@ import java.util.Objects;
  * @param elapsed   wall time spent running cases
  * @param cancelled whether Stop or close ended the run before every case ran
  * @param message   why the run did not execute every case, or empty
+ * @param cleanup   the cleanup block's result, or {@code null} when the suite has none
  */
 public record SuiteRunResult(
         String name,
@@ -26,7 +27,14 @@ public record SuiteRunResult(
         int planned,
         Duration elapsed,
         boolean cancelled,
-        String message) {
+        String message,
+        SuiteCaseResult cleanup) {
+
+    /** A result for a suite without a cleanup block. */
+    public SuiteRunResult(String name, List<SuiteCaseResult> cases, int planned, Duration elapsed,
+            boolean cancelled, String message) {
+        this(name, cases, planned, elapsed, cancelled, message, null);
+    }
 
     public SuiteRunResult {
         Objects.requireNonNull(name, "name");
@@ -61,5 +69,15 @@ public record SuiteRunResult(
 
     public int stoppedCount() {
         return (int) cases.stream().filter(SuiteCaseResult::stopped).count();
+    }
+
+    /** True when the suite had a cleanup block that ran. */
+    public boolean hasCleanup() {
+        return cleanup != null;
+    }
+
+    /** True when the cleanup block ran and passed. */
+    public boolean cleanupPassed() {
+        return cleanup != null && cleanup.passed();
     }
 }

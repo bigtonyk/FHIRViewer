@@ -5,9 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.Test;
+
+import com.spiraleyes.fhirviewer.server.ServerDefinition;
 
 class WritePolicyTest {
 
@@ -73,6 +76,34 @@ class WritePolicyTest {
 
         now.addAndGet(30_000_000L);
         assertFalse(policy.isEnabled(), "the grant should expire after the refreshed deadline");
+    }
+
+    @Test
+    void anOperationScopeRefusesWritesOutsideIt() {
+        WritePolicy policy = WritePolicy.enabled(null, null, null, 0, null, null,
+                WriteScope.operations(WriteScope.Operation.UPDATE));
+
+        policy.requireWrite(null, "update", "Patient");
+        assertThrows(WriteDeniedException.class, () -> policy.requireWrite(null, "create", "Patient"));
+    }
+
+    @Test
+    void aResourceTypeScopeRefusesOtherTypes() {
+        WritePolicy policy = WritePolicy.enabled(null, null, null, 0, null, null,
+                WriteScope.of(Set.of(WriteScope.Operation.UPDATE), Set.of("Patient")));
+
+        policy.requireWrite(null, "update", "Patient");
+        assertThrows(WriteDeniedException.class, () -> policy.requireWrite(null, "update", "Observation"));
+    }
+
+    @Test
+    void aReadOnlyServerRefusesWritesEvenWithAnEnabledGrant() {
+        ServerDefinition readOnly = ServerDefinition.named("Read Only",
+                "https://readonly.example.org/fhir").writeProtected(true).build();
+        WritePolicy policy = WritePolicy.enabled();
+
+        assertThrows(WriteDeniedException.class,
+                () -> policy.requireWrite(readOnly, "update", "Patient"));
     }
 
     @Test

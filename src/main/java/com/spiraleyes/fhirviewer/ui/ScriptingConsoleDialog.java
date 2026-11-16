@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -41,6 +42,9 @@ import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
 
+import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.instance.model.api.IBaseMetaType;
+
 import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.service.scripting.BatchProcessor;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptRunResult;
@@ -58,9 +62,11 @@ import com.spiraleyes.fhirviewer.service.scripting.api.ValidationApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ViewerApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.WriteJournal;
 import com.spiraleyes.fhirviewer.service.scripting.api.WritePolicy;
+import com.spiraleyes.fhirviewer.service.scripting.api.WriteScope;
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
+import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
 
 /**
@@ -118,6 +124,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private final Button exampleButton = new Button("Example");
     private final Button clearButton = new Button("Clear Output");
     private final CheckBox allowWrites = new CheckBox("Allow server writes");
+    private final CheckBox allowSuiteWrites = new CheckBox("Allow writes in test runs");
+    private final Button scopeButton = new Button("Write scope\u2026");
+    private final Button undoButton = new Button("Undo Last Write");
+    private final Button reviewUnknownButton = new Button("Review Unknown");
     private final Label writeModeLabel = new Label();
     private final MenuButton guidesButton = new MenuButton("Guides");
 
@@ -148,6 +158,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     /** The live grant behind the current opt-in; replaced when the policy changes. */
     private WritePolicy writePolicy = WritePolicy.READ_ONLY;
+
+    /** The operations and resource types the next or current grant permits. */
+    private WriteScope writeScope = WriteScope.all();
 
     /** Index into the journal where the current Run or Run Tests began. */
     private int journalRunStart;
@@ -240,6 +253,22 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         allowWrites.setTooltip(new Tooltip("Allow fhir.create, fhir.update, fhir.patch and"
                 + " fhir.delete to change the active FHIR server for this console session."));
         allowWrites.setOnAction(event -> onWriteToggle());
+        allowSuiteWrites.setTooltip(new Tooltip("Off by default: Run Tests uses a read-only"
+                + " API even while interactive Run may write. Turn this on only for suites"
+                + " that need to create fixtures; an optional // cleanup: block then runs"
+                + " after the cases to remove them."));
+        allowSuiteWrites.setDisable(true);
+        scopeButton.setTooltip(new Tooltip("Limit this write grant to particular operations"
+                + " and resource types. The scope is enforced for every script write."));
+        scopeButton.setOnAction(event -> onChooseWriteScope());
+        undoButton.setTooltip(new Tooltip("Reapply the resource captured before the latest"
+                + " successful write, or delete a resource that write created."));
+        undoButton.setDisable(true);
+        undoButton.setOnAction(event -> onUndoLastWrite());
+        reviewUnknownButton.setTooltip(new Tooltip("Read the affected resource and resolve"
+                + " the latest write whose outcome was unknown."));
+        reviewUnknownButton.setDisable(true);
+        reviewUnknownButton.setOnAction(event -> onReviewUnknownOutcome());
         writeModeLabel.getStyleClass().add("app-subtitle");
         updateWriteModeLabel();
         runTestsButton.setTooltip(new Tooltip("Runs each // case: block as a test in a session"
@@ -265,7 +294,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         guidesButton.getItems().addAll(scriptingGuide, smartGuide);
         guidesButton.setTooltip(new Tooltip("Open the guide beside this console"));
         FlowPane toolbar = new FlowPane(8, 8, runButton, runTestsButton, runModeLabel,
-                allowWrites, writeModeLabel, stopButton, resetButton, openButton, saveButton,
+                allowWrites, allowSuiteWrites, scopeButton, writeModeLabel, undoButton,
+                reviewUnknownButton, stopButton, resetButton, openButton, saveButton,
                 saveAsButton, exampleButton, clearButton, guidesButton);
         toolbar.setAlignment(Pos.CENTER_LEFT);
         runTestsButton.setOnAction(event -> onRunTests());
@@ -338,17 +368,22 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         WritePolicy policy = enabled
                 ? WritePolicy.enabled(writeConfirmation, serverManager.active().orElse(null),
                         writeJournal, WRITE_BUDGET, this::confirmWriteBudgetOnFxThread,
-                        WRITE_IDLE_TIMEOUT)
+                        WRITE_IDLE_TIMEOUT, writeScope)
                 : WritePolicy.READ_ONLY;
         writePolicy = policy;
         bindings = createBindings(policy);
         writeTarget = enabled ? serverManager.active().orElse(null) : null;
         allowWrites.setSelected(enabled);
+        allowSuiteWrites.setDisable(!enabled);
+        if (!enabled) {
+            allowSuiteWrites.setSelected(false);
+        }
         writeExpiryCheck.stop();
         if (enabled) {
             writeExpiryCheck.play();
         }
         updateWriteModeLabel();
+        updateJournalActions();
     }
 
     /** Turns the opt-in on or off, refusing it when there is no writable target. */
@@ -364,9 +399,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             setStatus("Server writes unavailable: select a server in Tools > FHIR Servers.");
             return;
         }
-        if (!serverService.supportsWrite(server)) {
+        if (server.writeProtected() || !serverService.supportsWrite(server)) {
             applyWrites(false);
-            setStatus("Server writes unavailable: this server's plugin does not support writes.");
+            setStatus(server.writeProtected()
+                    ? "Server writes unavailable: this server is marked read-only."
+                    : "Server writes unavailable: this server's plugin does not support writes.");
             return;
         }
         if (!confirmWriteAccess(server)) {
@@ -384,8 +421,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             return true;
         }
         FhirServerConfiguration server = serverManager.active().orElse(null);
-        if (server != null && server == writeTarget && serverService.supportsWrite(server)
-                && writePolicy.isEnabled()) {
+        if (server != null && server == writeTarget && !server.writeProtected()
+                && serverService.supportsWrite(server) && writePolicy.isEnabled()) {
             return true;
         }
         applyWrites(false);
@@ -407,7 +444,37 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             return;
         }
         String target = writeTarget == null ? "no active server" : writeTarget.name();
-        writeModeLabel.setText("Writes: on / " + target);
+        writeModeLabel.setText(writeScope.isEmpty()
+                ? "Writes: on / no operations permitted"
+                : "Writes: on / " + target);
+        writeModeLabel.setTooltip(new Tooltip("Scope: " + writeScope.describe()));
+    }
+
+    /** Opens the scope picker; changing it while enabled replaces the live grant. */
+    private void onChooseWriteScope() {
+        if (coordinator.isRunning()) {
+            return;
+        }
+        chooseWriteScope().ifPresent(scope -> {
+            writeScope = scope;
+            if (allowWrites.isSelected()) {
+                // Replacing the grant revokes the old references and applies the smaller
+                // scope immediately; no second warning is needed because the user just
+                // chose the scope in a dialog of their own. Re-check the target first, so
+                // the new grant cannot be attached to a server that became read-only.
+                if (!ensureWriteTarget()) {
+                    return;
+                }
+                applyWrites(true);
+            }
+            updateWriteModeLabel();
+            setStatus("Write scope: " + scope.describe() + ".");
+        });
+    }
+
+    /** Separated so a UI test can answer the native scope dialog. */
+    protected Optional<WriteScope> chooseWriteScope() {
+        return WriteScopeDialog.choose(ownerWindow(), writeScope);
     }
 
     /** The one warning before the opt-in changes. Protected so a UI test can answer it. */
@@ -421,9 +488,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         warning.setTitle("Allow server writes?");
         warning.setHeaderText("Allow scripts in this window to change " + server.name() + "?");
         warning.setContentText("Writes go to:\n" + server.name() + " (" + server.baseUrl() + ")\n\n"
-                + "Create, update, patch and delete will be available in fhir. Deletes ask"
-                + " again before they are sent. Scripts are not sandboxed, and changes cannot"
-                + " be undone. Only allow this for code you trust and data you can change.");
+                + "This grant allows: " + writeScope.describe() + ". Deletes ask again before"
+                + " they are sent. Scripts are not sandboxed. Undo is best effort and only"
+                + " covers writes made in this console session. Only allow this for code you"
+                + " trust and data you can change.");
         ButtonType allow = new ButtonType("Allow Writes", ButtonBar.ButtonData.OK_DONE);
         warning.getButtonTypes().setAll(allow, ButtonType.CANCEL);
         warning.getDialogPane().getStylesheets().addAll(stylesheets);
@@ -463,11 +531,235 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         alert.initOwner(owner);
         alert.setTitle("Delete resource?");
         alert.setHeaderText("Delete this resource from the server?");
-        alert.setContentText(summary + "\n\nThis cannot be undone.");
-        ButtonType delete = new ButtonType("Delete", ButtonBar.ButtonData.OK_DONE);
+        alert.setContentText(summary + "\n\nA best-effort undo may be available in the"
+                + " Writes tab while this console stays open, but do not rely on it.");
+        // OTHER, not OK_DONE: ButtonBar marks OK_DONE as the default button, which would
+        // make Enter delete when the dialog first appears. Cancel is the only default here.
+        ButtonType delete = new ButtonType("Delete", ButtonBar.ButtonData.OTHER);
         alert.getButtonTypes().setAll(delete, ButtonType.CANCEL);
         alert.getDialogPane().getStylesheets().addAll(stylesheets);
+        // Enter and initial focus land on Cancel: a destructive action must be chosen
+        // deliberately, not fired by a stray keypress on a dialog that just appeared.
+        Button deleteButton = (Button) alert.getDialogPane().lookupButton(delete);
+        Button cancelButton = (Button) alert.getDialogPane().lookupButton(ButtonType.CANCEL);
+        if (deleteButton != null) {
+            deleteButton.setDefaultButton(false);
+        }
+        if (cancelButton != null) {
+            alert.setOnShown(event -> {
+                if (deleteButton != null) {
+                    deleteButton.setDefaultButton(false);
+                }
+                cancelButton.setDefaultButton(true);
+                cancelButton.requestFocus();
+            });
+        }
         return alert.showAndWait().filter(delete::equals).isPresent();
+    }
+
+    /** Reverts the newest successful write whose before-image is still available. */
+    private void onUndoLastWrite() {
+        if (coordinator.isRunning()) {
+            return;
+        }
+        // Undo is an ordinary write, so turning the grant off turns it off too. This
+        // also re-checks the target and expiry immediately before the reversal.
+        if (!allowWrites.isSelected()) {
+            setStatus("Turn on server writes to undo the last write.");
+            return;
+        }
+        if (!ensureWriteTarget()) {
+            return;
+        }
+        Optional<WriteJournal.Entry> candidate = writeJournal.lastUndoable();
+        if (candidate.isEmpty()) {
+            setStatus("Nothing to undo: no successful write with a captured before-image.");
+            return;
+        }
+        WriteJournal.Entry entry = candidate.get();
+        Optional<WriteJournal.Undo> plan = writeJournal.undoFor(entry);
+        if (plan.isEmpty()) {
+            setStatus("That write has no undo information.");
+            return;
+        }
+        if (!confirmUndo(entry)) {
+            setStatus("Undo cancelled.");
+            return;
+        }
+        setStatus("Undoing " + entry.operation() + " \u2026");
+        undoButton.setDisable(true);
+        BackgroundTasks.run("scripting-undo", () -> undoWrite(entry, plan.get()), attempt -> {
+            if (attempt.succeeded()) {
+                writeJournal.markUndone(entry);
+                refreshJournalView();
+                setStatus(attempt.value());
+            } else {
+                // Keep an audit trail of a failed revert without copying a server body
+                // into the journal; the status line carries the readable reason.
+                FhirServerConfiguration failedServer = serverFor(entry);
+                if (failedServer != null) {
+                    recordUndo(failedServer, plan.get(), WriteJournal.Status.FAILED, "undo-failed");
+                }
+                setStatus("Undo failed: " + attempt.failure());
+            }
+            updateJournalActions();
+        });
+    }
+
+    /** Confirmation seam, protected so a UI test can answer it without a native dialog. */
+    protected boolean confirmUndo(WriteJournal.Entry entry) {
+        Window owner = ownerWindow();
+        if (owner == null) {
+            return false;
+        }
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(owner);
+        alert.setTitle("Undo last write?");
+        alert.setHeaderText("Revert the latest successful write?");
+        alert.setContentText(entry.operation() + " " + entry.resourceType()
+                + (entry.resourceId() == null ? "" : "/" + entry.resourceId())
+                + " on " + entry.serverName() + ".\n\nThis is best effort, not a server"
+                + " transaction rollback. Later changes may be overwritten.");
+        ButtonType undo = new ButtonType("Undo", ButtonBar.ButtonData.OTHER);
+        alert.getButtonTypes().setAll(undo, ButtonType.CANCEL);
+        alert.getDialogPane().getStylesheets().addAll(stylesheets);
+        Button undoButton = (Button) alert.getDialogPane().lookupButton(undo);
+        Button cancel = (Button) alert.getDialogPane().lookupButton(ButtonType.CANCEL);
+        if (undoButton != null) {
+            undoButton.setDefaultButton(false);
+        }
+        if (cancel != null) {
+            alert.setOnShown(event -> {
+                if (undoButton != null) {
+                    undoButton.setDefaultButton(false);
+                }
+                cancel.setDefaultButton(true);
+                cancel.requestFocus();
+            });
+        }
+        return alert.showAndWait().filter(undo::equals).isPresent();
+    }
+
+    private String undoWrite(WriteJournal.Entry entry, WriteJournal.Undo plan)
+            throws Exception {
+        FhirServerConfiguration server = serverFor(entry);
+        if (server == null) {
+            throw new IllegalStateException("The server " + entry.serverName()
+                    + " is no longer configured.");
+        }
+        if (server.writeProtected() || !serverService.supportsWrite(server)) {
+            throw new IllegalStateException("The server " + server.name()
+                    + " does not accept writes, so it cannot be reverted here.");
+        }
+        if ("create".equals(plan.operation())) {
+            if (plan.resourceId() == null) {
+                throw new IllegalStateException("The created resource id is unknown.");
+            }
+            serverService.delete(server, ServerOrigin.of(server.pluginId(), server.baseUrl(),
+                    plan.resourceType(), plan.resourceId(), plan.versionId()));
+            recordUndo(server, plan, WriteJournal.Status.SUCCEEDED, "");
+            return "Undid create of " + plan.resourceType() + "/" + plan.resourceId() + ".";
+        }
+        IBaseResource before = plan.before();
+        if (before == null) {
+            throw new IllegalStateException("No before-image was captured for this write.");
+        }
+        IBaseMetaType meta = before.getMeta();
+        String version = meta == null ? null : meta.getVersionId();
+        serverService.update(server, before, ServerOrigin.of(server.pluginId(), server.baseUrl(),
+                plan.resourceType(), plan.resourceId(), version));
+        recordUndo(server, plan, WriteJournal.Status.SUCCEEDED, "");
+        return "Restored " + plan.resourceType() + "/" + plan.resourceId() + ".";
+    }
+
+    private void recordUndo(FhirServerConfiguration server, WriteJournal.Undo plan,
+            WriteJournal.Status status, String detail) {
+        writeJournal.record(server, "undo", plan.resourceType(), plan.resourceId(),
+                plan.versionId(), status, detail, Duration.ZERO);
+    }
+
+    private FhirServerConfiguration serverFor(WriteJournal.Entry entry) {
+        // Match both fields: two configured servers may share a base URL but hold different
+        // credentials, and an undo must never attach another server's credentials.
+        for (FhirServerConfiguration server : serverManager.servers()) {
+            if (entry.serverBaseUrl().equals(server.baseUrl())
+                    && entry.serverName().equals(server.name())) {
+                return server;
+            }
+        }
+        return null;
+    }
+
+    /** Reads the resource behind an unknown outcome, then lets the user mark it reviewed. */
+    private void onReviewUnknownOutcome() {
+        if (coordinator.isRunning()) {
+            return;
+        }
+        Optional<WriteJournal.Entry> candidate = writeJournal.lastUnresolvedUnknown();
+        if (candidate.isEmpty()) {
+            setStatus("No unreviewed write with an unknown outcome.");
+            return;
+        }
+        WriteJournal.Entry entry = candidate.get();
+        setStatus("Reading the resource for the unknown outcome \u2026");
+        BackgroundTasks.run("scripting-reconcile", () -> describeUnknownOutcome(entry),
+                attempt -> showReconciliation(entry, attempt.succeeded() ? attempt.value()
+                        : "Read failed: " + attempt.failure()));
+    }
+
+    private String describeUnknownOutcome(WriteJournal.Entry entry) {
+        FhirServerConfiguration server = serverFor(entry);
+        if (server == null) {
+            return "The server " + entry.serverName() + " is no longer configured.";
+        }
+        if (entry.resourceType() == null || entry.resourceId() == null) {
+            return "The request had no resource id to read. Search by a business identifier"
+                    + " before retrying; a create may have succeeded.";
+        }
+        try {
+            IBaseResource resource = serverService.read(server, entry.resourceType(),
+                    entry.resourceId());
+            if (resource == null) {
+                return "Read " + entry.resourceType() + "/" + entry.resourceId()
+                        + ": not found. The write may not have been applied.";
+            }
+            IBaseMetaType meta = resource.getMeta();
+            String version = meta == null ? null : meta.getVersionId();
+            return "Read " + entry.resourceType() + "/" + entry.resourceId()
+                    + ": found" + (version == null ? "" : " version " + version)
+                    + ". Treat the write as applied.";
+        } catch (Exception problem) {
+            return "Read " + entry.resourceType() + "/" + entry.resourceId()
+                    + " failed: " + message(problem);
+        }
+    }
+
+    private void showReconciliation(WriteJournal.Entry entry, String readResult) {
+        if (confirmReconciliation(entry, readResult)) {
+            writeJournal.markResolved(entry);
+            refreshJournalView();
+            setStatus("Unknown outcome marked reviewed.");
+        }
+    }
+
+    /** Confirmation seam, protected so a UI test can answer it without a native dialog. */
+    protected boolean confirmReconciliation(WriteJournal.Entry entry, String readResult) {
+        Window owner = ownerWindow();
+        if (owner == null) {
+            return false;
+        }
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.initOwner(owner);
+        alert.setTitle("Unknown write outcome");
+        alert.setHeaderText("Review " + entry.operation() + " on " + entry.serverName());
+        alert.setContentText(readResult + "\n\nIf it was applied, do not retry it. If it was not,"
+                + " check the resource before deciding. Marking reviewed does not change the"
+                + " server; it only clears this journal item.");
+        ButtonType reviewed = new ButtonType("Mark Reviewed", ButtonBar.ButtonData.OK_DONE);
+        alert.getButtonTypes().setAll(reviewed, ButtonType.CLOSE);
+        alert.getDialogPane().getStylesheets().addAll(stylesheets);
+        Optional<ButtonType> answer = alert.showAndWait();
+        return answer.filter(reviewed::equals).isPresent();
     }
 
     /** Marshals a budget prompt to the FX thread; scripts call from the worker. */
@@ -611,7 +903,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         setBusy(true);
         showSuiteReport("Running " + suite.cases().size() + " test case(s) \u2026");
         setStatus("Running " + suite.cases().size() + " test case(s) \u2026");
-        coordinator.runSuite(suite, bindings, result -> Platform.runLater(() -> {
+        // A suite is isolated from the interactive write opt-in unless the user grants it
+        // separately. In particular, turning writes on for Run must not silently let a
+        // saved test create or delete fixtures.
+        ScriptBindings suiteBindings = allowWrites.isSelected() && allowSuiteWrites.isSelected()
+                ? bindings
+                : createBindings(WritePolicy.READ_ONLY);
+        coordinator.runSuite(suite, suiteBindings, result -> Platform.runLater(() -> {
             writePolicy.endRun();
             setBusy(false);
             presentSuite(result);
@@ -642,6 +940,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (result.cancelled()) {
             report.append(" \u2014 stopped");
         }
+        if (result.cleanup() != null) {
+            report.append("\nCleanup: ").append(result.cleanup().passed() ? "passed"
+                    : result.cleanup().stopped() ? "stopped"
+                    : "failed: " + result.cleanup().detail());
+        }
         for (SuiteCaseResult testCase : result.cases()) {
             if (testCase.stopped()) {
                 // Stop is the user's action, not a failing test: name the case without a
@@ -668,18 +971,26 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (!result.message().isBlank()) {
             details.append(result.message()).append('\n');
         }
+        if (result.cleanup() != null) {
+            appendSuiteCaseDetails(details, result.cleanup());
+        }
         for (SuiteCaseResult testCase : result.cases()) {
-            details.append("case: ").append(testCase.name()).append(" \u2014 ")
-                    .append(testCase.status()).append('\n');
-            for (ScriptRunResult.Entry entry : testCase.entries()) {
-                details.append("  [").append(label(entry.kind())).append("] ")
-                        .append(entry.text()).append('\n');
-            }
-            details.append('\n');
+            appendSuiteCaseDetails(details, testCase);
         }
         suiteDetails.setText(details.toString());
         suiteDetails.positionCaret(0);
         bottomTabs.getSelectionModel().select(1);
+    }
+
+    private static void appendSuiteCaseDetails(StringBuilder details,
+            SuiteCaseResult testCase) {
+        details.append("case: ").append(testCase.name()).append(" \u2014 ")
+                .append(testCase.status()).append('\n');
+        for (ScriptRunResult.Entry entry : testCase.entries()) {
+            details.append("  [").append(label(entry.kind())).append("] ")
+                    .append(entry.text()).append('\n');
+        }
+        details.append('\n');
     }
 
     private void showSuiteReport(String text) {
@@ -804,31 +1115,44 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         writeSummaryLabel.setVisible(false);
     }
 
-    /** Appends one body-free journal line on the FX thread. */
+    /** Redraws one body-free journal line on the FX thread. */
     private void journalEntryAdded(WriteJournal.Entry entry) {
         if (Platform.isFxApplicationThread()) {
-            appendJournalEntry(entry);
+            refreshJournalView();
         } else {
-            Platform.runLater(() -> appendJournalEntry(entry));
+            Platform.runLater(this::refreshJournalView);
         }
     }
 
-    private void appendJournalEntry(WriteJournal.Entry entry) {
-        String resource = entry.resourceId() == null
-                ? entry.resourceType()
-                : entry.resourceType() + "/" + entry.resourceId();
-        String version = entry.versionId() == null ? "" : " version " + entry.versionId();
-        String outcome = switch (entry.status()) {
-            case SUCCEEDED -> "ok";
-            case FAILED -> "failed";
-            case UNKNOWN -> "outcome unknown";
-            case CANCELLED -> "cancelled";
-        };
-        String detail = entry.detail().isBlank() ? "" : " — " + entry.detail();
-        writeJournalView.appendText(TIME.format(entry.at()) + " [" + entry.operation() + "] "
-                + resource + version + " — " + outcome + " (" + entry.elapsed().toMillis()
-                + " ms) — " + entry.serverName() + detail + "\n");
+    private void refreshJournalView() {
+        StringBuilder text = new StringBuilder();
+        for (WriteJournal.Entry entry : writeJournal.entries()) {
+            String resource = entry.resourceType() == null ? ""
+                    : entry.resourceId() == null ? entry.resourceType()
+                    : entry.resourceType() + "/" + entry.resourceId();
+            String version = entry.versionId() == null ? "" : " version " + entry.versionId();
+            String outcome = switch (entry.status()) {
+                case SUCCEEDED -> "ok";
+                case FAILED -> "failed";
+                case UNKNOWN -> "outcome unknown";
+                case CANCELLED -> "cancelled";
+            };
+            String detail = entry.detail().isBlank() ? "" : " — " + entry.detail();
+            String flags = (writeJournal.isUndone(entry) ? " [undone]" : "")
+                    + (writeJournal.isResolved(entry) ? " [reviewed]" : "");
+            text.append(TIME.format(entry.at())).append(" [").append(entry.operation())
+                    .append("] ").append(resource).append(version).append(" — ").append(outcome)
+                    .append(" (").append(entry.elapsed().toMillis()).append(" ms) — ")
+                    .append(entry.serverName()).append(detail).append(flags).append('\n');
+        }
+        writeJournalView.setText(text.toString());
         writeJournalView.positionCaret(writeJournalView.getLength());
+        updateJournalActions();
+    }
+
+    private void updateJournalActions() {
+        undoButton.setDisable(!allowWrites.isSelected() || writeJournal.lastUndoable().isEmpty());
+        reviewUnknownButton.setDisable(writeJournal.lastUnresolvedUnknown().isEmpty());
     }
 
     /** Clears the journal when the buffer is replaced, so entries match the visible script. */
@@ -836,6 +1160,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         writeJournal.clear();
         writeJournalView.clear();
         journalRunStart = 0;
+        updateJournalActions();
         hideWriteSummary();
     }
 
@@ -843,6 +1168,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         runButton.setDisable(busy);
         runTestsButton.setDisable(busy);
         allowWrites.setDisable(busy);
+        allowSuiteWrites.setDisable(busy || !allowWrites.isSelected());
+        scopeButton.setDisable(busy);
+        undoButton.setDisable(busy || !allowWrites.isSelected()
+                || writeJournal.lastUndoable().isEmpty());
+        reviewUnknownButton.setDisable(busy || writeJournal.lastUnresolvedUnknown().isEmpty());
         resetButton.setDisable(busy);
         openButton.setDisable(busy);
         saveButton.setDisable(busy);
@@ -873,6 +1203,26 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     /** The write opt-in checkbox, for tests. */
     CheckBox allowWritesForTest() {
         return allowWrites;
+    }
+
+    /** The separate test-run write opt-in, for tests. */
+    CheckBox allowSuiteWritesForTest() {
+        return allowSuiteWrites;
+    }
+
+    /** The write-scope button, for tests. */
+    Button scopeButtonForTest() {
+        return scopeButton;
+    }
+
+    /** The undo action, for tests. */
+    Button undoButtonForTest() {
+        return undoButton;
+    }
+
+    /** The unknown-outcome review action, for tests. */
+    Button reviewUnknownButtonForTest() {
+        return reviewUnknownButton;
     }
 
     /** The write target label, for tests. */

@@ -270,6 +270,21 @@ class FhirApiTest {
     }
 
     @Test
+    void anUpdateCapturesThePreviousResourceForBestEffortUndo() {
+        WriteJournal journal = new WriteJournal();
+        WritePolicy policy = WritePolicy.enabled(null, manager.active().orElseThrow(), journal,
+                0, null, null);
+        FhirApi journaled = new FhirApi(service, manager, policy);
+        Patient before = patient("1", "Before");
+        service.readResource = before;
+
+        journaled.update(patient("1", "After"));
+
+        WriteJournal.Entry entry = journal.entries().get(0);
+        assertEquals(before, journal.undoFor(entry).orElseThrow().before());
+    }
+
+    @Test
     void aTimedOutWriteIsReportedAsOutcomeUnknown() {
         WriteJournal journal = new WriteJournal();
         WritePolicy policy = WritePolicy.enabled(null, manager.active().orElseThrow(), journal,

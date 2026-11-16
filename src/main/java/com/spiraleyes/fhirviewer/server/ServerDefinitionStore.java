@@ -169,6 +169,8 @@ public final class ServerDefinitionStore {
                     // what a file written before this existed will not have.
                     .administrationBaseUrl(
                             trimmed(properties.getProperty(key + "administrationBaseUrl")))
+                    .writeProtected(Boolean.parseBoolean(
+                            trimmed(properties.getProperty(key + "writeProtected"))))
                     .build();
         } catch (IllegalArgumentException unusable) {
             // The builder validates the base URL and refuses anything that is not one.
@@ -258,6 +260,11 @@ public final class ServerDefinitionStore {
                 if (trimmed(definition.administrationBaseUrl()) != null) {
                     properties.setProperty(key + "administrationBaseUrl",
                             definition.administrationBaseUrl().trim());
+                }
+                // Written only when set, so an ordinary writable server keeps the file it
+                // had before this option existed.
+                if (definition.writeProtected()) {
+                    properties.setProperty(key + "writeProtected", "true");
                 }
             }
         }

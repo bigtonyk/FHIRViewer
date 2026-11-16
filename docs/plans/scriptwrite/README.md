@@ -5,11 +5,14 @@
 - **Status:** Implemented on `scriptwrite`; focused and full suites pass
 - **Date:** 2026-11-16
 
-**Follow-up safety work (2026-11-16):** the grant is live, revocable and bound to
-the approved server; every attempt appears in a body-free write journal with a
-per-run summary; a run has a 50-write budget and an idle grant expires after 15
-minutes; patch and delete accept a known version for `If-Match`; and a timed-out
-write raises `WriteOutcomeUnknownException` instead of inviting a blind retry.
+**Follow-up safety work (2026-11-16):** the grant is live, revocable, bound to
+the approved server, and can be narrowed by operation and resource type; a server
+can be marked read-only; every attempt appears in a body-free write journal with
+a per-run summary; a run has a 50-write budget and an idle grant expires after 15
+minutes; patch and delete accept a known version for `If-Match`; a timed-out write
+raises `WriteOutcomeUnknownException` and gets a **Review Unknown** workflow; and
+the journal supports best-effort **Undo Last Write**. Test runs have their own
+write opt-in and an optional `// cleanup:` block.
 
 ## Goal
 
@@ -107,9 +110,9 @@ Pressing the checkbox follows this sequence:
    writable.
 4. Show a warning owned by the console:
    - Header: `Allow server writes?`
-   - Body: the server name and base URL, the four enabled operations, the fact
-     that deletes ask again, and that scripts are not sandboxed and changes
-     cannot be undone.
+   - Body: the server name and base URL, the current operation/resource scope,
+     the fact that deletes ask again, and that scripts are not sandboxed and any
+     undo is best effort rather than a server rollback.
    - Buttons: `Allow Writes` and `Cancel`.
 5. Only `Allow Writes` rebuilds the bindings with an enabled policy. `Cancel`
    leaves the checkbox off.
@@ -331,7 +334,7 @@ Run the focused tests first, then the full suite:
    - Document that update uses the resource id and its `meta.versionId` for
      conflict checking when the server reports one.
    - Document the opt-in, target-server check, reset-on-file-open rule, and the
-     fact that writes cannot be undone.
+     limits of the best-effort undo.
    - Keep the “not a sandbox” warning and explain that the policy is a guardrail,
      not isolation.
 
@@ -416,7 +419,7 @@ Run the focused tests first, then the full suite:
 | Risk | Mitigation |
 |---|---|
 | A user enables writes, then opens a different script and runs it. | Opening a file resets writes off and resets the trust acknowledgement; write status is visible. |
-| A script updates many resources without another prompt. | The opt-in names the target and warns that changes cannot be undone; delete is separately confirmed. Start with synthetic data. |
+| A script updates many resources without another prompt. | The opt-in names the target and warns that undo is best effort; delete is separately confirmed. Start with synthetic data. |
 | Confirmation blocks or deadlocks the JavaFX thread. | The script worker posts the prompt to the FX thread and waits; the dialog uses `showAndWait` only on the FX thread; fail closed if unavailable. |
 | Active server disappears or changes. | The console is modal, and the target is checked when enabling and when starting a run. |
 | A plugin advertises no write support. | `supportsWrite` refuses the opt-in rather than offering a button that will fail. |

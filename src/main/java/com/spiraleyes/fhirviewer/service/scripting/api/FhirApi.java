@@ -111,12 +111,14 @@ public class FhirApi {
         Objects.requireNonNull(resource, "resource");
         String type = resource.fhirType();
         FhirServerConfiguration server = activeServer("create");
-        writePolicy.requireWrite(server, "create");
+        writePolicy.requireWrite(server, "create", type);
         long started = System.nanoTime();
         try {
             ServerWriteResult result = serverService.create(server, resource);
             record(server, "create", type, result.resourceId(), result.versionId(),
-                    WriteJournal.Status.SUCCEEDED, "", started);
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("create", type, result.resourceId(),
+                            result.versionId(), null));
             return result;
         } catch (ServerOperationException e) {
             throw failedWrite("create", type, null, null, "on", server, e, started);
@@ -134,7 +136,8 @@ public class FhirApi {
         }
         String resourceId = id.getIdPart();
         FhirServerConfiguration server = activeServer("update");
-        writePolicy.requireWrite(server, "update");
+        writePolicy.requireWrite(server, "update", type);
+        IBaseResource before = readBefore(server, type, resourceId);
         String versionId = null;
         IBaseMetaType meta = resource.getMeta();
         if (meta != null) {
@@ -145,7 +148,8 @@ public class FhirApi {
             ServerWriteResult result = serverService.update(server, resource,
                     ServerOrigin.of(server.pluginId(), server.baseUrl(), type, resourceId, versionId));
             record(server, "update", type, resourceId, result.versionId(),
-                    WriteJournal.Status.SUCCEEDED, "", started);
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("update", type, resourceId, result.versionId(), before));
             return result;
         } catch (ServerOperationException e) {
             throw failedWrite("update", type, resourceId, versionId, "on", server, e, started);
@@ -170,7 +174,8 @@ public class FhirApi {
         }
         Objects.requireNonNull(format, "format");
         FhirServerConfiguration server = activeServer("patch");
-        writePolicy.requireWrite(server, "patch");
+        writePolicy.requireWrite(server, "patch", resourceType);
+        IBaseResource before = readBefore(server, resourceType, resourceId);
         String version = blankToNull(versionId);
         long started = System.nanoTime();
         try {
@@ -178,7 +183,9 @@ public class FhirApi {
                     ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, version),
                     body, format);
             record(server, "patch", resourceType, resourceId, result.versionId(),
-                    WriteJournal.Status.SUCCEEDED, "", started);
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("patch", resourceType, resourceId,
+                            result.versionId(), before));
             return result;
         } catch (ServerOperationException e) {
             throw failedWrite("patch", resourceType, resourceId, version, "on", server, e, started);
@@ -199,7 +206,7 @@ public class FhirApi {
         writePolicy.requireWrite();
         require(resourceType, resourceId);
         FhirServerConfiguration server = activeServer("delete");
-        writePolicy.requireWrite(server, "delete");
+        writePolicy.requireWrite(server, "delete", resourceType);
         String version = blankToNull(versionId);
         String summary = "Delete " + resourceType + "/" + resourceId + " on " + server.name()
                 + " (" + server.baseUrl() + ")"
@@ -210,11 +217,15 @@ public class FhirApi {
                     WriteJournal.Status.CANCELLED, "cancelled", started);
             throw new WriteDeniedException("Delete cancelled.");
         }
+        // Read only after the confirmation, so the before-image is as close as possible
+        // to the delete and a cancelled prompt costs no extra request.
+        IBaseResource before = readBefore(server, resourceType, resourceId);
         try {
             serverService.delete(server,
                     ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, version));
             record(server, "delete", resourceType, resourceId, version,
-                    WriteJournal.Status.SUCCEEDED, "", started);
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("delete", resourceType, resourceId, version, before));
         } catch (ServerOperationException e) {
             throw failedWrite("delete", resourceType, resourceId, version, "from", server, e, started);
         }
@@ -264,13 +275,38 @@ public class FhirApi {
                 + " " + server.name() + ": " + failure.getMessage(), failure);
     }
 
-    private void record(FhirServerConfiguration server, String operation, String resourceType,
-            String resourceId, String versionId, WriteJournal.Status status, String detail,
-            long started) {
+    private WriteJournal.Entry record(FhirServerConfiguration server, String operation,
+            String resourceType, String resourceId, String versionId, WriteJournal.Status status,
+            String detail, long started) {
+        return record(server, operation, resourceType, resourceId, versionId, status, detail,
+                started, null);
+    }
+
+    private WriteJournal.Entry record(FhirServerConfiguration server, String operation,
+            String resourceType, String resourceId, String versionId, WriteJournal.Status status,
+            String detail, long started, WriteJournal.Undo undo) {
         WriteJournal journal = writePolicy.journal();
-        if (journal != null) {
-            journal.record(server, operation, resourceType, resourceId, versionId, status, detail,
-                    Duration.ofNanos(Math.max(0L, System.nanoTime() - started)));
+        if (journal == null) {
+            return null;
+        }
+        return journal.record(server, operation, resourceType, resourceId, versionId, status, detail,
+                Duration.ofNanos(Math.max(0L, System.nanoTime() - started)), undo);
+    }
+
+    /**
+     * Reads the resource immediately before a write so the console can offer a best-effort
+     * undo. A read failure must never block the write the user approved: the undo is
+     * optional, and a server that cannot answer this extra read may still accept the write.
+     */
+    private IBaseResource readBefore(FhirServerConfiguration server, String resourceType,
+            String resourceId) {
+        if (writePolicy.journal() == null || resourceType == null || resourceId == null) {
+            return null;
+        }
+        try {
+            return serverService.read(server, resourceType, resourceId);
+        } catch (ServerOperationException | RuntimeException unreadable) {
+            return null;
         }
     }
 

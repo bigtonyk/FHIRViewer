@@ -159,6 +159,22 @@ public class ServerWriteTest {
     }
 
     @Test
+    @DisplayName("A configuration marked read-only is refused by the service before the plugin")
+    void serviceRefusesReadOnlyServer() throws Exception {
+        FhirServerService service = new FhirServerService();
+        service.registry().register(plugin);
+        ServerDefinition readOnly = ServerDefinition.named("Read Only", baseUrl)
+                .writeProtected(true).build();
+
+        ServerOperationException failure = assertThrows(ServerOperationException.class,
+                () -> service.create(readOnly, new Patient()));
+
+        assertEquals(ServerOperationException.Kind.BAD_REQUEST, failure.kind());
+        assertTrue(failure.getMessage().contains("marked read-only"), failure.getMessage());
+        assertNull(lastMethod.get(), "a read-only server must not receive the request");
+    }
+
+    @Test
     @DisplayName("A write to the wrong server is refused before any request is made")
     void serviceRefusesCrossServerWrite() throws Exception {
         FhirServerService service = new FhirServerService();

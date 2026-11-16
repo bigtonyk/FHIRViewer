@@ -20,20 +20,34 @@ import java.util.regex.Pattern;
  * silently attached to the first case: a shared preamble could not affect the
  * other cases anyway, because every case starts in a fresh session.</p>
  *
- * @param name  the suite name, normally the file name; never blank
- * @param cases the cases in file order; never empty
+ * <p>An optional {@code // cleanup:} marker after the last case introduces source
+ * that runs once after the cases, in its own session. It is the place to delete
+ * resources a test created, so a run leaves the server as it found it. Cleanup is
+ * best effort: a failed case still runs it, and its result is reported separately.</p>
+ *
+ * @param name    the suite name, normally the file name; never blank
+ * @param cases   the cases in file order; never empty
+ * @param cleanup source to run after the cases, or {@code null} when the suite has none
  */
-public record TestSuite(String name, List<TestCase> cases) {
+public record TestSuite(String name, List<TestCase> cases, String cleanup) {
 
     private static final Pattern MARKER =
             Pattern.compile("^\\s*//\\s*case:\\s*(\\S.*)$", Pattern.CASE_INSENSITIVE);
     /** A marker with no name: refused rather than folded into the previous case. */
     private static final Pattern NAMELESS_MARKER =
             Pattern.compile("^\\s*//\\s*case:\\s*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CLEANUP_MARKER =
+            Pattern.compile("^\\s*//\\s*cleanup:\\s*$", Pattern.CASE_INSENSITIVE);
+
+    /** A suite with no cleanup block, for callers that construct suites directly. */
+    public TestSuite(String name, List<TestCase> cases) {
+        this(name, cases, null);
+    }
 
     public TestSuite {
         Objects.requireNonNull(name, "name");
         cases = cases == null ? List.of() : List.copyOf(cases);
+        cleanup = cleanup == null || cleanup.isBlank() ? null : cleanup;
         if (name.isBlank()) {
             throw new IllegalArgumentException("A test suite needs a name.");
         }
@@ -58,9 +72,36 @@ public record TestSuite(String name, List<TestCase> cases) {
         Set<String> names = new HashSet<>();
         String currentName = null;
         int currentLine = 0;
+        boolean inCleanup = false;
+        int cleanupLine = 0;
         StringBuilder body = new StringBuilder();
         String[] lines = source.split("\\R", -1);
         for (int index = 0; index < lines.length; index++) {
+            if (CLEANUP_MARKER.matcher(lines[index]).matches()) {
+                if (inCleanup) {
+                    throw new IllegalArgumentException("The // cleanup: marker on line "
+                            + (index + 1) + " repeats an earlier cleanup block.");
+                }
+                if (currentName == null) {
+                    throw new IllegalArgumentException("The // cleanup: marker on line "
+                            + (index + 1) + " must follow at least one // case: marker.");
+                }
+                cases.add(requireBody(currentName, currentLine, body));
+                currentName = null;
+                inCleanup = true;
+                cleanupLine = index + 1;
+                body.setLength(0);
+                continue;
+            }
+            if (inCleanup) {
+                if (MARKER.matcher(lines[index]).matches()
+                        || NAMELESS_MARKER.matcher(lines[index]).matches()) {
+                    throw new IllegalArgumentException("A // case: marker on line "
+                            + (index + 1) + " cannot follow // cleanup:.");
+                }
+                body.append(lines[index]).append('\n');
+                continue;
+            }
             if (NAMELESS_MARKER.matcher(lines[index]).matches()) {
                 throw new IllegalArgumentException("The // case: marker on line "
                         + (index + 1) + " needs a name.");
@@ -86,6 +127,14 @@ public record TestSuite(String name, List<TestCase> cases) {
             } else {
                 body.append(lines[index]).append('\n');
             }
+        }
+        if (inCleanup) {
+            String cleanup = body.toString();
+            if (!hasSource(cleanup)) {
+                throw new IllegalArgumentException("The cleanup block from line " + cleanupLine
+                        + " has no source; add a body or remove the marker.");
+            }
+            return new TestSuite(name, cases, cleanup);
         }
         if (currentName == null) {
             if (source.isBlank()) {

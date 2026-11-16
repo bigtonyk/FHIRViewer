@@ -164,6 +164,7 @@ public final class ScriptingCoordinator implements AutoCloseable {
                 workerThread = Thread.currentThread();
                 Instant started = Instant.now();
                 List<SuiteCaseResult> cases = new ArrayList<>();
+                SuiteCaseResult cleanupResult = null;
                 boolean cancelled = false;
                 String message = "";
                 String runningCase = "";
@@ -203,6 +204,33 @@ public final class ScriptingCoordinator implements AutoCloseable {
                             }
                         }
                     }
+                    // Cleanup is attempted even after a failed or stopped case: its job is
+                    // to remove what the run created, so skipping it would leave the mess
+                    // behind exactly when the suite most needs to tidy up. A closed console
+                    // cannot start another session, so that is the one exception.
+                    if (suite.cleanup() != null && !closed.get()) {
+                        runningCase = "cleanup";
+                        ScriptingSession cleanupSession = sessionForRun(true);
+                        ScriptRunResult cleanupRun;
+                        if (cleanupSession == null) {
+                            cleanupRun = ScriptRunResult.failed(
+                                    "The cleanup session could not be created.");
+                        } else {
+                            try {
+                                cleanupRun = cleanupSession.run(suite.cleanup(), bindings);
+                            } catch (RuntimeException problem) {
+                                cleanupRun = ScriptRunResult.failed(
+                                        "The cleanup could not be run: "
+                                                + problem.getClass().getSimpleName()
+                                                + (problem.getMessage() == null ? ""
+                                                        : ": " + problem.getMessage()));
+                            } finally {
+                                endSessionRun();
+                                closeQuietly(cleanupSession);
+                            }
+                        }
+                        cleanupResult = SuiteCaseResult.from("cleanup", cleanupRun);
+                    }
                 } catch (RuntimeException | Error problem) {
                     // A failure while starting a case session must still end the run: the
                     // console would otherwise say "Running" forever.
@@ -218,7 +246,8 @@ public final class ScriptingCoordinator implements AutoCloseable {
                     running.set(false);
                     workerThread = null;
                     onDone.accept(new SuiteRunResult(suite.name(), cases, suite.cases().size(),
-                            Duration.between(started, Instant.now()), cancelled, message));
+                            Duration.between(started, Instant.now()), cancelled, message,
+                            cleanupResult));
                 }
             });
         } catch (RejectedExecutionException racedClose) {

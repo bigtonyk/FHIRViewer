@@ -193,6 +193,16 @@ class UserGuideContentTest {
                 "the guide must document an uncertain write outcome");
         assertTrue(guide.contains("Writes** tab"),
                 "the guide must point at the write journal");
+        assertTrue(guide.contains("Write scope..."),
+                "the guide must document operation and resource-type scopes");
+        assertTrue(guide.contains("Read-only server"),
+                "the guide must document the per-server read-only flag");
+        assertTrue(guide.contains("Allow writes in test runs"),
+                "the guide must document the separate suite write opt-in");
+        assertTrue(guide.contains("// cleanup:"),
+                "the guide must document suite cleanup");
+        assertTrue(guide.contains("Undo Last Write") && guide.contains("Review Unknown"),
+                "the guide must document undo and unknown-outcome review");
     }
 
     @Test

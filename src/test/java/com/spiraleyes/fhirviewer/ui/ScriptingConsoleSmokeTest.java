@@ -15,6 +15,8 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -45,7 +47,9 @@ import com.spiraleyes.fhirviewer.service.scripting.FailingScriptingSessions;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
 import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
 import com.spiraleyes.fhirviewer.service.scripting.api.WriteDeniedException;
+import com.spiraleyes.fhirviewer.service.scripting.api.WriteJournal;
 import com.spiraleyes.fhirviewer.service.scripting.api.WritePolicy;
+import com.spiraleyes.fhirviewer.service.scripting.api.WriteScope;
 import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteCaseResult;
 import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteRunResult;
 
@@ -205,6 +209,79 @@ class ScriptingConsoleSmokeTest {
                     "the details tab should carry the full failure, not just the first line: "
                             + detailsText);
         }
+    }
+
+    @Test
+    @DisplayName("Run Tests needs its own write opt-in, independent of interactive Run")
+    void testRunsNeedTheirOwnWriteOptIn() throws Exception {
+        requireToolkit();
+        String source = """
+                // case: attempts a write
+                try {
+                    fhir.create(new org.hl7.fhir.r4.model.Patient());
+                    System.out.println("WRITE_ALLOWED");
+                } catch (WriteDeniedException denied) {
+                    System.out.println("WRITE_DENIED");
+                }
+                """;
+
+        WritableService deniedService = new WritableService();
+        SuiteOutcome denied;
+        try (ScriptingCoordinator coordinator = new ScriptingCoordinator()) {
+            WriteProbeConsole console = onFxThread(() -> {
+                WriteProbeConsole created = new WriteProbeConsole(deniedService,
+                        managerWithServer(), summary -> true, true, coordinator);
+                created.setEditorTextForTest(source);
+                return created;
+            });
+            onFxThread(() -> {
+                console.allowWritesForTest().fire();
+                assertTrue(console.allowWritesForTest().isSelected());
+                assertFalse(console.allowSuiteWritesForTest().isSelected(),
+                        "test writes must start off even when Run writes are on");
+                return null;
+            });
+            denied = runSuite(console);
+            onFxThread(() -> {
+                console.setEditorTextForTest("");
+                console.close();
+                return null;
+            });
+        }
+        assertTrue(denied.details().contains("WRITE_DENIED"),
+                "Run Tests must use read-only bindings without its own opt-in: "
+                        + denied.details());
+        assertEquals(0, deniedService.createCalls,
+                "a suite without its own opt-in must not reach the server");
+
+        WritableService allowedService = new WritableService();
+        SuiteOutcome allowed;
+        try (ScriptingCoordinator coordinator = new ScriptingCoordinator()) {
+            WriteProbeConsole console = onFxThread(() -> {
+                WriteProbeConsole created = new WriteProbeConsole(allowedService,
+                        managerWithServer(), summary -> true, true, coordinator);
+                created.setEditorTextForTest(source);
+                return created;
+            });
+            onFxThread(() -> {
+                console.allowWritesForTest().fire();
+                assertFalse(console.allowSuiteWritesForTest().isDisabled(),
+                        "the suite opt-in must become available with a write target");
+                console.allowSuiteWritesForTest().fire();
+                assertTrue(console.allowSuiteWritesForTest().isSelected());
+                return null;
+            });
+            allowed = runSuite(console);
+            onFxThread(() -> {
+                console.setEditorTextForTest("");
+                console.close();
+                return null;
+            });
+        }
+        assertTrue(allowed.details().contains("WRITE_ALLOWED"),
+                "the separately approved suite should be able to write: " + allowed.details());
+        assertEquals(1, allowedService.createCalls,
+                "the approved suite write should reach the fake server once");
     }
 
     /**
@@ -471,6 +548,62 @@ class ScriptingConsoleSmokeTest {
     }
 
     @Test
+    @DisplayName("The scope button narrows a live grant and is enforced by the API")
+    void scopeButtonNarrowsTheLiveGrant() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole console = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            console.allowWritesForTest().fire();
+            console.scopeToChoose = WriteScope.of(Set.of(WriteScope.Operation.UPDATE),
+                    Set.of("Patient"));
+
+            console.scopeButtonForTest().fire();
+
+            assertTrue(console.writePolicyForTest().scope().allows("update", "Patient"));
+            assertFalse(console.writePolicyForTest().scope().allows("create", "Patient"));
+            Patient patient = new Patient();
+            patient.setId("1");
+            assertThrows(WriteDeniedException.class,
+                    () -> console.bindingsForTest().fhir.create(patient));
+            console.bindingsForTest().fhir.update(patient);
+            assertEquals(1, service.updateCalls,
+                    "the scoped update should reach the fake server");
+            assertEquals(0, service.createCalls,
+                    "the refused create must not reach the fake server");
+            assertTrue(console.statusTextForTest().contains("Write scope:"),
+                    console.statusTextForTest());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("A read-only server refuses the write opt-in even when its plugin supports writes")
+    void readOnlyServerRefusesWriteOptIn() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole console = new WriteProbeConsole(service,
+                    managerWithServer(true), summary -> true, true);
+
+            console.allowWritesForTest().fire();
+
+            assertFalse(console.allowWritesForTest().isSelected());
+            assertTrue(console.statusTextForTest().contains("marked read-only"),
+                    console.statusTextForTest());
+            assertTrue(console.allowSuiteWritesForTest().isDisabled(),
+                    "test writes must stay unavailable while server writes are off");
+            assertThrows(WriteDeniedException.class,
+                    () -> console.bindingsForTest().fhir.create(new Patient()));
+            assertEquals(0, service.createCalls);
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
     @DisplayName("Turning writes off revokes an old fhir reference kept by the session")
     void turningWritesOffRevokesOldReferences() throws Exception {
         requireToolkit();
@@ -536,6 +669,156 @@ class ScriptingConsoleSmokeTest {
             assertTrue(journal.contains("Write Test"), journal);
             assertFalse(journal.contains("Smith"), "the journal must not include a body");
             assertEquals(1, console.writeJournalForTest().size());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Undo Last Write restores the before-image against the fake server")
+    void undoRestoresTheBeforeImage() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        Patient before = new Patient();
+        before.setId("1");
+        before.addName().setFamily("Before");
+        service.readResource = before;
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        onFxThread(() -> {
+            Patient after = new Patient();
+            after.setId("1");
+            after.addName().setFamily("After");
+            console.bindingsForTest().fhir.update(after);
+            assertFalse(console.undoButtonForTest().isDisable(),
+                    "attaching the before-image must enable Undo, not wait for another refresh");
+            return null;
+        });
+        assertEquals(1, service.updateCalls);
+        assertTrue(console.writeJournalTextForTest().contains("[update] Patient/1"),
+                console.writeJournalTextForTest());
+
+        onFxThread(() -> {
+            console.undoButtonForTest().fire();
+            return null;
+        });
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (service.updateCalls < 2 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        assertEquals(2, service.updateCalls, "the undo should issue one update");
+        onFxThread(() -> {
+            assertEquals("Before", ((Patient) service.lastUpdatedResource)
+                    .getNameFirstRep().getFamily(),
+                    "undo must send the resource captured before the original update");
+            assertTrue(console.writeJournalTextForTest().contains("[undone]"),
+                    console.writeJournalTextForTest());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Turning writes off disables Undo instead of bypassing the grant")
+    void undoIsDisabledWhenWritesAreOff() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        onFxThread(() -> {
+            console.bindingsForTest().fhir.create(new Patient());
+            assertFalse(console.undoButtonForTest().isDisable(),
+                    "a successful create should offer Undo while writes are on");
+
+            console.allowWritesForTest().fire();
+            assertTrue(console.undoButtonForTest().isDisable(),
+                    "turning writes off must also take Undo away");
+
+            console.undoButtonForTest().fire();
+            assertEquals(0, service.deleteCalls,
+                    "a disabled Undo must not send a delete after the grant is revoked");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Undo Last Write deletes a resource the create made")
+    void undoDeletesACreatedResource() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        onFxThread(() -> {
+            console.bindingsForTest().fhir.create(new Patient());
+            assertFalse(console.undoButtonForTest().isDisable());
+            console.undoButtonForTest().fire();
+            return null;
+        });
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (service.deleteCalls < 1 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        assertEquals(1, service.deleteCalls, "undoing a create should delete it");
+        onFxThread(() -> {
+            assertEquals("created-1", service.lastDeleteOrigin.resourceId());
+            assertTrue(console.writeJournalTextForTest().contains("[undone]"),
+                    console.writeJournalTextForTest());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Review Unknown reads the resource and resolves the journal entry")
+    void reviewUnknownReadsAndResolves() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        Patient found = new Patient();
+        found.setId("1");
+        found.getMeta().setVersionId("v2");
+        service.readResource = found;
+        FhirServerManager manager = managerWithServer();
+        WriteProbeConsole console = onFxThread(() -> new WriteProbeConsole(service, manager,
+                summary -> true, true));
+
+        WriteJournal.Entry unknown = onFxThread(() -> {
+            WriteJournal.Entry entry = console.writeJournalForTest().record(
+                    manager.active().orElseThrow(), "update", "Patient", "1", "v1",
+                    WriteJournal.Status.UNKNOWN, "TIMEOUT", Duration.ZERO);
+            assertFalse(console.reviewUnknownButtonForTest().isDisable(),
+                    "an unknown outcome must enable Review Unknown");
+            console.reviewUnknownButtonForTest().fire();
+            return entry;
+        });
+
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!console.writeJournalForTest().isResolved(unknown)
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertTrue(console.writeJournalForTest().isResolved(unknown));
+            assertTrue(console.reconciliationText.contains("found version v2"),
+                    console.reconciliationText);
+            assertTrue(console.writeJournalForTest().lastUnresolvedUnknown().isEmpty());
+            assertTrue(console.writeJournalTextForTest().contains("[reviewed]"),
+                    console.writeJournalTextForTest());
             console.close();
             return null;
         });
@@ -1021,10 +1304,16 @@ class ScriptingConsoleSmokeTest {
     }
 
     private static FhirServerManager managerWithServer() {
+        return managerWithServer(false);
+    }
+
+    private static FhirServerManager managerWithServer(boolean readOnly) {
         FhirServerManager manager = new FhirServerManager();
         ServerDefinition server = ServerDefinition
                 .named("Write Test", "http://write.example.com/fhir")
-                .pluginId("standard-rest").build();
+                .pluginId("standard-rest")
+                .writeProtected(readOnly)
+                .build();
         manager.add(server);
         manager.setActive(server);
         return manager;
@@ -1035,7 +1324,13 @@ class ScriptingConsoleSmokeTest {
 
         boolean supportsWrites = true;
         int createCalls;
+        int updateCalls;
         int deleteCalls;
+        int readCalls;
+        org.hl7.fhir.instance.model.api.IBaseResource readResource;
+        org.hl7.fhir.instance.model.api.IBaseResource lastUpdatedResource;
+        ServerOrigin lastUpdateOrigin;
+        ServerOrigin lastDeleteOrigin;
 
         WritableService() {
             super(new FhirServerPluginRegistry());
@@ -1047,10 +1342,26 @@ class ScriptingConsoleSmokeTest {
         }
 
         @Override
+        public org.hl7.fhir.instance.model.api.IBaseResource read(FhirServerConfiguration server,
+                String resourceType, String resourceId) {
+            readCalls++;
+            return readResource;
+        }
+
+        @Override
         public ServerWriteResult create(FhirServerConfiguration server,
                 org.hl7.fhir.instance.model.api.IBaseResource resource) {
             createCalls++;
             return ServerWriteResult.created("created-1", "v1");
+        }
+
+        @Override
+        public ServerWriteResult update(FhirServerConfiguration server,
+                org.hl7.fhir.instance.model.api.IBaseResource resource, ServerOrigin origin) {
+            updateCalls++;
+            lastUpdatedResource = resource;
+            lastUpdateOrigin = origin;
+            return ServerWriteResult.updated(origin.resourceId(), "v2");
         }
 
         @Override
@@ -1062,6 +1373,7 @@ class ScriptingConsoleSmokeTest {
         @Override
         public void delete(FhirServerConfiguration server, ServerOrigin origin) {
             deleteCalls++;
+            lastDeleteOrigin = origin;
         }
     }
 
@@ -1070,10 +1382,12 @@ class ScriptingConsoleSmokeTest {
 
         private final boolean approveWrites;
         private final Path fileToOpen;
+        WriteScope scopeToChoose;
+        String reconciliationText;
 
         WriteProbeConsole(FhirServerService service, FhirServerManager manager,
                 WritePolicy.Confirmation confirmation, boolean approveWrites) {
-            this(service, manager, confirmation, approveWrites, null);
+            this(service, manager, confirmation, approveWrites, (Path) null);
         }
 
         WriteProbeConsole(FhirServerService service, FhirServerManager manager,
@@ -1085,9 +1399,34 @@ class ScriptingConsoleSmokeTest {
             this.fileToOpen = fileToOpen;
         }
 
+        WriteProbeConsole(FhirServerService service, FhirServerManager manager,
+                WritePolicy.Confirmation confirmation, boolean approveWrites,
+                ScriptingCoordinator coordinator) {
+            super(new ThemeManager(), new FhirService(), service, manager,
+                    coordinator, null, confirmation);
+            this.approveWrites = approveWrites;
+            this.fileToOpen = null;
+        }
+
         @Override
         protected boolean confirmWriteAccess(FhirServerConfiguration server) {
             return approveWrites;
+        }
+
+        @Override
+        protected Optional<WriteScope> chooseWriteScope() {
+            return Optional.ofNullable(scopeToChoose);
+        }
+
+        @Override
+        protected boolean confirmUndo(WriteJournal.Entry entry) {
+            return true;
+        }
+
+        @Override
+        protected boolean confirmReconciliation(WriteJournal.Entry entry, String readResult) {
+            reconciliationText = readResult;
+            return true;
         }
 
         @Override
@@ -1122,7 +1461,7 @@ class ScriptingConsoleSmokeTest {
     }
 
     /** Runs the suite already loaded in the given console, then waits for its result. */
-    private static SuiteOutcome runSuite(ProbeConsole console) throws Exception {
+    private static SuiteOutcome runSuite(ScriptingConsoleDialog console) throws Exception {
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReference<SuiteOutcome> outcome = new AtomicReference<>();
         AtomicReference<String> lastReport = new AtomicReference<>("<none>");

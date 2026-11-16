@@ -72,9 +72,26 @@ A run may make 50 writes before the console asks whether to continue with anothe
 The **Writes** tab records each attempt (operation, resource, version, result and duration)
 without storing request bodies, and the run summary shows the counts.
 
+**Write scope...** narrows the grant to selected operations and resource types. For example,
+a grant can allow `update` and `patch` on `Patient` only; every other write is refused before
+a request is sent, even through an old `fhir` reference. A server can also be marked
+**Read-only server** in Tools > FHIR Servers; that refuses Save to Server and every script
+write regardless of the grant.
+
+Test runs have a separate **Allow writes in test runs** checkbox, off by default. Turning on
+writes for Run does not let a saved suite write. A suite may finish with an optional
+`// cleanup:` block, which runs after the cases even when one failed.
+
+**Undo Last Write** reapplies the resource captured just before the latest successful
+update, patch or delete, or deletes a resource the write created. Undo is best effort: it
+runs as an ordinary write, so it is unavailable while server writes are off; it can
+overwrite later changes, and is available only while the console is open. **Review Unknown** handles a timed-out write by reading the affected
+resource and letting you mark the journal entry reviewed; it does not change the server.
+
 Only `fhir` writes are enabled. `server` remains an inspection API. Writes use the active
 server's saved credentials, not the SMART session. Deleting a resource asks for
-confirmation immediately before the request; cancelling sends nothing.
+confirmation immediately before the request, with Cancel as the default; cancelling sends
+nothing.
 
 ## Validation and FHIRPath
 
@@ -220,7 +237,8 @@ request:
 fhir.delete("Patient", "example-id", "3");
 ```
 
-Writes cannot be undone. `ServerWriteResult` exposes `resourceId()`, `versionId()` and
+Undo is best effort and only covers writes made while this console stays open; it is not a
+server transaction rollback. `ServerWriteResult` exposes `resourceId()`, `versionId()` and
 `created()`.
 
 ### Page through a search
@@ -304,6 +322,24 @@ Parsing refuses duplicate case names and a case with no source, including a body
 comments. A failed case does not stop later cases; Stop marks the current case stopped and
 leaves later cases unrun. The report gives passed/failed/stopped counts, and Test details holds
 each case's output and full diagnostics.
+
+A suite that creates fixtures can end with a cleanup block. It runs once, after the cases,
+in its own session and even after a failed or stopped case:
+
+```java
+// case: creates a temporary patient
+var patient = new org.hl7.fhir.r4.model.Patient();
+patient.addName().setFamily("Temporary");
+var created = fhir.create(patient);
+test.assertTrue(created.resourceId() != null);
+
+// cleanup:
+fhir.delete("Patient", "temporary-id");
+```
+
+Cleanup needs the separate **Allow writes in test runs** opt-in; with it off, suites and
+their cleanup blocks run read-only. The cleanup verdict is reported separately and does not
+change the case counts. Run Tests never inherits the interactive Run write grant.
 
 ### Read the SMART launch patient
 
