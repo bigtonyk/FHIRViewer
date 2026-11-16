@@ -60,15 +60,22 @@ class TestFhirServerService extends FhirServerService {
         return capabilities;
     }
 
+    int createCalls;
+    int updateCalls;
+    ServerOrigin lastUpdateOrigin;
+
     @Override
     public ServerWriteResult create(FhirServerConfiguration server, IBaseResource resource)
             throws ServerOperationException {
+        createCalls++;
         return writeResult;
     }
 
     @Override
     public ServerWriteResult update(FhirServerConfiguration server, IBaseResource resource,
             ServerOrigin origin) throws ServerOperationException {
+        updateCalls++;
+        lastUpdateOrigin = origin;
         return writeResult;
     }
 

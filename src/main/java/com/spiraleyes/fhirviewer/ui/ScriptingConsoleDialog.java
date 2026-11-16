@@ -10,6 +10,8 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
@@ -20,6 +22,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
@@ -33,8 +36,10 @@ import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
+import javafx.stage.Window;
 
 import com.spiraleyes.fhirviewer.service.FhirService;
+import com.spiraleyes.fhirviewer.service.scripting.BatchProcessor;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptRunResult;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
 import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteCaseResult;
@@ -49,6 +54,7 @@ import com.spiraleyes.fhirviewer.service.scripting.api.TestApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ValidationApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ViewerApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.WritePolicy;
+import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
 import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
@@ -102,6 +108,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private final Button saveAsButton = new Button("Save As\u2026");
     private final Button exampleButton = new Button("Example");
     private final Button clearButton = new Button("Clear Output");
+    private final CheckBox allowWrites = new CheckBox("Allow server writes");
+    private final Label writeModeLabel = new Label();
     private final MenuButton guidesButton = new MenuButton("Guides");
 
     /** Opens a named guide at an anchor; the server screens supply the real opener. */
@@ -110,6 +118,12 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     private final ScriptingCoordinator coordinator;
     private final List<String> stylesheets;
+    private final FhirService fhirService;
+    private final FhirServerService serverService;
+    private final FhirServerManager serverManager;
+    private final SmartApi smartApi;
+    private final BatchProcessor batch = new BatchProcessor();
+    private final WritePolicy.Confirmation writeConfirmation;
 
     private static File lastDirectory;
     private Path currentFile;
@@ -117,8 +131,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private String savedContent = "";
     private boolean trustAcknowledged;
 
-    /** The script API objects exposed to every run, built from the application services. */
-    private final ScriptBindings bindings;
+    /** The script API objects exposed to every run; replaced when the write policy changes. */
+    private ScriptBindings bindings;
+
+    /** The server named in the warning that enabled writes, or null when writes are off. */
+    private FhirServerConfiguration writeTarget;
 
     /**
      * @param themeManager the application's theme source; never {@code null}
@@ -156,6 +173,14 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     ScriptingConsoleDialog(ThemeManager themeManager, FhirService fhirService,
             FhirServerService serverService, FhirServerManager serverManager,
             ScriptingCoordinator coordinator, SmartSessionHolder smartSessions) {
+        this(themeManager, fhirService, serverService, serverManager, coordinator,
+                smartSessions, null);
+    }
+
+    ScriptingConsoleDialog(ThemeManager themeManager, FhirService fhirService,
+            FhirServerService serverService, FhirServerManager serverManager,
+            ScriptingCoordinator coordinator, SmartSessionHolder smartSessions,
+            WritePolicy.Confirmation writeConfirmation) {
         if (coordinator == null) {
             throw new IllegalArgumentException("A scripting coordinator is required.");
         }
@@ -167,13 +192,14 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
 
         this.coordinator = coordinator;
-        SmartApi smartApi = smartSessions == null ? new SmartApi() : smartSessions.api();
-        bindings = new ScriptBindings(
-                new FhirApi(serverService, serverManager, WritePolicy.READ_ONLY),
-                new ViewerApi(fhirService),
-                new ValidationApi(fhirService),
-                new ServerApi(serverService, serverManager),
-                new LogApi(), new TestApi(), smartApi);
+        this.fhirService = fhirService;
+        this.serverService = serverService;
+        this.serverManager = serverManager;
+        this.smartApi = smartSessions == null ? new SmartApi() : smartSessions.api();
+        this.writeConfirmation = writeConfirmation == null
+                ? this::confirmWriteOnFxThread
+                : writeConfirmation;
+        bindings = createBindings(WritePolicy.READ_ONLY);
 
         this.stylesheets = List.copyOf(themeManager.stylesheets());
 
@@ -191,6 +217,11 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 + " and leaves nothing behind; the unsaved editor keeps the interactive"
                 + " session until Reset Session."));
         updateRunModeLabel();
+        allowWrites.setTooltip(new Tooltip("Allow fhir.create, fhir.update, fhir.patch and"
+                + " fhir.delete to change the active FHIR server for this console session."));
+        allowWrites.setOnAction(event -> onWriteToggle());
+        writeModeLabel.getStyleClass().add("app-subtitle");
+        updateWriteModeLabel();
         runTestsButton.setTooltip(new Tooltip("Runs each // case: block as a test in a session"
                 + " of its own; counts appear above the panes and each case's output goes"
                 + " to the Test details tab."));
@@ -209,8 +240,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         guidesButton.getItems().addAll(scriptingGuide, smartGuide);
         guidesButton.setTooltip(new Tooltip("Open the guide beside this console"));
         FlowPane toolbar = new FlowPane(8, 8, runButton, runTestsButton, runModeLabel,
-                stopButton, resetButton, openButton, saveButton, saveAsButton, exampleButton,
-                clearButton, guidesButton);
+                allowWrites, writeModeLabel, stopButton, resetButton, openButton, saveButton,
+                saveAsButton, exampleButton, clearButton, guidesButton);
         toolbar.setAlignment(Pos.CENTER_LEFT);
         runTestsButton.setOnAction(event -> onRunTests());
         openButton.setOnAction(event -> onOpen());
@@ -258,6 +289,145 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         });
     }
 
+    /** Builds the script API objects for one write policy. */
+    private ScriptBindings createBindings(WritePolicy writePolicy) {
+        return new ScriptBindings(
+                new FhirApi(serverService, serverManager, writePolicy),
+                new ViewerApi(fhirService),
+                new ValidationApi(fhirService),
+                new ServerApi(serverService, serverManager),
+                new LogApi(), new TestApi(), smartApi, batch);
+    }
+
+    /** Applies a write policy and keeps the toolbar and the next run in step. */
+    private void applyWrites(boolean enabled) {
+        WritePolicy policy = enabled
+                ? WritePolicy.enabled(writeConfirmation)
+                : WritePolicy.READ_ONLY;
+        bindings = createBindings(policy);
+        writeTarget = enabled ? serverManager.active().orElse(null) : null;
+        allowWrites.setSelected(enabled);
+        updateWriteModeLabel();
+    }
+
+    /** Turns the opt-in on or off, refusing it when there is no writable target. */
+    private void onWriteToggle() {
+        if (!allowWrites.isSelected()) {
+            applyWrites(false);
+            setStatus("Server writes off.");
+            return;
+        }
+        FhirServerConfiguration server = serverManager.active().orElse(null);
+        if (server == null) {
+            applyWrites(false);
+            setStatus("Server writes unavailable: select a server in Tools > FHIR Servers.");
+            return;
+        }
+        if (!serverService.supportsWrite(server)) {
+            applyWrites(false);
+            setStatus("Server writes unavailable: this server's plugin does not support writes.");
+            return;
+        }
+        if (!confirmWriteAccess(server)) {
+            applyWrites(false);
+            setStatus("Server writes were not enabled.");
+            return;
+        }
+        applyWrites(true);
+        setStatus("Server writes on: " + server.name() + " (" + server.baseUrl() + ").");
+    }
+
+    /** True when the current write opt-in still has a writable active server. */
+    private boolean ensureWriteTarget() {
+        if (!allowWrites.isSelected()) {
+            return true;
+        }
+        FhirServerConfiguration server = serverManager.active().orElse(null);
+        if (server != null && server == writeTarget && serverService.supportsWrite(server)) {
+            return true;
+        }
+        applyWrites(false);
+        setStatus("Server writes were turned off: the active server changed or can no longer accept writes.");
+        return false;
+    }
+
+    private void updateWriteModeLabel() {
+        if (!allowWrites.isSelected()) {
+            writeModeLabel.setText("Writes: off");
+            return;
+        }
+        String target = writeTarget == null ? "no active server" : writeTarget.name();
+        writeModeLabel.setText("Writes: on / " + target);
+    }
+
+    /** The one warning before the opt-in changes. Protected so a UI test can answer it. */
+    protected boolean confirmWriteAccess(FhirServerConfiguration server) {
+        Window owner = ownerWindow();
+        if (owner == null) {
+            return false;
+        }
+        Alert warning = new Alert(Alert.AlertType.WARNING);
+        warning.initOwner(owner);
+        warning.setTitle("Allow server writes?");
+        warning.setHeaderText("Allow scripts in this window to change " + server.name() + "?");
+        warning.setContentText("Writes go to:\n" + server.name() + " (" + server.baseUrl() + ")\n\n"
+                + "Create, update, patch and delete will be available in fhir. Deletes ask"
+                + " again before they are sent. Scripts are not sandboxed, and changes cannot"
+                + " be undone. Only allow this for code you trust and data you can change.");
+        ButtonType allow = new ButtonType("Allow Writes", ButtonBar.ButtonData.OK_DONE);
+        warning.getButtonTypes().setAll(allow, ButtonType.CANCEL);
+        warning.getDialogPane().getStylesheets().addAll(stylesheets);
+        return warning.showAndWait().filter(allow::equals).isPresent();
+    }
+
+    /**
+     * A destructive write is confirmed on the JavaFX thread. The script runs on the
+     * coordinator's worker, so a direct {@code showAndWait} there would be illegal.
+     */
+    private boolean confirmWriteOnFxThread(String summary) {
+        if (Platform.isFxApplicationThread()) {
+            return showDeleteConfirmation(summary);
+        }
+        FutureTask<Boolean> prompt = new FutureTask<>(() -> showDeleteConfirmation(summary));
+        try {
+            Platform.runLater(prompt);
+        } catch (IllegalStateException toolkitUnavailable) {
+            return false;
+        }
+        try {
+            return prompt.get();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException failed) {
+            return false;
+        }
+    }
+
+    private boolean showDeleteConfirmation(String summary) {
+        Window owner = ownerWindow();
+        if (owner == null) {
+            return false;
+        }
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(owner);
+        alert.setTitle("Delete resource?");
+        alert.setHeaderText("Delete this resource from the server?");
+        alert.setContentText(summary + "\n\nThis cannot be undone.");
+        ButtonType delete = new ButtonType("Delete", ButtonBar.ButtonData.OK_DONE);
+        alert.getButtonTypes().setAll(delete, ButtonType.CANCEL);
+        alert.getDialogPane().getStylesheets().addAll(stylesheets);
+        return alert.showAndWait().filter(delete::equals).isPresent();
+    }
+
+    private Window ownerWindow() {
+        if (getDialogPane() == null || getDialogPane().getScene() == null) {
+            return null;
+        }
+        Window owner = getDialogPane().getScene().getWindow();
+        return owner != null && owner.isShowing() ? owner : null;
+    }
+
     /** Supplies the application's guide opener; a no-op opener is the default. */
     public void setGuideOpener(BiConsumer<String, String> opener) {
         guideOpener = opener == null ? (guide, anchor) -> {
@@ -276,6 +446,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     /** Runs the buffer — after the trust acknowledgement, and on the coordinator's worker. */
     private void onRun() {
         if (coordinator.isRunning()) {
+            return;
+        }
+        if (!ensureWriteTarget()) {
             return;
         }
         if (!ensureTrust()) {
@@ -322,6 +495,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         } catch (IllegalArgumentException unreadable) {
             showSuiteReport("Could not read tests: " + unreadable.getMessage());
             setStatus("Could not read tests: " + unreadable.getMessage());
+            return;
+        }
+        if (!ensureWriteTarget()) {
             return;
         }
         if (!ensureTrust()) {
@@ -504,6 +680,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private void setBusy(boolean busy) {
         runButton.setDisable(busy);
         runTestsButton.setDisable(busy);
+        allowWrites.setDisable(busy);
         resetButton.setDisable(busy);
         openButton.setDisable(busy);
         saveButton.setDisable(busy);
@@ -526,9 +703,34 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         return exampleButton;
     }
 
+    /** The write opt-in checkbox, for tests. */
+    CheckBox allowWritesForTest() {
+        return allowWrites;
+    }
+
+    /** The write target label, for tests. */
+    Label writeModeLabelForTest() {
+        return writeModeLabel;
+    }
+
+    /** The Run button, for tests. */
+    Button runButtonForTest() {
+        return runButton;
+    }
+
+    /** The bindings the next run will use, for tests. */
+    ScriptBindings bindingsForTest() {
+        return bindings;
+    }
+
     /** The Save button, for tests. */
     Button saveButtonForTest() {
         return saveButton;
+    }
+
+    /** The Open button, for tests. */
+    Button openButtonForTest() {
+        return openButton;
     }
 
     /** The buffer's file, or empty when the buffer is untitled; for tests. */
@@ -591,7 +793,12 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         warning.initOwner(getDialogPane().getScene().getWindow());
         warning.setTitle("Run this script?");
         warning.setHeaderText("Scripts are not sandboxed");
-        warning.setContentText("Java scripts run with the same permissions as FHIRViewer itself:"
+        String writeState = allowWrites.isSelected()
+                ? "Server writes are ON for " + serverManager.active()
+                        .map(FhirServerConfiguration::name).orElse("the active server") + ".\n\n"
+                : "Server writes are off.\n\n";
+        warning.setContentText(writeState
+                + "Java scripts run with the same permissions as FHIRViewer itself:"
                 + " they can read files, use the network, start processes and inspect the"
                 + " environment. Only run scripts you trust — this includes any file you open.\n\n"
                 + "FHIRViewer never runs scripts on its own; nothing executes"
@@ -615,22 +822,34 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     /** Opens a `.jsh` file into the editor; the trust acknowledgement resets with the file. */
     private void onOpen() {
+        File file = chooseOpenLocation();
+        if (file == null) {
+            return;
+        }
+        lastDirectory = file.getParentFile();
+        openFile(file.toPath());
+    }
+
+    /**
+     * The open-file chooser with the `.jsh` filter preselected. Protected so a UI smoke test
+     * can answer it with a temporary file instead of opening a native dialog.
+     */
+    protected File chooseOpenLocation() {
         FileChooser chooser = new FileChooser();
         chooser.setInitialDirectory(lastDirectory);
 
         chooser.getExtensionFilters().addAll(
                 new FileChooser.ExtensionFilter("Java / JShell scripts", "*.java", "*.jsh"),
                 new FileChooser.ExtensionFilter("All files", "*.*"));
-        File file = chooser.showOpenDialog(getOwner());
-        if (file == null) {
-            return;
-        }
-        lastDirectory = file.getParentFile();
+        return chooser.showOpenDialog(getOwner());
+    }
+
+    private void openFile(Path path) {
         String content;
         try {
-            content = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+            content = Files.readString(path, StandardCharsets.UTF_8);
         } catch (IOException | RuntimeException unreadable) {
-            setStatus("Could not read " + file.getName() + ": "
+            setStatus("Could not read " + path.getFileName() + ": "
                     + message(unreadable));
             return;
         }
@@ -639,12 +858,15 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
         editor.setText(content);
         savedContent = content;
-        currentFile = file.toPath();
+        currentFile = path;
         updateRunModeLabel();
         // The verdicts on screen belong to the buffer that was just replaced.
         clearSuiteResults();
+        // A file arrives from outside: it must not inherit write access either.
+        applyWrites(false);
         trustAcknowledged = false;
-        setStatus("Opened " + file.getName() + " — running will ask for trust again.");
+        setStatus("Opened " + path.getFileName()
+                + " — running will ask for trust again; server writes are off.");
     }
 
     /**
@@ -714,6 +936,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         updateRunModeLabel();
         // The verdicts on screen belong to the buffer that was just replaced.
         clearSuiteResults();
+        applyWrites(false);
         setStatus("Example loaded into an untitled buffer — press Run to execute it.");
     }
 

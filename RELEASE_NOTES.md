@@ -1,3 +1,15 @@
+# Next release
+
+## Scripting server writes
+
+- The Scripting Console can opt into server writes. **Allow server writes** is
+  off by default and resets when a file or the example is loaded.
+- With writes enabled, `fhir.create`, `fhir.update`, and `fhir.patch` can change
+  the active server; `fhir.delete` requires confirmation before the request is
+  sent.
+- Writes use the active server's saved credentials, not the SMART session;
+  `smart` remains read-only.
+
 # FHIR Viewer 2.0
 
 The second numbered release. It builds on the 0.1 viewer with workspaces,

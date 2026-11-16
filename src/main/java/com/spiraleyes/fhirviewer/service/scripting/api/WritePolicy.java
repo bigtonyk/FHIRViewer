@@ -4,9 +4,10 @@ package com.spiraleyes.fhirviewer.service.scripting.api;
  * Whether scripts may change state on a FHIR server.
  *
  * <p>Read-only is the default: scripts can read and search without any
- * permission. Creating, updating or deleting a resource requires an explicitly
+ * permission. Creating, updating, patching or deleting a resource requires an explicitly
  * enabled policy, so a script can never modify a server by accident. The console
- * decides when (or whether) to enable writes, and can refuse or confirm first.
+ * enables it only after the user chooses to allow server writes for that console
+ * session, and it can refuse or confirm a destructive operation first.
  *
  * <p>This is a policy check, not a sandbox: it makes writes opt-in and obvious.
  */
@@ -14,7 +15,7 @@ public final class WritePolicy {
 
     /** Writes are refused with a clear message. The safe default. */
     public static final WritePolicy READ_ONLY = new WritePolicy(false,
-            "Writes are disabled. Enable the write policy explicitly before creating, updating or deleting resources.",
+            "Writes are disabled. Enable the write policy explicitly before creating, updating, patching or deleting resources.",
             null);
 
     /** Writes are permitted. Destructive operations are approved by default. */
@@ -51,7 +52,7 @@ public final class WritePolicy {
         this.confirmation = confirmation;
     }
 
-    /** True when create, update and delete are permitted. */
+    /** True when create, update, patch and delete are permitted. */
     public boolean isEnabled() {
         return enabled;
     }
@@ -61,10 +62,6 @@ public final class WritePolicy {
         return reason == null ? "" : reason;
     }
 
-    /** The configured destructive-operation confirmation handler, or {@code null}. */
-    public Confirmation confirmation() {
-        return confirmation;
-    }
     /** Throws {@link WriteDeniedException} when writes are not permitted. */
     public void requireWrite() {
         if (!enabled) {

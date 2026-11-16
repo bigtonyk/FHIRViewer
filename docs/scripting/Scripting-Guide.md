@@ -28,7 +28,7 @@ Scripts receive these top-level final variables:
 
 | Name | Type | Purpose |
 |------|------|---------|
-| `fhir` | `FhirApi` | Read and search FHIR resources on the selected server (writes are refused in this build) |
+| `fhir` | `FhirApi` | Read, search, create, update, patch and delete on the selected server (writes require the console opt-in) |
 | `viewer` | `ViewerApi` | Display resources/results/text in the console |
 | `validation` | `ValidationApi` | Validate FHIR resources |
 | `server` | `ServerApi` | Inspect configured servers and capabilities |
@@ -49,18 +49,24 @@ if (p != null) {
 Signatures:
 - `IBaseResource read(String resourceType, String resourceId)` — null if not found.
 - `SearchResults search(String resourceType, SearchCriterion... criteria)` — one page.
-- `IBaseResource create(IBaseResource resource)` — requires write policy.
-- `ServerWriteResult update(IBaseResource resource)` — requires write policy and server id.
-- `void delete(String resourceType, String resourceId)` — requires write policy.
+- `ServerWriteResult create(IBaseResource resource)` — requires the write opt-in.
+- `ServerWriteResult update(IBaseResource resource)` — requires the write opt-in and a server id.
+- `ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format)` — requires the write opt-in.
+- `void delete(String resourceType, String resourceId)` — requires the write opt-in and a confirmation.
 
 SearchResults: `resources()`, `total()`, `nextPageToken()`, `previousPageToken()`,
 `hasNextPage()`, `hasPreviousPage()`, `size()`. Paging: `fhir.nextPage(token)`,
 `fhir.previousPage(token)`.
 
-Writes are refused unless the session has an enabled `WritePolicy`. The console builds
-`fhir` with `WritePolicy.READ_ONLY`, so `create`, `update`, `patch` and `delete` throw
-`WriteDeniedException` before any request is made in this build. Reads and searches are
-unaffected.
+Writes are off when the console opens. Tick **Allow server writes** and approve the warning
+that names the active server. The setting lasts for that console window only; opening a
+file or loading the example turns it off again. While it is off, `create`, `update`, `patch`
+and `delete` throw `WriteDeniedException` before any request is made. Reads and searches
+are unaffected.
+
+Only `fhir` writes are enabled. `server` remains an inspection API. Writes use the active
+server's saved credentials, not the SMART session. Deleting a resource asks for
+confirmation immediately before the request; cancelling sends nothing.
 
 ## Validation and FHIRPath
 
@@ -132,6 +138,8 @@ if (smart.isSessionActive()) {
 Raw tokens are never exposed. Scope restrictions and expiry are enforced;
 `read` throws `ScriptApiException` when no session is active.
 
+`smart` is read-only. Server writes go through `fhir` and its explicit console opt-in.
+
 Authorize in **Tools → SMART Launch Workbench...** before opening the console. The
 session is shared with the console and stays in application memory after the Workbench
 closes. Press **Log out** in the Workbench to revoke it, or exit the application; it is
@@ -139,9 +147,9 @@ never written to disk.
 
 ## Sample workflows
 
-The console runs read-only in this build (`WritePolicy.READ_ONLY`), so every example below
-uses reads and local assertions. Treat any script that would write as destructive even when
-a future build enables writes.
+Writes are off unless you enable them for the console window. The read examples below work
+without it. The write examples are destructive: use a synthetic test server and inspect the
+target server named in the console before running them.
 
 ### Read one resource and show it
 
@@ -156,6 +164,51 @@ if (patient == null) {
 ```
 
 `fhir.read` returns `null` for a 404; other failures throw `ScriptApiException`.
+
+### Create a resource
+
+Enable **Allow server writes** first. The server assigns the id and version:
+
+```java
+var patient = new org.hl7.fhir.r4.model.Patient();
+patient.addName().setFamily("Scripted");
+var created = fhir.create(patient);
+log.info("Created " + created.resourceId() + " version " + created.versionId());
+```
+
+### Update and patch
+
+`update` sends the whole resource. When the resource carries a `meta.versionId`, the server
+can reject a stale copy as a conflict instead of overwriting a newer one:
+
+```java
+var patient = fhir.read("Patient", "example-id");
+if (patient != null) {
+    patient.getNameFirstRep().setFamily("Updated");
+    var updated = fhir.update(patient);
+    log.info("Updated version " + updated.versionId());
+}
+```
+
+`patch` changes named parts and needs the format explicitly:
+
+```java
+var patched = fhir.patch("Patient", "example-id",
+        "{\"active\":false}", PatchFormat.JSON_MERGE_PATCH);
+log.info("Patched version " + patched.versionId());
+```
+
+### Delete with confirmation
+
+Delete stops for a confirmation naming the server and resource. Cancelling prevents the
+request:
+
+```java
+fhir.delete("Patient", "example-id");
+```
+
+Writes cannot be undone. `ServerWriteResult` exposes `resourceId()`, `versionId()` and
+`created()`.
 
 ### Page through a search
 
@@ -264,10 +317,12 @@ no session is active. Raw tokens are never exposed.
 
 ## Security and troubleshooting
 
-JShell runs Java with the user's permissions and is not a sandbox. The console is
-read-only in this build. Common errors: no selected server, auth failure, missing
-scope, unsupported operation, compile errors, runtime-module problems, cancellation
-limitations. Examples use synthetic identifiers and read-only operations by default.
+JShell runs Java with the user's permissions and is not a sandbox. Server writes are off
+by default and are a guardrail, not isolation: a script can still use ordinary Java to
+reach the network. Common errors: no selected server, auth failure, missing scope,
+unsupported operation, write access not enabled, compile errors, runtime-module problems,
+cancellation limitations. Examples use synthetic identifiers, and write examples require
+an explicit opt-in.
 
 ## Scripting automation
 
@@ -287,12 +342,14 @@ execute its `// case:` suites without leaving the console.
 - `IBaseResource read(String resourceType, String resourceId)`
 - `SearchResults search(String resourceType, SearchCriterion... criteria)`
 - `SearchResults searchRaw(String resourceType, String query)`
-- `IBaseResource create(IBaseResource resource)` (write policy)
-- `ServerWriteResult update(IBaseResource resource)` (write policy)
-- `void delete(String resourceType, String resourceId)` (write policy)
-- `ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format)` (write policy)
+- `ServerWriteResult create(IBaseResource resource)` (write opt-in)
+- `ServerWriteResult update(IBaseResource resource)` (write opt-in)
+- `void delete(String resourceType, String resourceId)` (write opt-in; confirms first)
+- `ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format)` (write opt-in)
 - `SearchResults nextPage(String pageToken)`
 - `SearchResults previousPage(String pageToken)`
+
+`ServerWriteResult`: `resourceId()`, `versionId()`, `created()`.
 
 ### ViewerApi (`viewer`)
 - `void showResource(IBaseResource resource)`

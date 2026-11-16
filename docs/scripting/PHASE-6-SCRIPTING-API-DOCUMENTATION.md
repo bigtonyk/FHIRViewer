@@ -25,19 +25,21 @@ Scripts receive these final variables via `ScriptBindings`:
 - `int size()` — Number of resources on the current page
 
 **Writing (requires WritePolicy to be enabled):**
-- `IBaseResource create(IBaseResource resource)` — Create a new resource
+- `ServerWriteResult create(IBaseResource resource)` — Create a new resource
 - `ServerWriteResult update(IBaseResource resource)` — Update an existing resource
-- `void delete(String resourceType, String resourceId)` — Delete a resource
+- `ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format)` — Partially update a resource
+- `void delete(String resourceType, String resourceId)` — Delete a resource after confirmation
 
 **Paging:**
 - `SearchResults nextPage(String pageToken)` — Load the next page
 - `SearchResults previousPage(String pageToken)` — Load the previous page
 
 **WritePolicy behavior:**
-- Writes are refused unless the session was started with an enabled `WritePolicy`
+- Writes are refused unless the session was started with an enabled `WritePolicy`; the Scripting Console exposes that as the **Allow server writes** opt-in, off by default and reset when a file is opened
 - `WritePolicy.READ_ONLY` — Writes disabled by default
 - `WritePolicy.enabled()` — Writes permitted
-- `WritePolicy.enabled(Confirmation)` — Writes permitted with a confirmation handler
+- `WritePolicy.enabled(Confirmation)` — Writes permitted with a confirmation handler for destructive operations
+- The console confirms every DELETE on the JavaFX thread before a request is sent; create, update and patch are covered by the opt-in
 | `viewer` | `ViewerApi` | Display resources/results/text in the console |
 ### `ViewerApi`
 

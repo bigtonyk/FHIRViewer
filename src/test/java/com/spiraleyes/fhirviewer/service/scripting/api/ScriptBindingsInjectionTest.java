@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
+import com.spiraleyes.fhirviewer.server.ServerDefinition;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptRunResult;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingSession;
 
@@ -74,6 +75,45 @@ class ScriptBindingsInjectionTest {
     }
 
     @Test
+    void preambleImportsTheWriteTypes() {
+        String preamble = String.join("\n", bindings.preamble());
+
+        assertTrue(preamble.contains("import com.spiraleyes.fhirviewer.server.PatchFormat;"));
+        assertTrue(preamble.contains("import com.spiraleyes.fhirviewer.server.ServerWriteResult;"));
+        assertTrue(preamble.contains("import com.spiraleyes.fhirviewer.service.scripting.api.WriteDeniedException;"));
+    }
+
+    @Test
+    void readOnlyBindingsRefuseAWriteBeforeTheService() {
+        TestFhirServerService service = new TestFhirServerService();
+        ScriptBindings readOnly = bindingsWith(service, WritePolicy.READ_ONLY);
+
+        ScriptRunResult result = session.run("fhir.delete(\"Patient\", \"1\")", readOnly);
+
+        assertEquals(ScriptRunResult.Status.COMPLETED_WITH_ERRORS, result.status());
+        assertTrue(result.entries().stream()
+                        .anyMatch(e -> e.kind() == ScriptRunResult.Kind.EXCEPTION
+                                && e.text().contains("WriteDeniedException")),
+                "the script should see the write refusal: " + result.entries());
+        assertEquals(0, service.deleteCalls, "the refusal must happen before the request");
+    }
+
+    @Test
+    void enabledBindingsAllowAScriptToCreate() {
+        TestFhirServerService service = new TestFhirServerService();
+        ScriptBindings writes = bindingsWith(service, WritePolicy.enabled());
+
+        ScriptRunResult result = session.run("""
+                var created = new org.hl7.fhir.r4.model.Patient();
+                created.addName().setFamily("Created");
+                fhir.create(created).resourceId()
+                """, writes);
+
+        assertEquals(ScriptRunResult.Status.COMPLETED, result.status(), result.entries().toString());
+        assertEquals(1, service.createCalls);
+    }
+
+    @Test
     void namesAreUndefinedWithoutBindings() {
         ScriptRunResult result = session.run("fhir", null);
         assertEquals(ScriptRunResult.Status.COMPLETED_WITH_ERRORS, result.status());
@@ -88,5 +128,22 @@ class ScriptBindingsInjectionTest {
         ScriptRunResult.Entry entry = result.first(kind);
         assertNotNull(entry, "expected an entry of kind " + kind + " in " + result.entries());
         return entry;
+    }
+
+    private static ScriptBindings bindingsWith(TestFhirServerService service,
+            WritePolicy policy) {
+        FhirServerManager manager = new FhirServerManager();
+        ServerDefinition server = ServerDefinition
+                .named("Test", "http://test.example.com/fhir")
+                .pluginId("standard-rest").build();
+        manager.add(server);
+        manager.setActive(server);
+        FhirService fhirService = new FhirService();
+        return new ScriptBindings(
+                new FhirApi(service, manager, policy),
+                new ViewerApi(fhirService),
+                new ValidationApi(fhirService),
+                new ServerApi(service, manager),
+                new LogApi());
     }
 }

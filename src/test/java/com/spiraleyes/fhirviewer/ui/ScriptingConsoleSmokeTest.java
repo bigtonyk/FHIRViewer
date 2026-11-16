@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.GraphicsEnvironment;
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -25,14 +27,25 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import org.hl7.fhir.r4.model.Patient;
+
+import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
+import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
+import com.spiraleyes.fhirviewer.server.PatchFormat;
+import com.spiraleyes.fhirviewer.server.ServerDefinition;
+import com.spiraleyes.fhirviewer.server.ServerOrigin;
+import com.spiraleyes.fhirviewer.server.ServerWriteResult;
 import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationSession;
 import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
 import com.spiraleyes.fhirviewer.server.smart.SmartTokenResponse;
 import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.service.scripting.FailingScriptingSessions;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
+import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
+import com.spiraleyes.fhirviewer.service.scripting.api.WriteDeniedException;
+import com.spiraleyes.fhirviewer.service.scripting.api.WritePolicy;
 import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteCaseResult;
 import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteRunResult;
 
@@ -416,6 +429,414 @@ class ScriptingConsoleSmokeTest {
         }
     }
 
+    @Test
+    @DisplayName("Server writes are off by default and refused before the service is called")
+    void serverWritesAreOffByDefault() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole console = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+
+            assertFalse(console.allowWritesForTest().isSelected());
+            assertThrows(WriteDeniedException.class,
+                    () -> console.bindingsForTest().fhir.create(new Patient()));
+            assertEquals(0, service.createCalls,
+                    "the read-only default must refuse before the server is reached");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Enabling writes requires a target and then permits fhir.create")
+    void enablingWritesPermitsCreate() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole console = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+
+            assertEquals("Writes: off", console.writeModeLabelForTest().getText());
+            console.allowWritesForTest().fire();
+
+            assertTrue(console.allowWritesForTest().isSelected());
+            assertEquals("Writes: on / Write Test", console.writeModeLabelForTest().getText());
+            assertEquals("created-1", console.bindingsForTest().fhir.create(new Patient())
+                    .resourceId());
+            assertEquals(1, service.createCalls);
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("A run turns writes off when the active server disappears")
+    void runWithoutWritableTargetTurnsWritesOff() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            FhirServerManager manager = managerWithServer();
+            WriteProbeConsole console = new WriteProbeConsole(service, manager,
+                    summary -> true, true);
+            console.allowWritesForTest().fire();
+            assertTrue(console.allowWritesForTest().isSelected());
+
+            manager.remove(manager.active().orElseThrow());
+            console.runButtonForTest().fire();
+
+            assertFalse(console.allowWritesForTest().isSelected());
+            assertEquals("Writes: off", console.writeModeLabelForTest().getText());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Changing the active writable server turns writes off before a run")
+    void changingWritableTargetTurnsWritesOff() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            FhirServerManager manager = managerWithServer();
+            WriteProbeConsole console = new WriteProbeConsole(service, manager,
+                    summary -> true, true);
+            console.allowWritesForTest().fire();
+            assertTrue(console.allowWritesForTest().isSelected());
+
+            ServerDefinition other = ServerDefinition.named("Other", "http://other.example.com/fhir")
+                    .pluginId("standard-rest").build();
+            manager.add(other);
+            manager.setActive(other);
+            console.runButtonForTest().fire();
+
+            assertFalse(console.allowWritesForTest().isSelected());
+            assertEquals("Writes: off", console.writeModeLabelForTest().getText());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Run Tests turns writes off when the active server disappears")
+    void runTestsWithoutWritableTargetTurnsWritesOff() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            FhirServerManager manager = managerWithServer();
+            WriteProbeConsole console = new WriteProbeConsole(service, manager,
+                    summary -> true, true);
+            console.setEditorTextForTest("// case: adds\n1 + 1");
+            console.allowWritesForTest().fire();
+            assertTrue(console.allowWritesForTest().isSelected());
+
+            manager.remove(manager.active().orElseThrow());
+            console.runTestsButtonForTest().fire();
+
+            assertFalse(console.allowWritesForTest().isSelected());
+            assertEquals("Writes: off", console.writeModeLabelForTest().getText());
+            console.setEditorTextForTest("");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Enabling writes is refused without an active or writable server")
+    void enablingWritesNeedsAUsableServer() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole noServer = new WriteProbeConsole(service, new FhirServerManager(),
+                    summary -> true, true);
+            noServer.allowWritesForTest().fire();
+            assertFalse(noServer.allowWritesForTest().isSelected());
+            noServer.close();
+
+            service.supportsWrites = false;
+            WriteProbeConsole readOnlyPlugin = new WriteProbeConsole(service,
+                    managerWithServer(), summary -> true, true);
+            readOnlyPlugin.allowWritesForTest().fire();
+            assertFalse(readOnlyPlugin.allowWritesForTest().isSelected());
+            readOnlyPlugin.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Loading the Example turns server writes off again")
+    void loadingExampleTurnsWritesOff() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole console = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            console.allowWritesForTest().fire();
+            assertTrue(console.allowWritesForTest().isSelected());
+
+            console.exampleButtonForTest().fire();
+
+            assertFalse(console.allowWritesForTest().isSelected());
+            assertThrows(WriteDeniedException.class,
+                    () -> console.bindingsForTest().fhir.create(new Patient()));
+            // Do not close here: loading the bundled example normalizes line endings,
+            // so the existing close guard would ask about a difference this test did not make.
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Cancelling the write warning leaves server writes off")
+    void cancellingWriteWarningLeavesWritesOff() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole console = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, false);
+
+            console.allowWritesForTest().fire();
+
+            assertFalse(console.allowWritesForTest().isSelected());
+            assertThrows(WriteDeniedException.class,
+                    () -> console.bindingsForTest().fhir.create(new Patient()));
+            assertEquals(0, service.createCalls,
+                    "cancelling the warning must leave the next run read-only");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("A cancelled delete confirmation sends no delete request")
+    void cancelledDeleteSendsNothing() throws Exception {
+        requireToolkit();
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole console = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> false, true);
+            console.allowWritesForTest().fire();
+
+            assertThrows(WriteDeniedException.class,
+                    () -> console.bindingsForTest().fhir.delete("Patient", "1"));
+            assertEquals(0, service.deleteCalls,
+                    "cancelling the confirmation must prevent the request");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Opening an existing script turns server writes off again")
+    void openingExistingScriptTurnsWritesOff() throws Exception {
+        requireToolkit();
+        Path script = directory.resolve("existing.jsh");
+        Files.writeString(script, "System.out.println(\"existing\");\n");
+
+        onFxThread(() -> {
+            WritableService service = new WritableService();
+            WriteProbeConsole console = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true, script);
+            console.allowWritesForTest().fire();
+            assertTrue(console.allowWritesForTest().isSelected());
+
+            console.openButtonForTest().fire();
+
+            assertFalse(console.allowWritesForTest().isSelected());
+            assertEquals(script, console.boundFileForTest().orElse(null),
+                    "Open should bind the buffer to the existing script");
+            assertEquals("System.out.println(\"existing\");", console.editorTextForTest().strip(),
+                    "Open should load the script into the editor");
+            assertThrows(WriteDeniedException.class,
+                    () -> console.bindingsForTest().fhir.create(new Patient()));
+            assertEquals(0, service.createCalls,
+                    "opening a file must leave the next run read-only");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("The write opt-in is disabled while a run is in flight")
+    void writeToggleIsDisabledDuringARun() throws Exception {
+        requireToolkit();
+        ProbeConsole console = onFxThread(() -> {
+            ProbeConsole created = new ProbeConsole(new ScriptingCoordinator());
+            created.setEditorTextForTest("Thread.sleep(1200);");
+            return created;
+        });
+        AtomicBoolean disabledSeen = new AtomicBoolean();
+        AtomicBoolean trustAnswered = new AtomicBoolean();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+        Thread helper = new Thread(() -> {
+            while (done.getCount() > 0) {
+                Platform.runLater(() -> {
+                    try {
+                        if (!trustAnswered.get() && acknowledgeTrustPrompt()) {
+                            trustAnswered.set(true);
+                        }
+                        if (trustAnswered.get() && console.allowWritesForTest().isDisable()) {
+                            disabledSeen.set(true);
+                        }
+                        if (disabledSeen.get() && !console.runButtonForTest().isDisable()) {
+                            done.countDown();
+                        }
+                    } catch (Throwable problem) {
+                        failure.compareAndSet(null, problem);
+                        done.countDown();
+                    }
+                });
+                try {
+                    Thread.sleep(25);
+                } catch (InterruptedException interrupted) {
+                    return;
+                }
+            }
+        }, "scripting-console-busy");
+        helper.setDaemon(true);
+        helper.start();
+        Platform.runLater(() -> {
+            try {
+                console.runButtonForTest().fire();
+            } catch (Throwable problem) {
+                failure.compareAndSet(null, problem);
+                done.countDown();
+            }
+        });
+
+        boolean finished;
+        try {
+            finished = done.await(10, TimeUnit.SECONDS);
+        } finally {
+            helper.interrupt();
+        }
+        if (failure.get() != null) {
+            throw new AssertionError("the console run failed", failure.get());
+        }
+        assertTrue(finished, "the busy-state run did not finish");
+        assertTrue(disabledSeen.get(), "the write checkbox was never disabled during the run");
+        assertFalse(console.allowWritesForTest().isDisable(),
+                "the write checkbox must be enabled again after the run");
+        onFxThread(() -> {
+            console.setEditorTextForTest("");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("The native write warning enables writes after Allow Writes")
+    void nativeWriteWarningEnablesWrites() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        DialogProbeConsole console = onFxThread(() -> {
+            DialogProbeConsole created = new DialogProbeConsole(service, managerWithServer());
+            created.show();
+            return created;
+        });
+        CountDownLatch finished = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread helper = new Thread(() -> {
+            while (finished.getCount() > 0) {
+                Platform.runLater(() -> clickDialogButton("Allow server writes?", "Allow Writes"));
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException interrupted) {
+                    return;
+                }
+            }
+        }, "scripting-console-warning");
+        helper.setDaemon(true);
+        helper.start();
+        Platform.runLater(() -> {
+            try {
+                console.allowWritesForTest().fire();
+            } catch (Throwable problem) {
+                failure.compareAndSet(null, problem);
+            } finally {
+                finished.countDown();
+            }
+        });
+
+        boolean answered;
+        try {
+            answered = finished.await(10, TimeUnit.SECONDS);
+        } finally {
+            helper.interrupt();
+        }
+        if (failure.get() != null) {
+            throw new AssertionError("the write warning failed", failure.get());
+        }
+        assertTrue(answered, "the native write warning was not answered");
+        assertTrue(console.allowWritesForTest().isSelected(),
+                "Allow Writes should enable the checkbox");
+        assertEquals("Writes: on / Write Test", console.writeModeLabelForTest().getText());
+        onFxThread(() -> {
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("The delete confirmation is marshalled from the worker to the FX thread")
+    void deleteConfirmationMarshalsToFxThread() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    null, true);
+            created.show();
+            return created;
+        });
+        onFxThread(() -> {
+            console.allowWritesForTest().fire();
+            assertTrue(console.allowWritesForTest().isSelected());
+            return null;
+        });
+
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch deleted = new CountDownLatch(1);
+        Thread worker = new Thread(() -> {
+            try {
+                console.bindingsForTest().fhir.delete("Patient", "1");
+            } catch (Throwable problem) {
+                failure.set(problem);
+            } finally {
+                deleted.countDown();
+            }
+        }, "scripting-console-delete");
+        Thread helper = new Thread(() -> {
+            while (deleted.getCount() > 0) {
+                Platform.runLater(() -> clickDialogButton("Delete resource?", "Delete"));
+                try {
+                    Thread.sleep(25);
+                } catch (InterruptedException interrupted) {
+                    return;
+                }
+            }
+        }, "scripting-console-delete-answer");
+        helper.setDaemon(true);
+        worker.setDaemon(true);
+        helper.start();
+        worker.start();
+
+        boolean finished;
+        try {
+            finished = deleted.await(10, TimeUnit.SECONDS);
+        } finally {
+            helper.interrupt();
+        }
+        if (failure.get() != null) {
+            throw new AssertionError("the delete confirmation failed", failure.get());
+        }
+        assertTrue(finished, "the delete confirmation did not finish");
+        assertEquals(1, service.deleteCalls);
+        onFxThread(() -> {
+            console.close();
+            return null;
+        });
+    }
+
     /** Runs FX work and returns its value, failing the test when the task throws. */
     private static <T> T onFxThread(Callable<T> action) throws Exception {
         AtomicReference<T> value = new AtomicReference<>();
@@ -435,6 +856,91 @@ class ScriptingConsoleSmokeTest {
             throw new AssertionError("the FX task failed", failure.get());
         }
         return value.get();
+    }
+
+    private static FhirServerManager managerWithServer() {
+        FhirServerManager manager = new FhirServerManager();
+        ServerDefinition server = ServerDefinition
+                .named("Write Test", "http://write.example.com/fhir")
+                .pluginId("standard-rest").build();
+        manager.add(server);
+        manager.setActive(server);
+        return manager;
+    }
+
+    /** A service that records write calls without sending anything. */
+    private static final class WritableService extends FhirServerService {
+
+        boolean supportsWrites = true;
+        int createCalls;
+        int deleteCalls;
+
+        WritableService() {
+            super(new FhirServerPluginRegistry());
+        }
+
+        @Override
+        public boolean supportsWrite(FhirServerConfiguration server) {
+            return supportsWrites;
+        }
+
+        @Override
+        public ServerWriteResult create(FhirServerConfiguration server,
+                org.hl7.fhir.instance.model.api.IBaseResource resource) {
+            createCalls++;
+            return ServerWriteResult.created("created-1", "v1");
+        }
+
+        @Override
+        public ServerWriteResult patch(FhirServerConfiguration server, ServerOrigin origin,
+                String body, PatchFormat format) {
+            return ServerWriteResult.updated(origin.resourceId(), "v2");
+        }
+
+        @Override
+        public void delete(FhirServerConfiguration server, ServerOrigin origin) {
+            deleteCalls++;
+        }
+    }
+
+    /** A console whose write-access warning is answered without a native dialog. */
+    private static final class WriteProbeConsole extends ScriptingConsoleDialog {
+
+        private final boolean approveWrites;
+        private final Path fileToOpen;
+
+        WriteProbeConsole(FhirServerService service, FhirServerManager manager,
+                WritePolicy.Confirmation confirmation, boolean approveWrites) {
+            this(service, manager, confirmation, approveWrites, null);
+        }
+
+        WriteProbeConsole(FhirServerService service, FhirServerManager manager,
+                WritePolicy.Confirmation confirmation, boolean approveWrites,
+                Path fileToOpen) {
+            super(new ThemeManager(), new FhirService(), service, manager,
+                    new ScriptingCoordinator(), null, confirmation);
+            this.approveWrites = approveWrites;
+            this.fileToOpen = fileToOpen;
+        }
+
+        @Override
+        protected boolean confirmWriteAccess(FhirServerConfiguration server) {
+            return approveWrites;
+        }
+
+        @Override
+        protected File chooseOpenLocation() {
+            return fileToOpen == null ? null : fileToOpen.toFile();
+        }
+    }
+
+    /** A console that uses the real write warning and confirmation dialogs. */
+    private static final class DialogProbeConsole extends ScriptingConsoleDialog {
+
+        DialogProbeConsole(FhirServerService service, FhirServerManager manager) {
+            super(new ThemeManager(), new FhirService(), service, manager,
+                    new ScriptingCoordinator(), null);
+        }
     }
 
     /**
@@ -529,11 +1035,15 @@ class ScriptingConsoleSmokeTest {
 
     /** Presses Run Script on the trust prompt as soon as it is showing. */
     private static boolean acknowledgeTrustPrompt() {
+        return clickDialogButton("Run this script?", "Run Script");
+    }
+
+    private static boolean clickDialogButton(String title, String buttonText) {
         for (Window window : Window.getWindows()) {
             if (window instanceof Stage stage && stage.isShowing()
-                    && "Run this script?".equals(stage.getTitle())) {
+                    && title.equals(stage.getTitle())) {
                 for (Node node : stage.getScene().getRoot().lookupAll(".button")) {
-                    if (node instanceof Button button && "Run Script".equals(button.getText())) {
+                    if (node instanceof Button button && buttonText.equals(button.getText())) {
                         button.fire();
                         return true;
                     }

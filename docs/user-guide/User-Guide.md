@@ -1186,5 +1186,5 @@ Stated plainly, so nothing here reads as working when it does not.
   how the pieces fit together, for anyone extending this.
 - [`USER-GUIDE-SMART.md`](../smartonfhir/USER-GUIDE-SMART.md) — the SMART Launch
   Workbench, for token-based access instead of a server password.
-- [`Scripting-Guide.md`](../scripting/Scripting-Guide.md) — automating reads and
-  searches from the Scripting Console.
+- [`Scripting-Guide.md`](../scripting/Scripting-Guide.md) — automating reads,
+  searches and opt-in server writes from the Scripting Console.

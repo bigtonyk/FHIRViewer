@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.hl7.fhir.r4.model.Patient;
 import org.junit.jupiter.api.BeforeEach;
@@ -123,6 +124,7 @@ class FhirApiTest {
     @Test
     void createIsRefusedByDefault() {
         assertThrows(WriteDeniedException.class, () -> api.create(patient("1", "Smith")));
+        assertEquals(0, service.createCalls, "a refused write must not reach the server");
     }
 
     @Test
@@ -132,22 +134,38 @@ class FhirApiTest {
         assertEquals("created-7", result.resourceId());
         assertEquals("v2", result.versionId());
         assertTrue(result.created());
+        assertEquals(1, service.createCalls);
     }
 
     @Test
     void updateIsRefusedByDefault() {
         assertThrows(WriteDeniedException.class, () -> api.update(patient("1", "Smith")));
+        assertEquals(0, service.updateCalls, "a refused write must not reach the server");
+    }
+
+    @Test
+    void updateIsAllowedWhenWritesAreEnabled() {
+        service.writeResult = ServerWriteResult.updated("1", "v4");
+        ServerWriteResult result = writes.update(patient("1", "Jones"));
+
+        assertEquals("1", result.resourceId());
+        assertEquals("v4", result.versionId());
+        assertFalse(result.created());
+        assertEquals(1, service.updateCalls);
+        assertEquals("1", service.lastUpdateOrigin.resourceId());
     }
 
     @Test
     void deleteIsRefusedByDefault() {
         assertThrows(WriteDeniedException.class, () -> api.delete("Patient", "1"));
+        assertEquals(0, service.deleteCalls, "a refused delete must not reach the server");
     }
 
     @Test
     void patchIsRefusedByDefault() {
         assertThrows(WriteDeniedException.class,
                 () -> api.patch("Patient", "1", "{\"active\":false}", PatchFormat.JSON_MERGE_PATCH));
+        assertEquals(0, service.patchCalls, "a refused patch must not reach the server");
     }
 
     @Test
@@ -170,19 +188,33 @@ class FhirApiTest {
     @Test
     void deleteIsCancelledWhenConfirmationDenies() {
         int before = service.deleteCalls;
+        AtomicReference<String> summary = new AtomicReference<>();
         FhirApi cancelling = new FhirApi(service, manager,
-                WritePolicy.enabled((summary) -> false));
+                WritePolicy.enabled((text) -> {
+                    summary.set(text);
+                    return false;
+                }));
         assertThrows(WriteDeniedException.class, () -> cancelling.delete("Patient", "1"));
         assertEquals(before, service.deleteCalls);
+        assertTrue(summary.get().contains("Patient/1"), summary.get());
+        assertTrue(summary.get().contains("Test"), summary.get());
+        assertTrue(summary.get().contains("http://test.example.com/fhir"), summary.get());
     }
 
     @Test
-    void deleteIsCancelledWhenHandlerDenies() {
+    void deleteIsAllowedWhenConfirmationApproves() {
         int before = service.deleteCalls;
-        FhirApi cancelling = new FhirApi(service, manager, WritePolicy.enabled(),
-                (summary) -> false);
-        assertThrows(WriteDeniedException.class, () -> cancelling.delete("Patient", "1"));
-        assertEquals(before, service.deleteCalls);
+        AtomicReference<String> summary = new AtomicReference<>();
+        FhirApi approving = new FhirApi(service, manager,
+                WritePolicy.enabled((text) -> {
+                    summary.set(text);
+                    return true;
+                }));
+
+        approving.delete("Patient", "1");
+
+        assertEquals(before + 1, service.deleteCalls);
+        assertTrue(summary.get().contains("Patient/1"), summary.get());
     }
 
     @Test

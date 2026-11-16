@@ -24,7 +24,7 @@ import com.spiraleyes.fhirviewer.server.ServerWriteResult;
  * subset of writes gated behind an explicit {@link WritePolicy}.
  *
  * <p>Reads are the default and always allowed. A script that wants to create,
- * update or delete must run with an enabled write policy, otherwise every write
+ * update, patch or delete must run with an enabled write policy, otherwise every write
  * is refused with a clear message before any request is made.
  *
  * <p>Network calls happen on whatever thread runs the script -- the console's
@@ -40,19 +40,12 @@ public class FhirApi {
     private final FhirServerService serverService;
     private final FhirServerManager serverManager;
     private final WritePolicy writePolicy;
-    private final WritePolicy.Confirmation confirmation;
 
     public FhirApi(FhirServerService serverService, FhirServerManager serverManager,
             WritePolicy writePolicy) {
-        this(serverService, serverManager, writePolicy, null);
-    }
-
-    public FhirApi(FhirServerService serverService, FhirServerManager serverManager,
-            WritePolicy writePolicy, WritePolicy.Confirmation confirmation) {
         this.serverService = Objects.requireNonNull(serverService, "serverService");
         this.serverManager = Objects.requireNonNull(serverManager, "serverManager");
         this.writePolicy = writePolicy == null ? WritePolicy.READ_ONLY : writePolicy;
-        this.confirmation = confirmation;
     }
 
     /** Reads one resource by type and id, or {@code null} when the server says it does not exist. */
@@ -167,10 +160,9 @@ public class FhirApi {
         writePolicy.requireWrite();
         require(resourceType, resourceId);
         FhirServerConfiguration server = activeServer("delete");
-        String summary = "Delete " + resourceType + "/" + resourceId + " on " + server.name();
-        WritePolicy.Confirmation handler = writePolicy.confirmation() != null
-                ? writePolicy.confirmation() : confirmation;
-        if (handler != null && !handler.confirm(summary)) {
+        String summary = "Delete " + resourceType + "/" + resourceId + " on " + server.name()
+                + " (" + server.baseUrl() + ")";
+        if (!writePolicy.confirmDestructive(summary)) {
             throw new WriteDeniedException("Delete cancelled.");
         }
         try {
