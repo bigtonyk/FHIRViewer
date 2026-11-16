@@ -5,6 +5,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 
@@ -31,11 +32,11 @@ public final class WritePolicy {
     /** Writes are refused with a clear message. The safe default. */
     public static final WritePolicy READ_ONLY = new WritePolicy(false,
             "Writes are disabled. Enable the write policy explicitly before creating, updating, patching or deleting resources.",
-            null, null, null, 0, null, null);
+            null, null, null, 0, null, null, System::nanoTime);
 
     /** Writes are permitted. Destructive operations are approved by default. */
     public static WritePolicy enabled() {
-        return new WritePolicy(true, null, null, null, null, 0, null, null);
+        return new WritePolicy(true, null, null, null, null, 0, null, null, System::nanoTime);
     }
 
     /**
@@ -45,7 +46,7 @@ public final class WritePolicy {
      * operation before any request is sent.
      */
     public static WritePolicy enabled(Confirmation confirmation) {
-        return new WritePolicy(true, null, confirmation, null, null, 0, null, null);
+        return new WritePolicy(true, null, confirmation, null, null, 0, null, null, System::nanoTime);
     }
 
     /**
@@ -65,7 +66,15 @@ public final class WritePolicy {
             WriteJournal journal, int writeBudget, BudgetConfirmation budgetConfirmation,
             Duration idleTimeout) {
         return new WritePolicy(true, null, confirmation, target, journal, writeBudget,
-                budgetConfirmation, idleTimeout);
+                budgetConfirmation, idleTimeout, System::nanoTime);
+    }
+
+    /** Package-private clock seam for deterministic expiry tests. */
+    static WritePolicy enabled(Confirmation confirmation, FhirServerConfiguration target,
+            WriteJournal journal, int writeBudget, BudgetConfirmation budgetConfirmation,
+            Duration idleTimeout, LongSupplier nanoTime) {
+        return new WritePolicy(true, null, confirmation, target, journal, writeBudget,
+                budgetConfirmation, idleTimeout, Objects.requireNonNull(nanoTime, "nanoTime"));
     }
 
     /**
@@ -96,13 +105,15 @@ public final class WritePolicy {
     private final int writeBudget;
     private final BudgetConfirmation budgetConfirmation;
     private final Duration idleTimeout;
+    private final LongSupplier nanoTime;
     private final AtomicLong expiresAtNanos = new AtomicLong();
     private final AtomicInteger writesThisRun = new AtomicInteger();
+    private final AtomicBoolean runActive = new AtomicBoolean();
     private volatile String revokedReason;
 
     private WritePolicy(boolean enabled, String reason, Confirmation confirmation,
             FhirServerConfiguration target, WriteJournal journal, int writeBudget,
-            BudgetConfirmation budgetConfirmation, Duration idleTimeout) {
+            BudgetConfirmation budgetConfirmation, Duration idleTimeout, LongSupplier nanoTime) {
         this.enabled = new AtomicBoolean(enabled);
         this.reason = reason;
         this.confirmation = confirmation;
@@ -111,6 +122,7 @@ public final class WritePolicy {
         this.writeBudget = Math.max(0, writeBudget);
         this.budgetConfirmation = budgetConfirmation;
         this.idleTimeout = idleTimeout;
+        this.nanoTime = nanoTime;
         touch();
     }
 
@@ -153,12 +165,20 @@ public final class WritePolicy {
                     + " a different server.");
         }
         acquireBudget(server, operation);
+        touch();
     }
 
-    /** Starts a new run: the budget resets and the idle timer is refreshed. */
+    /** Starts a new run: the budget resets, and expiry pauses while the run is active. */
     public void beginRun() {
         writesThisRun.set(0);
-        touch();
+        if (isEnabled()) {
+            runActive.set(true);
+        }
+    }
+
+    /** Ends a run, so the normal idle deadline applies again. */
+    public void endRun() {
+        runActive.set(false);
     }
 
     /** Revokes this grant. Every reference that still holds it stops writing immediately. */
@@ -166,19 +186,20 @@ public final class WritePolicy {
         if (enabled.compareAndSet(true, false) && revokedReason == null) {
             revokedReason = "Writes were turned off.";
         }
+        runActive.set(false);
     }
 
     /** Refreshes the idle deadline after a write or at the start of a run. */
     public void touch() {
         if (enabled.get() && idleTimeout != null) {
-            expiresAtNanos.set(System.nanoTime() + idleTimeout.toNanos());
+            expiresAtNanos.set(nanoTime.getAsLong() + idleTimeout.toNanos());
         }
     }
 
     /** True when the idle deadline has passed. */
     public boolean expired() {
-        return enabled.get() && idleTimeout != null
-                && System.nanoTime() >= expiresAtNanos.get();
+        return enabled.get() && idleTimeout != null && !runActive.get()
+                && nanoTime.getAsLong() >= expiresAtNanos.get();
     }
 
     /** The server this grant is bound to, or {@code null} for an unrestricted test policy. */

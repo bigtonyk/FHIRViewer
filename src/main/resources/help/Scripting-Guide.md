@@ -63,7 +63,8 @@ SearchResults: `resources()`, `total()`, `nextPageToken()`, `previousPageToken()
 Writes are off when the console opens. Tick **Allow server writes** and approve the warning
 that names the active server. The grant lasts for that console window only, is bound to that
 one server, and is revoked immediately when you turn it off or open another file. It also
-turns off after 15 minutes without a write. While it is off, `create`, `update`, `patch` and
+turns off after 15 minutes without a write; every permitted write refreshes that deadline,
+and it does not expire while a run is active. While it is off, `create`, `update`, `patch` and
 `delete` throw `WriteDeniedException` before any request is made. Reads and searches are
 unaffected.
 

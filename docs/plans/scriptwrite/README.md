@@ -282,6 +282,8 @@ Extend `ScriptingConsoleSmokeTest` or add `ScriptingWriteAccessTest`:
 - Turning writes off revokes a `fhir` reference retained by the interactive session.
 - A write budget pauses at its limit, and an idle grant is refused before the UI
   timer catches up.
+- The idle deadline refreshes on every permitted attempt and does not expire
+  while a run is active.
 - The Writes tab records success, failure, cancellation and an unknown outcome
   without resource bodies, and the run summary separates those counts.
 - Timed-out writes are reported as unknown outcomes, and patch/delete send a

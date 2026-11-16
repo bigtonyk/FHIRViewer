@@ -544,6 +544,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (!ensureTrust()) {
             return;
         }
+        // The trust prompt can stay open indefinitely; re-check the grant after it.
+        if (!ensureWriteTarget()) {
+            return;
+        }
         writePolicy.beginRun();
         journalRunStart = writeJournal.size();
         hideWriteSummary();
@@ -556,6 +560,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         setBusy(true);
         setStatus(savedScript ? "Running in a fresh session \u2026" : "Running \u2026");
         Consumer<ScriptRunResult> done = result -> Platform.runLater(() -> {
+            writePolicy.endRun();
             setBusy(false);
             if (savedScript) {
                 appendRaw("[fresh session \u2014 closed after this run]");
@@ -596,6 +601,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (!ensureTrust()) {
             return;
         }
+        // The trust prompt can stay open indefinitely; re-check the grant after it.
+        if (!ensureWriteTarget()) {
+            return;
+        }
         writePolicy.beginRun();
         journalRunStart = writeJournal.size();
         hideWriteSummary();
@@ -603,6 +612,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         showSuiteReport("Running " + suite.cases().size() + " test case(s) \u2026");
         setStatus("Running " + suite.cases().size() + " test case(s) \u2026");
         coordinator.runSuite(suite, bindings, result -> Platform.runLater(() -> {
+            writePolicy.endRun();
             setBusy(false);
             presentSuite(result);
         }));

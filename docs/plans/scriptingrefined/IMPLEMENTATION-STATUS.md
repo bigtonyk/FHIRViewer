@@ -45,7 +45,7 @@
 ## Latest work
 - Date: 2026-11-16
 - Phase: 2 (console write access)
-- Summary: Added the explicit **Allow server writes** opt-in, then hardened it into a live, revocable grant bound to the approved server. Added a body-free write journal with per-run summaries, a 50-write budget, a 15-minute idle expiry, version-aware patch/delete and update version capture, and `WriteOutcomeUnknownException` for timed-out writes. The FX-thread DELETE confirmation and reset-on-file/example behavior remain.
+- Summary: Added the explicit **Allow server writes** opt-in, then hardened it into a live, revocable grant bound to the approved server. Added a body-free write journal with per-run summaries, a 50-write budget, a 15-minute idle expiry that refreshes on every permitted attempt and pauses while a run is active, version-aware patch/delete and update version capture, and `WriteOutcomeUnknownException` for timed-out writes. The FX-thread DELETE confirmation and reset-on-file/example behavior remain.
 - Files changed:
   - src/main/java/com/spiraleyes/fhirviewer/service/scripting/api/FhirApi.java
   - src/main/java/com/spiraleyes/fhirviewer/service/scripting/api/WriteJournal.java
@@ -63,6 +63,6 @@
   - src/test/java/com/spiraleyes/fhirviewer/server/ServerWriteTest.java
   - docs/scripting/Scripting-Guide.md and its bundled help copy
 - Tests/build commands run: `./mvnw -B -ntp -Dtest=FhirApiTest,WritePolicyTest,WriteJournalTest,ServerWriteTest,ScriptingConsoleSmokeTest,UserGuideContentTest test` and `./mvnw -B -ntp test`
-- Results: 80 focused tests and the full 1,111-test suite run, 0 failures, 0 errors.
+- Results: 82 focused tests and the full 1,113-test suite run, 0 failures, 0 errors.
 - Known limitations: writes use saved server credentials, not the SMART session; `smart` remains read-only; writes cannot be undone; the write budget and 15-minute expiry are fixed console defaults rather than user settings.
 - Packaging/platform checks: not run for this focused change.
