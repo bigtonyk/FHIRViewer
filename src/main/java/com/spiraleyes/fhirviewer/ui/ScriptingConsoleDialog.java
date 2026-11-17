@@ -261,8 +261,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         scopeButton.setTooltip(new Tooltip("Limit this write grant to particular operations"
                 + " and resource types. The scope is enforced for every script write."));
         scopeButton.setOnAction(event -> onChooseWriteScope());
-        undoButton.setTooltip(new Tooltip("Reapply the resource captured before the latest"
-                + " successful write, or delete a resource that write created."));
+        undoButton.setTooltip(new Tooltip("Separate recovery write: reapply the resource"
+                + " captured before the latest successful write, or delete a resource that"
+                + " write created. It is confirmed separately and is not limited by the"
+                + " current write scope."));
         undoButton.setDisable(true);
         undoButton.setOnAction(event -> onUndoLastWrite());
         reviewUnknownButton.setTooltip(new Tooltip("Read the affected resource and resolve"
@@ -562,8 +564,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (coordinator.isRunning()) {
             return;
         }
-        // Undo is an ordinary write, so turning the grant off turns it off too. This
-        // also re-checks the target and expiry immediately before the reversal.
+        // Undo is a separate, confirmed recovery write. It still requires the grant to be
+        // on and re-checks the target and expiry, but it deliberately ignores the current
+        // operation/resource scope so narrowing the scope cannot strand a reversal.
         if (!allowWrites.isSelected()) {
             setStatus("Turn on server writes to undo the last write.");
             return;
@@ -618,8 +621,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         alert.setHeaderText("Revert the latest successful write?");
         alert.setContentText(entry.operation() + " " + entry.resourceType()
                 + (entry.resourceId() == null ? "" : "/" + entry.resourceId())
-                + " on " + entry.serverName() + ".\n\nThis is best effort, not a server"
-                + " transaction rollback. Later changes may be overwritten.");
+                + " on " + entry.serverName() + ".\n\nThis is a separate, confirmed"
+                + " recovery write outside the current write scope. It is best effort, not a"
+                + " server transaction rollback, and later changes may be overwritten.");
         ButtonType undo = new ButtonType("Undo", ButtonBar.ButtonData.OTHER);
         alert.getButtonTypes().setAll(undo, ButtonType.CANCEL);
         alert.getDialogPane().getStylesheets().addAll(stylesheets);

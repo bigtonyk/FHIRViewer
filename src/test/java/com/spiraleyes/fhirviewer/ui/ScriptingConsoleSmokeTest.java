@@ -753,6 +753,121 @@ class ScriptingConsoleSmokeTest {
     }
 
     @Test
+    @DisplayName("Undo is a recovery write outside the narrowed operation and resource scope")
+    void undoBypassesTheNarrowedScope() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        Patient before = new Patient();
+        before.setId("1");
+        before.addName().setFamily("Before");
+        service.readResource = before;
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        onFxThread(() -> {
+            Patient after = new Patient();
+            after.setId("1");
+            after.addName().setFamily("After");
+            console.bindingsForTest().fhir.update(after);
+            assertEquals(1, service.updateCalls);
+
+            // Allow only create on Observation. That excludes both this operation and
+            // this resource type, so the script API must refuse a second update.
+            console.scopeToChoose = WriteScope.of(Set.of(WriteScope.Operation.CREATE),
+                    Set.of("Observation"));
+            console.scopeButtonForTest().fire();
+            assertFalse(console.writePolicyForTest().scope().allows("update", "Patient"));
+            assertThrows(WriteDeniedException.class,
+                    () -> console.bindingsForTest().fhir.update(after));
+            assertEquals(1, service.updateCalls,
+                    "the narrowed scope must refuse the script write before the server");
+
+            assertFalse(console.undoButtonForTest().isDisable(),
+                    "Undo is a separate recovery action, not a scoped script write");
+            console.undoButtonForTest().fire();
+            return null;
+        });
+
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (service.updateCalls < 2 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertEquals(2, service.updateCalls, "the recovery should still issue one update");
+            assertEquals("Before", ((Patient) service.lastUpdatedResource)
+                    .getNameFirstRep().getFamily());
+            assertTrue(console.writeJournalTextForTest().contains("[undone]"),
+                    console.writeJournalTextForTest());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Declining Undo sends no write and leaves the journal unchanged")
+    void decliningUndoSendsNothing() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        Patient before = new Patient();
+        before.setId("1");
+        before.addName().setFamily("Before");
+        service.readResource = before;
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        onFxThread(() -> {
+            Patient after = new Patient();
+            after.setId("1");
+            after.addName().setFamily("After");
+            console.bindingsForTest().fhir.update(after);
+            assertEquals(1, service.updateCalls);
+
+            console.approveUndo = false;
+            String updateJournal = console.writeJournalTextForTest();
+            int updateEntries = console.writeJournalForTest().size();
+            console.undoButtonForTest().fire();
+
+            assertEquals(1, service.updateCalls,
+                    "declining must not send the restoring update");
+            assertEquals(0, service.deleteCalls,
+                    "declining must not send a delete");
+            assertEquals(updateEntries, console.writeJournalForTest().size(),
+                    "a declined undo must not add a journal entry");
+            assertEquals(updateJournal, console.writeJournalTextForTest(),
+                    "a declined undo must not change the journal text");
+            assertFalse(console.writeJournalTextForTest().contains("[undone]"),
+                    "nothing was undone");
+            assertTrue(console.statusTextForTest().contains("Undo cancelled"),
+                    console.statusTextForTest());
+
+            // Repeat for the delete path: a declined undo of a create must not delete it.
+            console.bindingsForTest().fhir.create(new Patient());
+            assertEquals(1, service.createCalls);
+            String createJournal = console.writeJournalTextForTest();
+            int createEntries = console.writeJournalForTest().size();
+            console.undoButtonForTest().fire();
+
+            assertEquals(1, service.updateCalls,
+                    "the second declined undo must not send an update either");
+            assertEquals(0, service.deleteCalls,
+                    "a declined undo of a create must not delete it");
+            assertEquals(createEntries, console.writeJournalForTest().size());
+            assertEquals(createJournal, console.writeJournalTextForTest());
+            assertFalse(console.writeJournalTextForTest().contains("[undone]"));
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
     @DisplayName("Undo Last Write deletes a resource the create made")
     void undoDeletesACreatedResource() throws Exception {
         requireToolkit();
@@ -1384,6 +1499,7 @@ class ScriptingConsoleSmokeTest {
         private final Path fileToOpen;
         WriteScope scopeToChoose;
         String reconciliationText;
+        boolean approveUndo = true;
 
         WriteProbeConsole(FhirServerService service, FhirServerManager manager,
                 WritePolicy.Confirmation confirmation, boolean approveWrites) {
@@ -1420,7 +1536,7 @@ class ScriptingConsoleSmokeTest {
 
         @Override
         protected boolean confirmUndo(WriteJournal.Entry entry) {
-            return true;
+            return approveUndo;
         }
 
         @Override

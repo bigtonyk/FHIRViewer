@@ -83,10 +83,13 @@ writes for Run does not let a saved suite write. A suite may finish with an opti
 `// cleanup:` block, which runs after the cases even when one failed.
 
 **Undo Last Write** reapplies the resource captured just before the latest successful
-update, patch or delete, or deletes a resource the write created. Undo is best effort: it
-runs as an ordinary write, so it is unavailable while server writes are off; it can
-overwrite later changes, and is available only while the console is open. **Review Unknown** handles a timed-out write by reading the affected
-resource and letting you mark the journal entry reviewed; it does not change the server.
+update, patch or delete, or deletes a resource the write created. Undo is a separate,
+explicitly confirmed recovery write outside the script grant's operation/resource scope,
+so narrowing the scope cannot strand a reversal. It still requires server writes to be on
+and a writable target. Undo is best effort: it can overwrite later changes and is
+available only while the console is open. **Review Unknown** handles a timed-out write by
+reading the affected resource and letting you mark the journal entry reviewed; it does not
+change the server.
 
 Only `fhir` writes are enabled. `server` remains an inspection API. Writes use the active
 server's saved credentials, not the SMART session. Deleting a resource asks for

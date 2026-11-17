@@ -12,8 +12,10 @@ import java.util.stream.Collectors;
  *
  * <p>A scope is a second, narrower opt-in inside an enabled {@link WritePolicy}. The
  * console can approve "update and patch Patient only" without granting create or delete,
- * and the policy enforces that for every call, including calls through a {@code fhir}
- * reference a script kept from an earlier run.</p>
+ * and the policy enforces that for every script write, including calls through a
+ * {@code fhir} reference a script kept from an earlier run. Undo is a separate,
+ * user-confirmed recovery write rather than a script call, so it is not limited by this
+ * scope.</p>
  *
  * <p>An empty resource-type set means every type; it does not mean none. That is the
  * default so an existing unbounded grant keeps its behavior.</p>

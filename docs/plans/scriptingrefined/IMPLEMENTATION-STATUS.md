@@ -47,7 +47,7 @@
 ## Latest work
 - Date: 2026-11-16
 - Phase: 2 (console write access)
-- Summary: Added operation/resource scopes and a persisted per-server read-only flag; a separate test-suite write opt-in with an optional `// cleanup:` block; a Cancel-default delete prompt; **Review Unknown** for timed-out writes; and journal-backed best-effort **Undo Last Write** using in-memory before-images. Undo is disabled when writes are off and failed reverts are journaled; the service itself also refuses writes to a read-only server. Focused UI/fake-server tests cover scope narrowing, read-only refusal, suite isolation, actual undo execution and reconciliation. The existing live grant, body-free journal, 50-write budget, idle expiry, version-aware writes and trust prompts remain.
+- Summary: Added operation/resource scopes and a persisted per-server read-only flag; a separate test-suite write opt-in with an optional `// cleanup:` block; a Cancel-default delete prompt; **Review Unknown** for timed-out writes; and journal-backed best-effort **Undo Last Write** using in-memory before-images. Undo is a separate confirmed recovery write outside the script scope; it is disabled when writes are off, failed reverts are journaled, and the service itself also refuses writes to a read-only server. Focused UI/fake-server tests cover scope narrowing, read-only refusal, suite isolation, actual undo execution and reconciliation. The existing live grant, body-free journal, 50-write budget, idle expiry, version-aware writes and trust prompts remain.
 - Files changed:
   - src/main/java/com/spiraleyes/fhirviewer/service/scripting/api/FhirApi.java
   - src/main/java/com/spiraleyes/fhirviewer/service/scripting/api/WriteJournal.java
@@ -65,6 +65,6 @@
   - src/test/java/com/spiraleyes/fhirviewer/server/ServerWriteTest.java
   - docs/scripting/Scripting-Guide.md and its bundled help copy
 - Tests/build commands run: `./mvnw -B -ntp -Dtest=ScriptingCoordinatorTest,TestSuiteTest,FhirApiTest,WritePolicyTest,WriteJournalTest,WriteScopeTest,ServerDefinitionPersistenceTest,ScriptingConsoleSmokeTest,UserGuideContentTest test` and `./mvnw -B -ntp test`
-- Results: 137 focused tests and the full 1,137-test suite run, 0 failures, 0 errors.
+- Results: 139 focused tests and the full 1,139-test suite run, 0 failures, 0 errors.
 - Known limitations: writes use saved server credentials, not the SMART session; `smart` remains read-only; undo is best effort, in-memory and limited to writes made in the open console; the write budget and 15-minute expiry are fixed console defaults rather than user settings.
 - Packaging/platform checks: not run for this focused change.
