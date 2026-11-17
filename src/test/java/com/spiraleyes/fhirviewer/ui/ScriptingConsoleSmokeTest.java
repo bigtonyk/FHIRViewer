@@ -36,6 +36,8 @@ import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
 import com.spiraleyes.fhirviewer.server.PatchFormat;
+import com.spiraleyes.fhirviewer.server.SearchRequest;
+import com.spiraleyes.fhirviewer.server.SearchResultPage;
 import com.spiraleyes.fhirviewer.server.ServerDefinition;
 import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.server.ServerWriteResult;
@@ -48,6 +50,7 @@ import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
 import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
 import com.spiraleyes.fhirviewer.service.scripting.api.WriteDeniedException;
 import com.spiraleyes.fhirviewer.service.scripting.api.WriteJournal;
+import com.spiraleyes.fhirviewer.service.scripting.api.WriteOutcomeUnknownException;
 import com.spiraleyes.fhirviewer.service.scripting.api.WritePolicy;
 import com.spiraleyes.fhirviewer.service.scripting.api.WriteScope;
 import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteCaseResult;
@@ -708,7 +711,9 @@ class ScriptingConsoleSmokeTest {
             return null;
         });
         long deadline = System.currentTimeMillis() + 10_000;
-        while (service.updateCalls < 2 && System.currentTimeMillis() < deadline) {
+        while ((service.updateCalls < 2
+                || !console.writeJournalTextForTest().contains("[undone]"))
+                && System.currentTimeMillis() < deadline) {
             Thread.sleep(25);
         }
         assertEquals(2, service.updateCalls, "the undo should issue one update");
@@ -793,7 +798,9 @@ class ScriptingConsoleSmokeTest {
         });
 
         long deadline = System.currentTimeMillis() + 10_000;
-        while (service.updateCalls < 2 && System.currentTimeMillis() < deadline) {
+        while ((service.updateCalls < 2
+                || !console.writeJournalTextForTest().contains("[undone]"))
+                && System.currentTimeMillis() < deadline) {
             Thread.sleep(25);
         }
         onFxThread(() -> {
@@ -886,7 +893,9 @@ class ScriptingConsoleSmokeTest {
             return null;
         });
         long deadline = System.currentTimeMillis() + 10_000;
-        while (service.deleteCalls < 1 && System.currentTimeMillis() < deadline) {
+        while ((service.deleteCalls < 1
+                || !console.writeJournalTextForTest().contains("[undone]"))
+                && System.currentTimeMillis() < deadline) {
             Thread.sleep(25);
         }
         assertEquals(1, service.deleteCalls, "undoing a create should delete it");
@@ -1434,6 +1443,147 @@ class ScriptingConsoleSmokeTest {
         return manager;
     }
 
+    @Test
+    @DisplayName("Undo sends the version the write produced, not the before-image's version")
+    void undoSendsTheVersionTheWriteProduced() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        Patient before = new Patient();
+        before.setId("1");
+        before.getMeta().setVersionId("v1");
+        before.addName().setFamily("Before");
+        service.readResource = before;
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        onFxThread(() -> {
+            Patient after = new Patient();
+            after.setId("1");
+            after.addName().setFamily("After");
+            console.bindingsForTest().fhir.update(after);
+            assertEquals(1, service.updateCalls);
+            console.undoButtonForTest().fire();
+            return null;
+        });
+        long deadline = System.currentTimeMillis() + 10_000;
+        while ((service.updateCalls < 2
+                || !console.writeJournalTextForTest().contains("[undone]"))
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertEquals(2, service.updateCalls, "the undo should issue one update");
+            assertEquals("v2", service.lastUpdateOrigin.versionId(),
+                    "If-Match must name the version the write produced; the before-image's"
+                            + " v1 is stale and a versioning server would reject it");
+            assertEquals("Before", ((Patient) service.lastUpdatedResource)
+                    .getNameFirstRep().getFamily());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Undoing a delete sends no version precondition to the restoring update")
+    void undoingADeleteSendsNoVersionPrecondition() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        Patient before = new Patient();
+        before.setId("1");
+        before.getMeta().setVersionId("v1");
+        before.addName().setFamily("Before");
+        service.readResource = before;
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        onFxThread(() -> {
+            console.bindingsForTest().fhir.delete("Patient", "1", "v1");
+            assertEquals(1, service.deleteCalls);
+            assertFalse(console.undoButtonForTest().isDisable(),
+                    "a successful delete should offer Undo while writes are on");
+            console.undoButtonForTest().fire();
+            return null;
+        });
+        long deadline = System.currentTimeMillis() + 10_000;
+        while ((service.updateCalls < 1
+                || !console.writeJournalTextForTest().contains("[undone]"))
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertEquals(1, service.updateCalls,
+                    "undoing a delete restores the before-image with one update");
+            assertNull(service.lastUpdateOrigin.versionId(),
+                    "the deleted resource no longer exists, so the restore must send no"
+                            + " If-Match; the pre-delete version would be stale anyway");
+            assertEquals("1", service.lastUpdateOrigin.resourceId(),
+                    "the restore must still address the deleted resource's id");
+            assertEquals("Before", ((Patient) service.lastUpdatedResource)
+                    .getNameFirstRep().getFamily());
+            assertTrue(console.writeJournalTextForTest().contains("[undone]"),
+                    console.writeJournalTextForTest());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Review Unknown finds a timed-out create by the identifier it carried")
+    void reviewUnknownSearchesByIdentifierForACreate() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        service.failCreateAsTimeout = true;
+        Patient match = new Patient();
+        match.setId("77");
+        match.getMeta().setVersionId("v3");
+        service.searchResult = new SearchResultPage(List.of(match), 1, (String) null);
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        WriteJournal.Entry unknown = onFxThread(() -> {
+            Patient submitted = new Patient();
+            submitted.addIdentifier().setSystem("http://example.org/mrn").setValue("A-123");
+            assertThrows(WriteOutcomeUnknownException.class,
+                    () -> console.bindingsForTest().fhir.create(submitted));
+            WriteJournal.Entry entry = console.writeJournalForTest().entries().get(0);
+            assertNull(entry.resourceId(), "a timed-out create has no server id to read");
+            assertFalse(console.reviewUnknownButtonForTest().isDisable(),
+                    "an unknown create must still offer Review Unknown");
+            console.reviewUnknownButtonForTest().fire();
+            return entry;
+        });
+
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!console.writeJournalForTest().isResolved(unknown)
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertTrue(console.writeJournalForTest().isResolved(unknown));
+            assertEquals(1, service.searchRequests.size());
+            assertEquals("identifier",
+                    service.searchRequests.get(0).criteria().get(0).name());
+            assertEquals("http://example.org/mrn|A-123",
+                    service.searchRequests.get(0).criteria().get(0).value());
+            assertTrue(console.reconciliationText.contains("found Patient/77 version v3"),
+                    console.reconciliationText);
+            console.close();
+            return null;
+        });
+    }
+
     /** A service that records write calls without sending anything. */
     private static final class WritableService extends FhirServerService {
 
@@ -1446,6 +1596,9 @@ class ScriptingConsoleSmokeTest {
         org.hl7.fhir.instance.model.api.IBaseResource lastUpdatedResource;
         ServerOrigin lastUpdateOrigin;
         ServerOrigin lastDeleteOrigin;
+        boolean failCreateAsTimeout;
+        final List<SearchRequest> searchRequests = new java.util.ArrayList<>();
+        SearchResultPage searchResult = SearchResultPage.empty();
 
         WritableService() {
             super(new FhirServerPluginRegistry());
@@ -1457,6 +1610,13 @@ class ScriptingConsoleSmokeTest {
         }
 
         @Override
+        public SearchResultPage search(FhirServerConfiguration server, SearchRequest request)
+                throws com.spiraleyes.fhirviewer.server.ServerOperationException {
+            searchRequests.add(request);
+            return searchResult;
+        }
+
+        @Override
         public org.hl7.fhir.instance.model.api.IBaseResource read(FhirServerConfiguration server,
                 String resourceType, String resourceId) {
             readCalls++;
@@ -1465,8 +1625,14 @@ class ScriptingConsoleSmokeTest {
 
         @Override
         public ServerWriteResult create(FhirServerConfiguration server,
-                org.hl7.fhir.instance.model.api.IBaseResource resource) {
+                org.hl7.fhir.instance.model.api.IBaseResource resource)
+                throws com.spiraleyes.fhirviewer.server.ServerOperationException {
             createCalls++;
+            if (failCreateAsTimeout) {
+                throw new com.spiraleyes.fhirviewer.server.ServerOperationException(
+                        com.spiraleyes.fhirviewer.server.ServerOperationException.Kind.TIMEOUT,
+                        "create timed out");
+            }
             return ServerWriteResult.created("created-1", "v1");
         }
 

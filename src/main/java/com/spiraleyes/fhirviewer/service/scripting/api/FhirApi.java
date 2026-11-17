@@ -121,7 +121,8 @@ public class FhirApi {
                             result.versionId(), null));
             return result;
         } catch (ServerOperationException e) {
-            throw failedWrite("create", type, null, null, "on", server, e, started);
+            throw failedWrite("create", type, null, null, "on", server, e, started,
+                    lookupFor(resource));
         }
     }
 
@@ -152,7 +153,7 @@ public class FhirApi {
                     new WriteJournal.Undo("update", type, resourceId, result.versionId(), before));
             return result;
         } catch (ServerOperationException e) {
-            throw failedWrite("update", type, resourceId, versionId, "on", server, e, started);
+            throw failedWrite("update", type, resourceId, versionId, "on", server, e, started, null);
         }
     }
 
@@ -188,7 +189,8 @@ public class FhirApi {
                             result.versionId(), before));
             return result;
         } catch (ServerOperationException e) {
-            throw failedWrite("patch", resourceType, resourceId, version, "on", server, e, started);
+            throw failedWrite("patch", resourceType, resourceId, version, "on", server, e, started,
+                    null);
         }
     }
 
@@ -227,7 +229,8 @@ public class FhirApi {
                     WriteJournal.Status.SUCCEEDED, "", started,
                     new WriteJournal.Undo("delete", resourceType, resourceId, version, before));
         } catch (ServerOperationException e) {
-            throw failedWrite("delete", resourceType, resourceId, version, "from", server, e, started);
+            throw failedWrite("delete", resourceType, resourceId, version, "from", server, e,
+                    started, null);
         }
     }
 
@@ -262,11 +265,15 @@ public class FhirApi {
      */
     private ScriptApiException failedWrite(String operation, String resourceType, String resourceId,
             String versionId, String preposition, FhirServerConfiguration server,
-            ServerOperationException failure, long started) {
+            ServerOperationException failure, long started, WriteJournal.Lookup lookup) {
         boolean unknown = failure.kind() == ServerOperationException.Kind.TIMEOUT;
-        record(server, operation, resourceType, resourceId, versionId,
+        WriteJournal.Entry attempt = record(server, operation, resourceType, resourceId, versionId,
                 unknown ? WriteJournal.Status.UNKNOWN : WriteJournal.Status.FAILED,
                 failure.kind().name(), started);
+        WriteJournal journal = writePolicy.journal();
+        if (journal != null) {
+            journal.addLookup(attempt, lookup);
+        }
         if (unknown) {
             return new WriteOutcomeUnknownException(operation, server, failure);
         }
@@ -308,6 +315,31 @@ public class FhirApi {
         } catch (ServerOperationException | RuntimeException unreadable) {
             return null;
         }
+    }
+
+    /**
+     * The identifiers a timed-out create can be found by afterwards. The server assigns the
+     * id, so after a timeout these are the only stable handle the console has left; a
+     * resource with no identifier gets no hint and must be reconciled by hand.
+     */
+    private static WriteJournal.Lookup lookupFor(IBaseResource resource) {
+        if (!(resource instanceof org.hl7.fhir.r4.model.Base base)) {
+            return null;
+        }
+        org.hl7.fhir.r4.model.Property found = base.getChildByName("identifier");
+        if (found == null) {
+            return null;
+        }
+        List<String> identifiers = new ArrayList<>();
+        for (org.hl7.fhir.r4.model.Base child : found.getValues()) {
+            if (child instanceof org.hl7.fhir.r4.model.Identifier identifier
+                    && identifier.hasValue()) {
+                identifiers.add(identifier.hasSystem()
+                        ? identifier.getSystem() + "|" + identifier.getValue()
+                        : identifier.getValue());
+            }
+        }
+        return identifiers.isEmpty() ? null : new WriteJournal.Lookup(identifiers);
     }
 
     private static String blankToNull(String value) {

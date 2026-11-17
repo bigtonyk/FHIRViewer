@@ -88,8 +88,11 @@ explicitly confirmed recovery write outside the script grant's operation/resourc
 so narrowing the scope cannot strand a reversal. It still requires server writes to be on
 and a writable target. Undo is best effort: it can overwrite later changes and is
 available only while the console is open. **Review Unknown** handles a timed-out write by
-reading the affected resource and letting you mark the journal entry reviewed; it does not
-change the server.
+reading the affected resource and letting you mark the journal entry reviewed. A create
+that timed out before the server returned an id cannot be read back, so the review searches
+by the identifiers the submitted resource carried and reports whether it found none, one,
+or several matches. Review never changes the server: it reads or searches, then clears the
+journal entry.
 
 Only `fhir` writes are enabled. `server` remains an inspection API. Writes use the active
 server's saved credentials, not the SMART session. Deleting a resource asks for

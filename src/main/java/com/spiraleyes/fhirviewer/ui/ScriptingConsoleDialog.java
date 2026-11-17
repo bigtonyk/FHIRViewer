@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
@@ -43,6 +44,7 @@ import javafx.stage.FileChooser;
 import javafx.stage.Window;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.instance.model.api.IIdType;
 import org.hl7.fhir.instance.model.api.IBaseMetaType;
 
 import com.spiraleyes.fhirviewer.service.FhirService;
@@ -66,6 +68,9 @@ import com.spiraleyes.fhirviewer.service.scripting.api.WriteScope;
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerService;
+import com.spiraleyes.fhirviewer.server.SearchCriterion;
+import com.spiraleyes.fhirviewer.server.SearchRequest;
+import com.spiraleyes.fhirviewer.server.SearchResultPage;
 import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
 
@@ -98,6 +103,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter
             .ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault());
+
+    /** How many identifier matches a reconciliation search asks for. */
+    private static final int RECONCILE_PAGE_SIZE = 10;
 
     private static final int WRITE_BUDGET = 50;
     private static final java.time.Duration WRITE_IDLE_TIMEOUT = java.time.Duration.ofMinutes(15);
@@ -668,8 +676,12 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (before == null) {
             throw new IllegalStateException("No before-image was captured for this write.");
         }
-        IBaseMetaType meta = before.getMeta();
-        String version = meta == null ? null : meta.getVersionId();
+        // If-Match must name the version the server holds right now, which is the one the
+        // reverted write produced. The before-image's own meta.versionId predates that write,
+        // so sending it would look stale and a versioning server would refuse the undo with
+        // 412 -- failing the recovery path exactly when it is needed. Undoing a delete
+        // restores a resource that no longer exists, so it sends no precondition at all.
+        String version = "delete".equals(plan.operation()) ? null : plan.versionId();
         serverService.update(server, before, ServerOrigin.of(server.pluginId(), server.baseUrl(),
                 plan.resourceType(), plan.resourceId(), version));
         recordUndo(server, plan, WriteJournal.Status.SUCCEEDED, "");
@@ -716,6 +728,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (server == null) {
             return "The server " + entry.serverName() + " is no longer configured.";
         }
+        if (entry.resourceType() != null && entry.resourceId() == null) {
+            return describeByLookup(server, entry);
+        }
         if (entry.resourceType() == null || entry.resourceId() == null) {
             return "The request had no resource id to read. Search by a business identifier"
                     + " before retrying; a create may have succeeded.";
@@ -736,6 +751,66 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             return "Read " + entry.resourceType() + "/" + entry.resourceId()
                     + " failed: " + message(problem);
         }
+    }
+
+    /**
+     * Reconciles a create that timed out before the server returned an id.
+     *
+     * <p>The id of a created resource is the server's to choose, so an unknown create leaves
+     * nothing to read and a blind retry can duplicate the record. The identifiers the
+     * submitted resource carried are the only stable handle left, so the review searches for
+     * them and reports how many resources now match: none means it probably did not land,
+     * one means it did, and several mean it may have been applied more than once.</p>
+     */
+    private String describeByLookup(FhirServerConfiguration server, WriteJournal.Entry entry) {
+        Optional<WriteJournal.Lookup> hint = writeJournal.lookupFor(entry);
+        if (hint.isEmpty() || !hint.get().usable() || entry.resourceType() == null) {
+            return "The request had no resource id and no identifier to search by. Search"
+                    + " manually before retrying; a create may have succeeded.";
+        }
+        for (String identifier : hint.get().identifiers()) {
+            SearchResultPage page;
+            try {
+                // An exact criterion, not a raw query: the plugin encodes it, and a raw one
+                // would be mangled because a system URL contains the slash that raw() treats
+                // as the end of a resource type prefix.
+                page = serverService.search(server, new SearchRequest(entry.resourceType(),
+                        List.of(new SearchCriterion("identifier", identifier)),
+                        RECONCILE_PAGE_SIZE));
+            } catch (Exception problem) {
+                return "Search for " + entry.resourceType() + " by identifier " + identifier
+                        + " failed: " + message(problem);
+            }
+            String found = describeMatches(entry.resourceType(), page);
+            if (found != null) {
+                return "Searched " + entry.resourceType() + " by identifier " + identifier
+                        + ": " + found;
+            }
+        }
+        return "Searched " + entry.resourceType() + " by identifier "
+                + String.join(", ", hint.get().identifiers())
+                + ": no match. The create may not have been applied.";
+    }
+
+    /** One line naming what an identifier lookup found, or {@code null} when it found none. */
+    private static String describeMatches(String resourceType, SearchResultPage page) {
+        List<IBaseResource> matches = page.resources();
+        if (matches.isEmpty()) {
+            return null;
+        }
+        List<String> found = new ArrayList<>();
+        for (IBaseResource match : matches) {
+            IIdType id = match.getIdElement();
+            String version = match.getMeta() == null ? null : match.getMeta().getVersionId();
+            found.add((id == null || !id.hasIdPart()
+                    ? "(no id)" : resourceType + "/" + id.getIdPart())
+                    + (version == null ? "" : " version " + version));
+        }
+        if (found.size() == 1) {
+            return "found " + found.get(0) + ". Treat the create as applied; do not retry it.";
+        }
+        return found.size() + " matches (" + String.join(", ", found) + "). The create may"
+                + " have been applied more than once; review each before retrying.";
     }
 
     private void showReconciliation(WriteJournal.Entry entry, String readResult) {
