@@ -763,12 +763,12 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
      * one means it did, and several mean it may have been applied more than once.</p>
      */
     private String describeByLookup(FhirServerConfiguration server, WriteJournal.Entry entry) {
-        Optional<WriteJournal.Lookup> hint = writeJournal.lookupFor(entry);
-        if (hint.isEmpty() || !hint.get().usable() || entry.resourceType() == null) {
+        Optional<List<String>> identifiers = writeJournal.identifiersFor(entry);
+        if (identifiers.isEmpty()) {
             return "The request had no resource id and no identifier to search by. Search"
                     + " manually before retrying; a create may have succeeded.";
         }
-        for (String identifier : hint.get().identifiers()) {
+        for (String identifier : identifiers.get()) {
             SearchResultPage page;
             try {
                 // An exact criterion, not a raw query: the plugin encodes it, and a raw one
@@ -788,7 +788,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             }
         }
         return "Searched " + entry.resourceType() + " by identifier "
-                + String.join(", ", hint.get().identifiers())
+                + String.join(", ", identifiers.get())
                 + ": no match. The create may not have been applied.";
     }
 

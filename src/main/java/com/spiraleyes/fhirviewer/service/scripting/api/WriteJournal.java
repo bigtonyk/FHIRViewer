@@ -65,34 +65,11 @@ public final class WriteJournal {
         }
     }
 
-    /**
-     * How to find a resource whose id the client never learned -- a create whose response
-     * timed out before the server named one.
-     *
-     * <p>A create is the one write where the server chooses the identity, so an unknown
-     * outcome leaves nothing to read. The identifiers the client put on the submitted
-     * resource are the only stable handle left, and they are held beside the entry the same
-     * way before-images are: in memory, never rendered, never persisted.</p>
-     *
-     * <p>Each value is {@code system|value} as FHIR writes it, or a bare {@code value} when
-     * the resource gave no system.</p>
-     */
-    public record Lookup(List<String> identifiers) {
-
-        public Lookup {
-            identifiers = identifiers == null ? List.of() : List.copyOf(identifiers);
-        }
-
-        /** True when there is at least one identifier to search for. */
-        public boolean usable() {
-            return !identifiers.isEmpty();
-        }
-    }
-
     private final List<Entry> entries = new CopyOnWriteArrayList<>();
     private final List<Consumer<Entry>> listeners = new CopyOnWriteArrayList<>();
     private final Map<Entry, Undo> undoPlans = Collections.synchronizedMap(new IdentityHashMap<>());
-    private final Map<Entry, Lookup> lookups = Collections.synchronizedMap(new IdentityHashMap<>());
+    private final Map<Entry, List<String>> identifiersByEntry =
+            Collections.synchronizedMap(new IdentityHashMap<>());
     private final Set<Entry> undone = Collections.synchronizedSet(
             Collections.newSetFromMap(new IdentityHashMap<>()));
     private final Set<Entry> resolved = Collections.synchronizedSet(
@@ -157,7 +134,7 @@ public final class WriteJournal {
     public void clear() {
         entries.clear();
         undoPlans.clear();
-        lookups.clear();
+        identifiersByEntry.clear();
         undone.clear();
         resolved.clear();
     }
@@ -178,21 +155,28 @@ public final class WriteJournal {
     }
 
     /**
-     * Attaches how to search for a write whose resource id the server never returned.
+     * Attaches the identifiers that can find a write whose resource id never came back.
      *
-     * <p>Called after the attempt is recorded, because the hint is derived from the
-     * resource the client submitted rather than from the server's response. A {@code null}
-     * hint, or one with no identifiers, records nothing.</p>
+     * <p>A create is the one write where the server chooses the identity, so an unknown
+     * outcome leaves nothing to read. The identifiers the client put on the submitted
+     * resource are the only stable handle left, and they are held beside the entry the same
+     * way before-images are: in memory, never rendered, never persisted. Each is
+     * {@code system|value} as FHIR writes it, or a bare {@code value} when the resource gave
+     * no system.</p>
+     *
+     * <p>Called after the attempt is recorded, because the hint comes from the submitted
+     * resource rather than the server's response. A {@code null} or empty list records
+     * nothing.</p>
      */
-    public void addLookup(Entry entry, Lookup lookup) {
-        if (entry != null && lookup != null && lookup.usable()) {
-            lookups.put(entry, lookup);
+    public void addIdentifiers(Entry entry, List<String> identifiers) {
+        if (entry != null && identifiers != null && !identifiers.isEmpty()) {
+            identifiersByEntry.put(entry, List.copyOf(identifiers));
         }
     }
 
-    /** How to find a resource whose id was never learned, or empty when no hint was recorded. */
-    public Optional<Lookup> lookupFor(Entry entry) {
-        return Optional.ofNullable(entry == null ? null : lookups.get(entry));
+    /** The identifiers that can find a resource whose id never came back, if any. */
+    public Optional<List<String>> identifiersFor(Entry entry) {
+        return Optional.ofNullable(entry == null ? null : identifiersByEntry.get(entry));
     }
 
     /** The newest succeeded entry that has not been undone and has a usable undo plan. */

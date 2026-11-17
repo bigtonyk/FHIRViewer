@@ -8,6 +8,9 @@ import java.util.Objects;
 import org.hl7.fhir.instance.model.api.IBaseMetaType;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
+import org.hl7.fhir.r4.model.Base;
+import org.hl7.fhir.r4.model.Identifier;
+import org.hl7.fhir.r4.model.Property;
 
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
@@ -122,7 +125,7 @@ public class FhirApi {
             return result;
         } catch (ServerOperationException e) {
             throw failedWrite("create", type, null, null, "on", server, e, started,
-                    lookupFor(resource));
+                    identifiersToSearch(resource));
         }
     }
 
@@ -153,7 +156,7 @@ public class FhirApi {
                     new WriteJournal.Undo("update", type, resourceId, result.versionId(), before));
             return result;
         } catch (ServerOperationException e) {
-            throw failedWrite("update", type, resourceId, versionId, "on", server, e, started, null);
+            throw failedWrite("update", type, resourceId, versionId, "on", server, e, started);
         }
     }
 
@@ -189,8 +192,7 @@ public class FhirApi {
                             result.versionId(), before));
             return result;
         } catch (ServerOperationException e) {
-            throw failedWrite("patch", resourceType, resourceId, version, "on", server, e, started,
-                    null);
+            throw failedWrite("patch", resourceType, resourceId, version, "on", server, e, started);
         }
     }
 
@@ -230,7 +232,7 @@ public class FhirApi {
                     new WriteJournal.Undo("delete", resourceType, resourceId, version, before));
         } catch (ServerOperationException e) {
             throw failedWrite("delete", resourceType, resourceId, version, "from", server, e,
-                    started, null);
+                    started);
         }
     }
 
@@ -265,14 +267,23 @@ public class FhirApi {
      */
     private ScriptApiException failedWrite(String operation, String resourceType, String resourceId,
             String versionId, String preposition, FhirServerConfiguration server,
-            ServerOperationException failure, long started, WriteJournal.Lookup lookup) {
+            ServerOperationException failure, long started) {
+        return failedWrite(operation, resourceType, resourceId, versionId, preposition, server,
+                failure, started, List.of());
+    }
+
+    /** As above, plus the identifiers a timed-out create can be searched for afterwards. */
+    private ScriptApiException failedWrite(String operation, String resourceType, String resourceId,
+            String versionId, String preposition, FhirServerConfiguration server,
+            ServerOperationException failure, long started, List<String> identifiers) {
         boolean unknown = failure.kind() == ServerOperationException.Kind.TIMEOUT;
         WriteJournal.Entry attempt = record(server, operation, resourceType, resourceId, versionId,
                 unknown ? WriteJournal.Status.UNKNOWN : WriteJournal.Status.FAILED,
                 failure.kind().name(), started);
         WriteJournal journal = writePolicy.journal();
-        if (journal != null) {
-            journal.addLookup(attempt, lookup);
+        if (unknown && journal != null) {
+            // Only an unknown outcome is ever reviewed, so a plain failure records no hint.
+            journal.addIdentifiers(attempt, identifiers);
         }
         if (unknown) {
             return new WriteOutcomeUnknownException(operation, server, failure);
@@ -318,28 +329,28 @@ public class FhirApi {
     }
 
     /**
-     * The identifiers a timed-out create can be found by afterwards. The server assigns the
-     * id, so after a timeout these are the only stable handle the console has left; a
-     * resource with no identifier gets no hint and must be reconciled by hand.
+     * The identifiers a timed-out create can be found by afterwards, each {@code system|value}
+     * or a bare value. The server assigns the id, so after a timeout these are the only stable
+     * handle the console has left; a resource with none returns an empty list and must be
+     * reconciled by hand.
      */
-    private static WriteJournal.Lookup lookupFor(IBaseResource resource) {
-        if (!(resource instanceof org.hl7.fhir.r4.model.Base base)) {
-            return null;
+    private static List<String> identifiersToSearch(IBaseResource resource) {
+        if (!(resource instanceof Base base)) {
+            return List.of();
         }
-        org.hl7.fhir.r4.model.Property found = base.getChildByName("identifier");
+        Property found = base.getChildByName("identifier");
         if (found == null) {
-            return null;
+            return List.of();
         }
         List<String> identifiers = new ArrayList<>();
-        for (org.hl7.fhir.r4.model.Base child : found.getValues()) {
-            if (child instanceof org.hl7.fhir.r4.model.Identifier identifier
-                    && identifier.hasValue()) {
+        for (Base child : found.getValues()) {
+            if (child instanceof Identifier identifier && identifier.hasValue()) {
                 identifiers.add(identifier.hasSystem()
                         ? identifier.getSystem() + "|" + identifier.getValue()
                         : identifier.getValue());
             }
         }
-        return identifiers.isEmpty() ? null : new WriteJournal.Lookup(identifiers);
+        return identifiers;
     }
 
     private static String blankToNull(String value) {
