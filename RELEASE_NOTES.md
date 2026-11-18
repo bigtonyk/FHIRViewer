@@ -13,6 +13,17 @@
 - The **Writes** tab records each attempt and each run shows a write summary.
   Patch and delete accept an optional version for `If-Match`, and a timed-out
   write is reported as an unknown outcome rather than a safe retry.
+- Undoing a delete restores the captured copy only while the id is still free.
+  The restore carries `If-None-Match: *`, so a resource created at that id after
+  the delete makes the server refuse the undo; the status line then reports that
+  the id was taken by a new resource and that nothing was written, instead of
+  overwriting it.
+- **Review Unknown** for a timed-out create searches the identifiers the
+  submitted resource carried. A search hit counts only when the resource really
+  carries that identifier, one lookup failing no longer abandons the others, and
+  the review reads up to five pages of ten before it answers, so a match past
+  the first page is found and a truncated result is reported as unresolved
+  rather than as not applied.
 - Writes use the active server's saved credentials, not the SMART session;
   `smart` remains read-only.
 

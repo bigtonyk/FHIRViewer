@@ -86,13 +86,23 @@ writes for Run does not let a saved suite write. A suite may finish with an opti
 update, patch or delete, or deletes a resource the write created. Undo is a separate,
 explicitly confirmed recovery write outside the script grant's operation/resource scope,
 so narrowing the scope cannot strand a reversal. It still requires server writes to be on
-and a writable target. Undo is best effort: it can overwrite later changes and is
-available only while the console is open. **Review Unknown** handles a timed-out write by
-reading the affected resource and letting you mark the journal entry reviewed. A create
-that timed out before the server returned an id cannot be read back, so the review searches
-by the identifiers the submitted resource carried and reports whether it found none, one,
-or several matches. Review never changes the server: it reads or searches, then clears the
-journal entry.
+and a writable target. Undo is best effort: it can overwrite later changes to the resource
+and is available only while the console is open. Undoing a delete is the one case where the
+restore is conditional: the version the delete removed no longer exists, so the update is
+sent with `If-None-Match: *`, and a server that honours it refuses the write if anything has
+taken the id since. The console reads the id first, so a refusal is reported as the id
+having been taken by a new resource, with the undo writing nothing instead of overwriting
+it.
+
+**Review Unknown** handles a timed-out write by reading the affected resource and letting
+you mark the journal entry reviewed. A create that timed out before the server returned an
+id cannot be read back, so the review searches by the identifiers the submitted resource
+carried. A hit only counts when the resource really carries that identifier, because a
+search on a bare value matches the value under any system. One failing identifier or page
+does not end the review, and the search follows the server's next links for up to five
+pages of ten before it answers: when the server reported more matches than were read, a
+miss is reported as "may still have been applied" rather than as absence. Review never
+changes the server: it reads or searches, then clears the journal entry.
 
 Only `fhir` writes are enabled. `server` remains an inspection API. Writes use the active
 server's saved credentials, not the SMART session. Deleting a resource asks for
@@ -244,8 +254,9 @@ fhir.delete("Patient", "example-id", "3");
 ```
 
 Undo is best effort and only covers writes made while this console stays open; it is not a
-server transaction rollback. `ServerWriteResult` exposes `resourceId()`, `versionId()` and
-`created()`.
+server transaction rollback. Undoing a delete is refused rather than allowed to overwrite a
+resource recreated at the same id, because that restore carries `If-None-Match: *`.
+`ServerWriteResult` exposes `resourceId()`, `versionId()` and `created()`.
 
 ### Page through a search
 
