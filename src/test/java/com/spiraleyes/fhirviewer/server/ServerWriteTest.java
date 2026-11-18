@@ -43,11 +43,13 @@ public class ServerWriteTest {
     private ServerDefinition definition;
     private AtomicReference<String> lastMethod;
     private AtomicReference<String> lastIfMatch;
+    private AtomicReference<String> lastIfNoneMatch;
 
     @BeforeEach
     void startServer() throws IOException {
         lastMethod = new AtomicReference<>();
         lastIfMatch = new AtomicReference<>();
+        lastIfNoneMatch = new AtomicReference<>();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", this::handle);
         server.start();
@@ -89,8 +91,12 @@ public class ServerWriteTest {
 
         assertFalse(result.created());
         assertEquals("example-1", result.resourceId());
+        assertEquals("3", result.versionId(),
+                "the update outcome should carry the version the server assigned");
         assertEquals("PUT", lastMethod.get());
         assertEquals("W/2", lastIfMatch.get(), "a known version must be sent as If-Match");
+        assertNull(lastIfNoneMatch.get(),
+                "an ordinary update must not claim the id has to be free");
     }
 
     @Test
@@ -104,6 +110,22 @@ public class ServerWriteTest {
 
         assertEquals("PUT", lastMethod.get());
         assertNull(lastIfMatch.get(), "no version means no conditional write to claim");
+    }
+
+    @Test
+    @DisplayName("A restore sends If-None-Match: * so a resource recreated at the id is refused")
+    void aRestoreSendsIfNoneMatch() throws Exception {
+        Patient patient = new Patient();
+        patient.setId("example-1");
+        ServerOrigin restore = ServerOrigin.of("standard-rest", baseUrl, "Patient", "example-1",
+                null).requiringAbsence();
+
+        plugin.update(session, patient, restore);
+
+        assertEquals("PUT", lastMethod.get());
+        assertEquals("*", lastIfNoneMatch.get(),
+                "a restore must apply only if nothing occupies the id by the time it arrives");
+        assertNull(lastIfMatch.get(), "a restore has no version to match");
     }
 
     @Test
@@ -154,6 +176,22 @@ public class ServerWriteTest {
                 () -> readOnly.update(readOnlySession, new Patient(), null));
         assertThrows(ServerOperationException.class,
                 () -> readOnly.delete(readOnlySession, null));
+    }
+
+    @Test
+    @DisplayName("A configuration marked read-only is refused by the service before the plugin")
+    void serviceRefusesReadOnlyServer() throws Exception {
+        FhirServerService service = new FhirServerService();
+        service.registry().register(plugin);
+        ServerDefinition readOnly = ServerDefinition.named("Read Only", baseUrl)
+                .writeProtected(true).build();
+
+        ServerOperationException failure = assertThrows(ServerOperationException.class,
+                () -> service.create(readOnly, new Patient()));
+
+        assertEquals(ServerOperationException.Kind.BAD_REQUEST, failure.kind());
+        assertTrue(failure.getMessage().contains("marked read-only"), failure.getMessage());
+        assertNull(lastMethod.get(), "a read-only server must not receive the request");
     }
 
     @Test
@@ -281,6 +319,7 @@ public class ServerWriteTest {
         String method = exchange.getRequestMethod();
         lastMethod.set(method);
         lastIfMatch.set(exchange.getRequestHeaders().getFirst("If-Match"));
+        lastIfNoneMatch.set(exchange.getRequestHeaders().getFirst("If-None-Match"));
         // Drain the request body so the client is not left waiting on an unread stream.
         try (java.io.InputStream in = exchange.getRequestBody()) {
             while (in.read() != -1) {
@@ -308,6 +347,8 @@ public class ServerWriteTest {
             status = 204;
             body = "";
         } else if ("PUT".equals(method)) {
+            exchange.getResponseHeaders().set("Location",
+                    baseUrl + "/Patient/example-1/_history/3");
             body = "";
         } else if (path.endsWith("/metadata")) {
             body = "{ \"resourceType\": \"CapabilityStatement\", \"status\": \"active\", "

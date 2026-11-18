@@ -20,6 +20,7 @@ public final class ServerDefinition implements FhirServerConfiguration {
     private final String pluginId;
     private final int timeoutMillis;
     private final String administrationBaseUrl;
+    private final boolean writeProtected;
 
     private ServerDefinition(Builder builder) {
         this.id = builder.id;
@@ -29,6 +30,7 @@ public final class ServerDefinition implements FhirServerConfiguration {
         this.pluginId = builder.pluginId;
         this.timeoutMillis = builder.timeoutMillis;
         this.administrationBaseUrl = builder.administrationBaseUrl;
+        this.writeProtected = builder.writeProtected;
     }
 
     /**
@@ -95,6 +97,18 @@ public final class ServerDefinition implements FhirServerConfiguration {
         return timeoutMillis;
     }
 
+    /**
+     * True when this server is marked read-only.
+     *
+     * <p>See {@link FhirServerConfiguration#writeProtected()}. The flag is stored with the
+     * definition so it survives a restart and is enforced before any write leaves the
+     * application.</p>
+     */
+    @Override
+    public boolean writeProtected() {
+        return writeProtected;
+    }
+
     @Override
     public java.util.Map<String, String> extraHeaders() {
         return java.util.Map.of();
@@ -140,6 +154,7 @@ public final class ServerDefinition implements FhirServerConfiguration {
         private String pluginId = StandardFhirRestPlugin.PLUGIN_ID;
         private int timeoutMillis;
         private String administrationBaseUrl;
+        private boolean writeProtected;
 
         private Builder(String name, String baseUrl) {
             // Generated here rather than in the constructor of ServerDefinition so that a
@@ -246,6 +261,12 @@ public final class ServerDefinition implements FhirServerConfiguration {
                 throw new IllegalArgumentException("The timeout must not be negative.");
             }
             this.timeoutMillis = timeoutMillis;
+            return this;
+        }
+
+        /** Marks this server read-only, refusing every write from the UI and scripts. */
+        public Builder writeProtected(boolean writeProtected) {
+            this.writeProtected = writeProtected;
             return this;
         }
 

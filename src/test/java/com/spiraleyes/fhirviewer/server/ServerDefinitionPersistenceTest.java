@@ -110,6 +110,22 @@ class ServerDefinitionPersistenceTest {
     }
 
     @Test
+    @DisplayName("A read-only flag survives a save and a load")
+    void readOnlyFlagSurvivesARestart() throws IOException {
+        Path file = directory.resolve("server-definitions.properties");
+        FhirServerManager before = new FhirServerManager();
+        before.add(ServerDefinition.named("Production", "https://prod.example.org/fhir")
+                .writeProtected(true).build());
+        before.save(file);
+
+        FhirServerManager after = new FhirServerManager();
+        after.load(file);
+
+        assertTrue(after.servers().get(0).writeProtected(),
+                "the read-only flag did not survive a restart");
+    }
+
+    @Test
     @DisplayName("A server with no administration URL writes no key for one")
     void noAdministrationUrlMeansNoKey() throws IOException {
         // The overwhelmingly common case. Writing an empty key would put a line in every
