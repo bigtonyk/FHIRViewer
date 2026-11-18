@@ -1584,6 +1584,58 @@ class ScriptingConsoleSmokeTest {
     }
 
     @Test
+    @DisplayName("A restore the server refuses with 412 is reported and the delete stays undoable")
+    void aRestoreRefusedAsAConflictIsReported() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        Patient before = new Patient();
+        before.setId("1");
+        before.getMeta().setVersionId("v1");
+        before.addName().setFamily("Before");
+        service.readResource = before;
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        onFxThread(() -> {
+            console.bindingsForTest().fhir.delete("Patient", "1", "v1");
+            assertEquals(1, service.deleteCalls);
+            // The read found the id free, but something was created there before the PUT
+            // arrived, so If-None-Match: * made the server answer 412.
+            service.failUpdateAsConflict = true;
+            console.undoButtonForTest().fire();
+            return null;
+        });
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!console.statusTextForTest().contains("Undo failed")
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertEquals(1, service.updateCalls,
+                    "a refused restore must not be retried over the resource that took the id");
+            assertEquals("Undo failed: Patient/1 was taken by a new resource before the restore"
+                    + " arrived (update Patient/1: a resource already exists at this id), so the"
+                    + " undo wrote nothing and will not overwrite it.",
+                    console.statusTextForTest());
+            assertFalse(console.statusTextForTest().contains("Reload it, or overwrite it"),
+                    "the shared conflict advice is wrong here: there is nothing to reload and"
+                            + " overwriting is what the server just refused: "
+                            + console.statusTextForTest());
+            assertFalse(console.writeJournalTextForTest().contains("[undone]"),
+                    "a refused restore must not be recorded as undone: "
+                            + console.writeJournalTextForTest());
+            assertFalse(console.undoButtonForTest().isDisable(),
+                    "the delete stays undoable so the user can look at the id and decide");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
     @DisplayName("Review Unknown does not conclude absence from a truncated identifier search")
     void reviewUnknownDoesNotConcludeAbsenceFromATruncatedSearch() throws Exception {
         requireToolkit();
@@ -1850,6 +1902,7 @@ class ScriptingConsoleSmokeTest {
         ServerOrigin lastUpdateOrigin;
         ServerOrigin lastDeleteOrigin;
         boolean failCreateAsTimeout;
+        boolean failUpdateAsConflict;
         final List<SearchRequest> searchRequests = new java.util.ArrayList<>();
         final java.util.Set<String> failSearchIdentifiers = new java.util.LinkedHashSet<>();
         final java.util.Map<String, SearchResultPage> pages = new java.util.HashMap<>();
@@ -1916,10 +1969,19 @@ class ScriptingConsoleSmokeTest {
 
         @Override
         public ServerWriteResult update(FhirServerConfiguration server,
-                org.hl7.fhir.instance.model.api.IBaseResource resource, ServerOrigin origin) {
+                org.hl7.fhir.instance.model.api.IBaseResource resource, ServerOrigin origin)
+                throws com.spiraleyes.fhirviewer.server.ServerOperationException {
             updateCalls++;
             lastUpdatedResource = resource;
             lastUpdateOrigin = origin;
+            if (failUpdateAsConflict) {
+                // What a 412 on the restore carries up to the console: the kind the shared
+                // status table gives 412, and the server's own words in the message.
+                throw new com.spiraleyes.fhirviewer.server.ServerOperationException(
+                        com.spiraleyes.fhirviewer.server.ServerOperationException.kindOfStatus(412),
+                        "update Patient/" + origin.resourceId()
+                                + ": a resource already exists at this id");
+            }
             return ServerWriteResult.updated(origin.resourceId(), "v2");
         }
 
