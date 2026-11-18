@@ -1,3 +1,32 @@
+# Next release
+
+## Scripting server writes
+
+- The Scripting Console can opt into server writes. **Allow server writes** is
+  off by default and resets when a file or the example is loaded.
+- The grant is bound to the server named in the warning and is revoked
+  immediately when writes are turned off. A 50-write budget pauses long runs,
+  and an unused grant expires after 15 minutes.
+- With writes enabled, `fhir.create`, `fhir.update`, and `fhir.patch` can change
+  the active server; `fhir.delete` requires confirmation before the request is
+  sent.
+- The **Writes** tab records each attempt and each run shows a write summary.
+  Patch and delete accept an optional version for `If-Match`, and a timed-out
+  write is reported as an unknown outcome rather than a safe retry.
+- Undoing a delete restores the captured copy only while the id is still free.
+  The restore carries `If-None-Match: *`, so a resource created at that id after
+  the delete makes the server refuse the undo; the status line then reports that
+  the id was taken by a new resource and that nothing was written, instead of
+  overwriting it.
+- **Review Unknown** for a timed-out create searches the identifiers the
+  submitted resource carried. A search hit counts only when the resource really
+  carries that identifier, one lookup failing no longer abandons the others, and
+  the review reads up to five pages of ten before it answers, so a match past
+  the first page is found and a truncated result is reported as unresolved
+  rather than as not applied.
+- Writes use the active server's saved credentials, not the SMART session;
+  `smart` remains read-only.
+
 # FHIR Viewer 2.0
 
 The second numbered release. It builds on the 0.1 viewer with workspaces,

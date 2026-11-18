@@ -296,6 +296,24 @@ class ScriptingCoordinatorTest {
     }
 
     @Test
+    @DisplayName("A cleanup block runs after failing cases and reports separately")
+    void cleanupRunsAfterCases() throws Exception {
+        coordinator = new ScriptingCoordinator();
+        TestSuite suite = new TestSuite("cleanup.jsh", List.of(
+                new TestCase("fails", "throw new RuntimeException(\"boom\");")),
+                "System.out.println(\"cleanup-ran\");");
+
+        SuiteRunResult result = runSuiteBlocking(suite);
+
+        assertTrue(result.hasCleanup(), "the suite had a cleanup block");
+        assertTrue(result.cleanupPassed(), "cleanup must run even after a failed case");
+        assertTrue(result.cleanup().entries().stream()
+                        .anyMatch(entry -> entry.text().contains("cleanup-ran")),
+                "cleanup output should be captured separately: " + result.cleanup().entries());
+        assertEquals(1, result.failedCount(), "cleanup must not change the case counts");
+    }
+
+    @Test
     @DisplayName("A second run while one is in flight is refused immediately")
     void concurrentRunIsRefused() throws Exception {
         coordinator = new ScriptingCoordinator();

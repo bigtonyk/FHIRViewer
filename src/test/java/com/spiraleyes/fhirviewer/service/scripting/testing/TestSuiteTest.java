@@ -1,6 +1,7 @@
 package com.spiraleyes.fhirviewer.service.scripting.testing;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -126,6 +127,42 @@ class TestSuiteTest {
 
         assertEquals(1, suite.cases().size());
         assertTrue(suite.cases().get(0).source().contains("int value = 1;"));
+    }
+
+    @Test
+    @DisplayName("A cleanup block is parsed separately from the cases")
+    void cleanupBlockIsParsedSeparately() {
+        TestSuite suite = TestSuite.parse("cleanup.jsh", """
+                // case: creates a patient
+                fhir.create(new org.hl7.fhir.r4.model.Patient());
+                // cleanup:
+                fhir.delete("Patient", "temporary");
+                """);
+
+        assertEquals(1, suite.cases().size());
+        assertTrue(suite.cleanup().contains("fhir.delete"), suite.cleanup());
+        assertFalse(suite.cases().get(0).source().contains("fhir.delete"),
+                "the cleanup must not run as part of the case");
+    }
+
+    @Test
+    @DisplayName("A cleanup block with no source is refused")
+    void emptyCleanupIsRefused() {
+        IllegalArgumentException problem = assertThrows(IllegalArgumentException.class,
+                () -> TestSuite.parse("cleanup.jsh", "// case: one\nint a = 1;\n// cleanup:\n"));
+
+        assertTrue(problem.getMessage().contains("cleanup block from line 3 has no source"),
+                problem.getMessage());
+    }
+
+    @Test
+    @DisplayName("A cleanup marker before any case is refused")
+    void cleanupBeforeCasesIsRefused() {
+        IllegalArgumentException problem = assertThrows(IllegalArgumentException.class,
+                () -> TestSuite.parse("cleanup.jsh", "// cleanup:\nint a = 1;"));
+
+        assertTrue(problem.getMessage().contains("must follow at least one // case: marker"),
+                problem.getMessage());
     }
 
     @Test

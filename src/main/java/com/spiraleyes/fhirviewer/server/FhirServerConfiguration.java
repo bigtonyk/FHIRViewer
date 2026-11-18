@@ -81,4 +81,16 @@ public interface FhirServerConfiguration {
     default String administrationBaseUrl() {
         return null;
     }
+
+    /**
+     * True when this server must never be changed, regardless of plugin support.
+     *
+     * <p>This is a configuration-level guard, separate from the scripting write grant:
+     * marking a production server read-only prevents both the editor's Save to Server and
+     * scripts from writing. The default is false so existing configurations stay writable
+     * and custom implementations do not need to change.</p>
+     */
+    default boolean writeProtected() {
+        return false;
+    }
 }
