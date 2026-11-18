@@ -1524,12 +1524,162 @@ class ScriptingConsoleSmokeTest {
             assertNull(service.lastUpdateOrigin.versionId(),
                     "the deleted resource no longer exists, so the restore must send no"
                             + " If-Match; the pre-delete version would be stale anyway");
+            assertTrue(service.lastUpdateOrigin.onlyIfAbsent(),
+                    "the restore must be conditional on the id still being free, so a resource"
+                            + " recreated after the read is refused by the server rather than"
+                            + " overwritten");
             assertEquals("1", service.lastUpdateOrigin.resourceId(),
                     "the restore must still address the deleted resource's id");
             assertEquals("Before", ((Patient) service.lastUpdatedResource)
                     .getNameFirstRep().getFamily());
             assertTrue(console.writeJournalTextForTest().contains("[undone]"),
                     console.writeJournalTextForTest());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Undoing a delete refuses to overwrite a resource recreated at the same id")
+    void undoingADeleteRefusesToOverwriteARecreatedId() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        Patient before = new Patient();
+        before.setId("1");
+        before.getMeta().setVersionId("v1");
+        before.addName().setFamily("Before");
+        service.readResource = before;
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        onFxThread(() -> {
+            console.bindingsForTest().fhir.delete("Patient", "1", "v1");
+            assertEquals(1, service.deleteCalls);
+            // Someone else created a new resource at the id the delete freed, so a read of
+            // that id answers again: the restore would land on top of their resource.
+            service.deletedIds.remove("1");
+            console.undoButtonForTest().fire();
+            return null;
+        });
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!console.statusTextForTest().contains("Undo failed")
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertEquals(0, service.updateCalls,
+                    "the restore must not be sent over a resource created at the freed id");
+            assertTrue(console.statusTextForTest().contains("exists again"),
+                    console.statusTextForTest());
+            assertFalse(console.writeJournalTextForTest().contains("[undone]"),
+                    "the delete stays undoable so it can be revisited once the id is checked: "
+                            + console.writeJournalTextForTest());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Review Unknown does not conclude absence from a truncated identifier search")
+    void reviewUnknownDoesNotConcludeAbsenceFromATruncatedSearch() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        service.failCreateAsTimeout = true;
+        // The server matched 40 resources on the bare value and sent one of them; the
+        // identifier this create used is not in the page, which proves nothing about the rest.
+        Patient sameNumberElsewhere = new Patient();
+        sameNumberElsewhere.setId("91");
+        sameNumberElsewhere.addIdentifier().setSystem("http://elsewhere.example.org/id")
+                .setValue("A-123");
+        service.searchResult = new SearchResultPage(List.of(sameNumberElsewhere), 40,
+                (String) null);
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        WriteJournal.Entry unknown = onFxThread(() -> {
+            Patient submitted = new Patient();
+            submitted.addIdentifier().setSystem("http://example.org/mrn").setValue("A-123");
+            assertThrows(WriteOutcomeUnknownException.class,
+                    () -> console.bindingsForTest().fhir.create(submitted));
+            WriteJournal.Entry entry = console.writeJournalForTest().entries().get(0);
+            console.reviewUnknownButtonForTest().fire();
+            return entry;
+        });
+
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!console.writeJournalForTest().isResolved(unknown)
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertTrue(console.writeJournalForTest().isResolved(unknown));
+            assertTrue(console.reconciliationText.contains("only 1 of 40 matches were read"),
+                    console.reconciliationText);
+            assertFalse(console.reconciliationText.contains("may not have been applied"),
+                    "a page shorter than the total cannot prove the create was absent: "
+                            + console.reconciliationText);
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Review Unknown follows the identifier search to the page holding the create")
+    void reviewUnknownFindsACreateOnALaterSearchPage() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        service.failCreateAsTimeout = true;
+        // The first page is filled with another authority's records; the create is on the next.
+        Patient sameNumberElsewhere = new Patient();
+        sameNumberElsewhere.setId("91");
+        sameNumberElsewhere.addIdentifier().setSystem("http://elsewhere.example.org/id")
+                .setValue("A-123");
+        service.searchResult = new SearchResultPage(List.of(sameNumberElsewhere), 40, "page-2");
+        Patient match = new Patient();
+        match.setId("77");
+        match.getMeta().setVersionId("v3");
+        match.addIdentifier().setSystem("http://example.org/mrn").setValue("A-123");
+        service.pages.put("page-2", new SearchResultPage(List.of(match), 40, (String) null));
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        WriteJournal.Entry unknown = onFxThread(() -> {
+            Patient submitted = new Patient();
+            submitted.addIdentifier().setSystem("http://example.org/mrn").setValue("A-123");
+            assertThrows(WriteOutcomeUnknownException.class,
+                    () -> console.bindingsForTest().fhir.create(submitted));
+            WriteJournal.Entry entry = console.writeJournalForTest().entries().get(0);
+            console.reviewUnknownButtonForTest().fire();
+            return entry;
+        });
+
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!console.writeJournalForTest().isResolved(unknown)
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertTrue(console.writeJournalForTest().isResolved(unknown));
+            assertEquals(List.of("page-2"), service.pageRequests,
+                    "the review must read past the first page before concluding anything");
+            assertTrue(console.reconciliationText.contains("found Patient/77 version v3"),
+                    console.reconciliationText);
+            assertTrue(console.reconciliationText.contains("More matches exist than were read")
+                    && console.reconciliationText.contains("2 of 40"),
+                    "the pages left unread must still be admitted: "
+                            + console.reconciliationText);
             console.close();
             return null;
         });
@@ -1544,6 +1694,7 @@ class ScriptingConsoleSmokeTest {
         Patient match = new Patient();
         match.setId("77");
         match.getMeta().setVersionId("v3");
+        match.addIdentifier().setSystem("http://example.org/mrn").setValue("A-123");
         service.searchResult = new SearchResultPage(List.of(match), 1, (String) null);
         WriteProbeConsole console = onFxThread(() -> {
             WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
@@ -1584,6 +1735,108 @@ class ScriptingConsoleSmokeTest {
         });
     }
 
+    @Test
+    @DisplayName("Review Unknown does not report another authority's record as this create")
+    void reviewUnknownIgnoresAMatchUnderAnotherSystem() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        service.failCreateAsTimeout = true;
+        // What a server that matches a bare value under every system answers with: the same
+        // record number, assigned by someone else. It is not the resource this create sent.
+        Patient sameNumberElsewhere = new Patient();
+        sameNumberElsewhere.setId("91");
+        sameNumberElsewhere.addIdentifier().setSystem("http://elsewhere.example.org/id")
+                .setValue("A-123");
+        service.searchResult = new SearchResultPage(List.of(sameNumberElsewhere), 1,
+                (String) null);
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        WriteJournal.Entry unknown = onFxThread(() -> {
+            Patient submitted = new Patient();
+            submitted.addIdentifier().setSystem("http://example.org/mrn").setValue("A-123");
+            assertThrows(WriteOutcomeUnknownException.class,
+                    () -> console.bindingsForTest().fhir.create(submitted));
+            WriteJournal.Entry entry = console.writeJournalForTest().entries().get(0);
+            console.reviewUnknownButtonForTest().fire();
+            return entry;
+        });
+
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!console.writeJournalForTest().isResolved(unknown)
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertTrue(console.writeJournalForTest().isResolved(unknown));
+            assertEquals("http://example.org/mrn|A-123",
+                    service.searchRequests.get(0).criteria().get(0).value());
+            assertFalse(console.reconciliationText.contains("Treat the create as applied"),
+                    "a resource with the same value under another system is not this create: "
+                            + console.reconciliationText);
+            assertTrue(console.reconciliationText.contains("no match"),
+                    console.reconciliationText);
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Review Unknown keeps searching after one identifier search fails")
+    void reviewUnknownKeepsSearchingAfterOneIdentifierFails() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        service.failCreateAsTimeout = true;
+        service.failSearchIdentifiers.add("http://example.org/mrn|A-123");
+        Patient match = new Patient();
+        match.setId("77");
+        match.getMeta().setVersionId("v3");
+        match.addIdentifier().setSystem("http://example.org/ssn").setValue("999-99-9999");
+        service.searchResult = new SearchResultPage(List.of(match), 1, (String) null);
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        WriteJournal.Entry unknown = onFxThread(() -> {
+            Patient submitted = new Patient();
+            submitted.addIdentifier().setSystem("http://example.org/mrn").setValue("A-123");
+            submitted.addIdentifier().setSystem("http://example.org/ssn")
+                    .setValue("999-99-9999");
+            assertThrows(WriteOutcomeUnknownException.class,
+                    () -> console.bindingsForTest().fhir.create(submitted));
+            WriteJournal.Entry entry = console.writeJournalForTest().entries().get(0);
+            console.reviewUnknownButtonForTest().fire();
+            return entry;
+        });
+
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!console.writeJournalForTest().isResolved(unknown)
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertTrue(console.writeJournalForTest().isResolved(unknown));
+            assertEquals(2, service.searchRequests.size(),
+                    "a failed identifier search must not skip the identifiers after it");
+            assertEquals("http://example.org/ssn|999-99-9999",
+                    service.searchRequests.get(1).criteria().get(0).value());
+            assertTrue(console.reconciliationText.contains("found Patient/77 version v3"),
+                    console.reconciliationText);
+            assertTrue(console.reconciliationText.contains("second copy cannot be ruled out"),
+                    "the review must admit the failed search leaves a duplicate open: "
+                            + console.reconciliationText);
+            console.close();
+            return null;
+        });
+    }
+
     /** A service that records write calls without sending anything. */
     private static final class WritableService extends FhirServerService {
 
@@ -1598,6 +1851,12 @@ class ScriptingConsoleSmokeTest {
         ServerOrigin lastDeleteOrigin;
         boolean failCreateAsTimeout;
         final List<SearchRequest> searchRequests = new java.util.ArrayList<>();
+        final java.util.Set<String> failSearchIdentifiers = new java.util.LinkedHashSet<>();
+        final java.util.Map<String, SearchResultPage> pages = new java.util.HashMap<>();
+        final List<String> pageRequests = new java.util.ArrayList<>();
+        // Ids a delete removed: a read answers null for them, as a server does, until a test
+        // puts the id back to model a resource recreated at the freed id.
+        final java.util.Set<String> deletedIds = new java.util.LinkedHashSet<>();
         SearchResultPage searchResult = SearchResultPage.empty();
 
         WritableService() {
@@ -1613,14 +1872,33 @@ class ScriptingConsoleSmokeTest {
         public SearchResultPage search(FhirServerConfiguration server, SearchRequest request)
                 throws com.spiraleyes.fhirviewer.server.ServerOperationException {
             searchRequests.add(request);
+            String identifier = request.criteria().get(0).value();
+            if (failSearchIdentifiers.contains(identifier)) {
+                throw new com.spiraleyes.fhirviewer.server.ServerOperationException(
+                        com.spiraleyes.fhirviewer.server.ServerOperationException.Kind.UNREACHABLE,
+                        "search for " + identifier + " could not be sent");
+            }
             return searchResult;
+        }
+
+        @Override
+        public SearchResultPage pageAt(FhirServerConfiguration server, String pageUrl)
+                throws com.spiraleyes.fhirviewer.server.ServerOperationException {
+            pageRequests.add(pageUrl);
+            SearchResultPage page = pages.get(pageUrl);
+            if (page == null) {
+                throw new com.spiraleyes.fhirviewer.server.ServerOperationException(
+                        com.spiraleyes.fhirviewer.server.ServerOperationException.Kind.UNREACHABLE,
+                        "no page for " + pageUrl);
+            }
+            return page;
         }
 
         @Override
         public org.hl7.fhir.instance.model.api.IBaseResource read(FhirServerConfiguration server,
                 String resourceType, String resourceId) {
             readCalls++;
-            return readResource;
+            return deletedIds.contains(resourceId) ? null : readResource;
         }
 
         @Override
@@ -1655,6 +1933,7 @@ class ScriptingConsoleSmokeTest {
         public void delete(FhirServerConfiguration server, ServerOrigin origin) {
             deleteCalls++;
             lastDeleteOrigin = origin;
+            deletedIds.add(origin.resourceId());
         }
     }
 

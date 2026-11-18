@@ -559,7 +559,7 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
         }
         try {
             IGenericClient client = newClient(session);
-            applyIfMatch(client, origin);
+            applyPrecondition(client, origin);
             ca.uhn.fhir.rest.api.MethodOutcome outcome = client.update()
                     .resource(resource)
                     .withId(origin.resourceId())
@@ -589,7 +589,7 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
         }
         try {
             IGenericClient client = newClient(session);
-            applyIfMatch(client, origin);
+            applyPrecondition(client, origin);
             client.delete()
                     .resourceById(origin.resourceType(), origin.resourceId())
                     .execute();
@@ -668,8 +668,20 @@ public class StandardFhirRestPlugin implements FhirServerPlugin {
         }
     }
 
-    /** Attaches a conditional-write header when the origin knows the current version. */
-    private static void applyIfMatch(IGenericClient client, ServerOrigin origin) {
+    /**
+     * Attaches the conditional-write header the origin asks for.
+     *
+     * <p>An origin that knows the current version sends it as {@code If-Match}. An origin that
+     * is only allowed to write into an unused id sends {@code If-None-Match: *} instead, which
+     * is what lets a restore of a deleted resource be refused with {@code 412} when something
+     * was created at that id in the meantime. The two are mutually exclusive: there is no
+     * version to match on a resource that is supposed to be absent.</p>
+     */
+    private static void applyPrecondition(IGenericClient client, ServerOrigin origin) {
+        if (origin.onlyIfAbsent()) {
+            client.registerInterceptor(new StaticHeaderInterceptor("If-None-Match", "*"));
+            return;
+        }
         if (origin.hasVersion()) {
             client.registerInterceptor(
                     new StaticHeaderInterceptor("If-Match", "W/" + origin.versionId().trim()));

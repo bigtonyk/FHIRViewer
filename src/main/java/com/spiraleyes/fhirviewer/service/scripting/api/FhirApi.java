@@ -125,7 +125,7 @@ public class FhirApi {
             return result;
         } catch (ServerOperationException e) {
             throw failedWrite("create", type, null, null, "on", server, e, started,
-                    identifiersToSearch(resource));
+                    identifiersOf(resource));
         }
     }
 
@@ -329,12 +329,15 @@ public class FhirApi {
     }
 
     /**
-     * The identifiers a timed-out create can be found by afterwards, each {@code system|value}
-     * or a bare value. The server assigns the id, so after a timeout these are the only stable
+     * The identifiers a resource carries, each {@code system|value} or a bare value.
+     *
+     * <p>The server assigns the id of a create, so after a timeout these are the only stable
      * handle the console has left; a resource with none returns an empty list and must be
-     * reconciled by hand.
+     * reconciled by hand. The console also checks a search hit against this: a token search on
+     * a bare value matches that value under any system, so a hit is only this write's resource
+     * if it carries the same identifier.</p>
      */
-    private static List<String> identifiersToSearch(IBaseResource resource) {
+    public static List<String> identifiersOf(IBaseResource resource) {
         if (!(resource instanceof Base base)) {
             return List.of();
         }

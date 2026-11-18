@@ -107,6 +107,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     /** How many identifier matches a reconciliation search asks for. */
     private static final int RECONCILE_PAGE_SIZE = 10;
 
+    /** How many pages of one identifier search the review reads before it stops. */
+    private static final int RECONCILE_MAX_PAGES = 5;
+
     private static final int WRITE_BUDGET = 50;
     private static final java.time.Duration WRITE_IDLE_TIMEOUT = java.time.Duration.ofMinutes(15);
 
@@ -676,16 +679,47 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (before == null) {
             throw new IllegalStateException("No before-image was captured for this write.");
         }
+        boolean restoring = "delete".equals(plan.operation());
+        if (restoring) {
+            requireStillAbsent(server, plan);
+        }
         // If-Match must name the version the server holds right now, which is the one the
         // reverted write produced. The before-image's own meta.versionId predates that write,
         // so sending it would look stale and a versioning server would refuse the undo with
-        // 412 -- failing the recovery path exactly when it is needed. Undoing a delete
-        // restores a resource that no longer exists, so it sends no precondition at all.
-        String version = "delete".equals(plan.operation()) ? null : plan.versionId();
-        serverService.update(server, before, ServerOrigin.of(server.pluginId(), server.baseUrl(),
-                plan.resourceType(), plan.resourceId(), version));
+        // 412 -- failing the recovery path exactly when it is needed. A restore has no version
+        // to name at all, so it is conditional the other way round: If-None-Match: * makes the
+        // server refuse the write if anything occupies the id by the time it arrives.
+        String version = restoring ? null : plan.versionId();
+        ServerOrigin origin = ServerOrigin.of(server.pluginId(), server.baseUrl(),
+                plan.resourceType(), plan.resourceId(), version);
+        serverService.update(server, before, restoring ? origin.requiringAbsence() : origin);
         recordUndo(server, plan, WriteJournal.Status.SUCCEEDED, "");
         return "Restored " + plan.resourceType() + "/" + plan.resourceId() + ".";
+    }
+
+    /**
+     * Cancels restoring a deleted resource when something occupies its id again.
+     *
+     * <p>A restore cannot use If-Match: the version the delete removed no longer exists. So the
+     * write itself carries {@code If-None-Match: *} (see
+     * {@link ServerOrigin#requiringAbsence()}), which is what makes it safe. This read is what
+     * lets the answer be readable rather than a bare 412: one that answers means the undo is no
+     * longer safe, and a read that fails leaves the same question open. Both cases send nothing.</p>
+     */
+    private void requireStillAbsent(FhirServerConfiguration server, WriteJournal.Undo plan) {
+        IBaseResource existing;
+        try {
+            existing = serverService.read(server, plan.resourceType(), plan.resourceId());
+        } catch (Exception unreadable) {
+            throw new IllegalStateException(plan.resourceType() + "/" + plan.resourceId()
+                    + " could not be read (" + message(unreadable) + "), so there is no telling"
+                    + " whether it was recreated. Nothing was sent.");
+        }
+        if (existing != null) {
+            throw new IllegalStateException(plan.resourceType() + "/" + plan.resourceId()
+                    + " exists again, so restoring the before-image would overwrite a resource"
+                    + " created after the delete. Nothing was sent.");
+        }
     }
 
     private void recordUndo(FhirServerConfiguration server, WriteJournal.Undo plan,
@@ -761,6 +795,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
      * submitted resource carried are the only stable handle left, so the review searches for
      * them and reports how many resources now match: none means it probably did not land,
      * one means it did, and several mean it may have been applied more than once.</p>
+     *
+     * <p>Each search starts at the first page and follows the server's own next links up to
+     * {@link #RECONCILE_MAX_PAGES} pages, because the match is not always on the first one. The
+     * walk is bounded on purpose: this is an answer for a person deciding whether to reuse a
+     * resource, not a sweep of everything an identifier matches. A search or page that fails is
+     * remembered and the remaining ones are still tried, so one failure cannot decide the
+     * verdict.</p>
      */
     private String describeByLookup(FhirServerConfiguration server, WriteJournal.Entry entry) {
         Optional<List<String>> identifiers = writeJournal.identifiersFor(entry);
@@ -768,6 +809,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             return "The request had no resource id and no identifier to search by. Search"
                     + " manually before retrying; a create may have succeeded.";
         }
+        List<String> searched = new ArrayList<>();
+        List<String> failures = new ArrayList<>();
         for (String identifier : identifiers.get()) {
             SearchResultPage page;
             try {
@@ -778,25 +821,82 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                         List.of(new SearchCriterion("identifier", identifier)),
                         RECONCILE_PAGE_SIZE));
             } catch (Exception problem) {
-                return "Search for " + entry.resourceType() + " by identifier " + identifier
-                        + " failed: " + message(problem);
+                // One identifier failing says nothing about whether the create landed, and the
+                // resource may carry an identifier that can still be searched.
+                failures.add(identifier + ": " + message(problem));
+                continue;
             }
-            String found = describeMatches(entry.resourceType(), page);
+            List<IBaseResource> seen = new ArrayList<>(page.resources());
+            Integer total = page.total();
+            for (int pages = 1; page.hasNextPage() && pages < RECONCILE_MAX_PAGES; pages++) {
+                try {
+                    page = serverService.pageAt(server, page.nextPageToken());
+                } catch (Exception problem) {
+                    // The match may be on the page that could not be read, so the verdict stays
+                    // open instead of treating what was read as the whole result.
+                    failures.add(identifier + " page " + (pages + 1) + ": "
+                            + message(problem));
+                    break;
+                }
+                if (page.total() != null) {
+                    total = page.total();
+                }
+                seen.addAll(page.resources());
+            }
+            searched.add(identifier);
+            String found = describeMatches(entry.resourceType(), seen, total,
+                    page.hasNextPage(), identifier);
             if (found != null) {
                 return "Searched " + entry.resourceType() + " by identifier " + identifier
-                        + ": " + found;
+                        + ": " + found + (failures.isEmpty() ? ""
+                                : " But " + describedFailures(failures)
+                                        + ", so a second copy cannot be ruled out.");
             }
         }
-        return "Searched " + entry.resourceType() + " by identifier "
-                + String.join(", ", identifiers.get())
-                + ": no match. The create may not have been applied.";
+        String listed = String.join(", ", identifiers.get());
+        if (searched.isEmpty()) {
+            return "Could not search " + entry.resourceType() + " by identifier " + listed
+                    + ": " + describedFailures(failures)
+                    + ". Search manually before retrying; a create may have succeeded.";
+        }
+        return "Searched " + entry.resourceType() + " by identifier " + listed
+                + (failures.isEmpty()
+                        ? ": no match. The create may not have been applied."
+                        : ": no match, but " + describedFailures(failures)
+                                + ", so the create may still have been applied.");
     }
 
-    /** One line naming what an identifier lookup found, or {@code null} when it found none. */
-    private static String describeMatches(String resourceType, SearchResultPage page) {
-        List<IBaseResource> matches = page.resources();
+    /**
+     * One line naming what an identifier lookup found, or {@code null} when it found none.
+     *
+     * <p>A hit only counts when the resource carries the identifier that was searched for. A
+     * token search on a bare value matches that value under any system, so another authority's
+     * record with the same number would otherwise be reported as this create, and the console
+     * would tell the user the write had been applied when it had not.</p>
+     */
+    private static String describeMatches(String resourceType, List<IBaseResource> seen,
+            Integer total, boolean moreToRead, String identifier) {
+        List<IBaseResource> matches = new ArrayList<>();
+        for (IBaseResource candidate : seen) {
+            if (FhirApi.identifiersOf(candidate).contains(identifier)) {
+                matches.add(candidate);
+            }
+        }
+        // A page shorter than the server's own total, or one with a next link, has not shown
+        // every match: a resource carrying this identifier may be on a page not read. Absence
+        // from a truncated page is therefore not absence, and a single match does not rule out
+        // a duplicate.
+        int read = seen.size();
+        boolean truncated = moreToRead || (total != null && total > read);
         if (matches.isEmpty()) {
-            return null;
+            if (!truncated) {
+                return null;
+            }
+            String readSoFar = total == null
+                    ? "only the first " + read + " matches were read"
+                    : "only " + read + " of " + total + " matches were read";
+            return readSoFar + " and none of them carried this identifier, so the create may"
+                    + " still have been applied. Search manually before retrying.";
         }
         List<String> found = new ArrayList<>();
         for (IBaseResource match : matches) {
@@ -806,11 +906,24 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                     ? "(no id)" : resourceType + "/" + id.getIdPart())
                     + (version == null ? "" : " version " + version));
         }
+        String more = truncated
+                ? " More matches exist than were read"
+                        + (total == null ? "" : " (" + read + " of " + total + ")")
+                        + ", so a second copy cannot be ruled out."
+                : "";
         if (found.size() == 1) {
-            return "found " + found.get(0) + ". Treat the create as applied; do not retry it.";
+            return "found " + found.get(0) + ". Treat the create as applied; do not retry it."
+                    + more;
         }
         return found.size() + " matches (" + String.join(", ", found) + "). The create may"
-                + " have been applied more than once; review each before retrying.";
+                + " have been applied more than once; review each before retrying." + more;
+    }
+
+    /** The failed identifier searches, phrased for the review text. */
+    private static String describedFailures(List<String> failures) {
+        return (failures.size() == 1 ? "one identifier search failed"
+                : failures.size() + " identifier searches failed")
+                + " (" + String.join("; ", failures) + ")";
     }
 
     private void showReconciliation(WriteJournal.Entry entry, String readResult) {

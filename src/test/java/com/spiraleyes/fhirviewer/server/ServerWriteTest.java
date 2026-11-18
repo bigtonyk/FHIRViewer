@@ -43,11 +43,13 @@ public class ServerWriteTest {
     private ServerDefinition definition;
     private AtomicReference<String> lastMethod;
     private AtomicReference<String> lastIfMatch;
+    private AtomicReference<String> lastIfNoneMatch;
 
     @BeforeEach
     void startServer() throws IOException {
         lastMethod = new AtomicReference<>();
         lastIfMatch = new AtomicReference<>();
+        lastIfNoneMatch = new AtomicReference<>();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", this::handle);
         server.start();
@@ -93,6 +95,8 @@ public class ServerWriteTest {
                 "the update outcome should carry the version the server assigned");
         assertEquals("PUT", lastMethod.get());
         assertEquals("W/2", lastIfMatch.get(), "a known version must be sent as If-Match");
+        assertNull(lastIfNoneMatch.get(),
+                "an ordinary update must not claim the id has to be free");
     }
 
     @Test
@@ -106,6 +110,22 @@ public class ServerWriteTest {
 
         assertEquals("PUT", lastMethod.get());
         assertNull(lastIfMatch.get(), "no version means no conditional write to claim");
+    }
+
+    @Test
+    @DisplayName("A restore sends If-None-Match: * so a resource recreated at the id is refused")
+    void aRestoreSendsIfNoneMatch() throws Exception {
+        Patient patient = new Patient();
+        patient.setId("example-1");
+        ServerOrigin restore = ServerOrigin.of("standard-rest", baseUrl, "Patient", "example-1",
+                null).requiringAbsence();
+
+        plugin.update(session, patient, restore);
+
+        assertEquals("PUT", lastMethod.get());
+        assertEquals("*", lastIfNoneMatch.get(),
+                "a restore must apply only if nothing occupies the id by the time it arrives");
+        assertNull(lastIfMatch.get(), "a restore has no version to match");
     }
 
     @Test
@@ -299,6 +319,7 @@ public class ServerWriteTest {
         String method = exchange.getRequestMethod();
         lastMethod.set(method);
         lastIfMatch.set(exchange.getRequestHeaders().getFirst("If-Match"));
+        lastIfNoneMatch.set(exchange.getRequestHeaders().getFirst("If-None-Match"));
         // Drain the request body so the client is not left waiting on an unread stream.
         try (java.io.InputStream in = exchange.getRequestBody()) {
             while (in.read() != -1) {
