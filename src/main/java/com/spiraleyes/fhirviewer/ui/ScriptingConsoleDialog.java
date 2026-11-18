@@ -71,6 +71,7 @@ import com.spiraleyes.fhirviewer.server.FhirServerService;
 import com.spiraleyes.fhirviewer.server.SearchCriterion;
 import com.spiraleyes.fhirviewer.server.SearchRequest;
 import com.spiraleyes.fhirviewer.server.SearchResultPage;
+import com.spiraleyes.fhirviewer.server.ServerOperationException;
 import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
 
@@ -692,7 +693,20 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         String version = restoring ? null : plan.versionId();
         ServerOrigin origin = ServerOrigin.of(server.pluginId(), server.baseUrl(),
                 plan.resourceType(), plan.resourceId(), version);
-        serverService.update(server, before, restoring ? origin.requiringAbsence() : origin);
+        try {
+            serverService.update(server, before, restoring ? origin.requiringAbsence() : origin);
+        } catch (ServerOperationException refused) {
+            if (!restoring || refused.kind() != ServerOperationException.Kind.CONFLICT) {
+                throw refused;
+            }
+            // The shared CONFLICT advice says to reload or overwrite deliberately, which is the
+            // opposite of what a refused restore needs: the id holds a different resource now,
+            // and the whole point of If-None-Match: * is that this undo never overwrites it.
+            throw new IllegalStateException(plan.resourceType() + "/" + plan.resourceId()
+                    + " was taken by a new resource before the restore arrived ("
+                    + refused.getMessage() + "), so the undo wrote nothing and will not"
+                    + " overwrite it.");
+        }
         recordUndo(server, plan, WriteJournal.Status.SUCCEEDED, "");
         return "Restored " + plan.resourceType() + "/" + plan.resourceId() + ".";
     }
