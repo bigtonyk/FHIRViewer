@@ -169,21 +169,7 @@ public final class SmartFhirAccess {
      */
     public ServerWriteResult update(SmartAuthorizationSession session, IBaseResource resource,
             String versionId) throws ServerOperationException {
-        Objects.requireNonNull(session, "session");
-        Objects.requireNonNull(resource, "resource");
-        String type = requireType(resource.fhirType());
-        IIdType id = resource.getIdElement();
-        if (id == null || !id.hasIdPart()) {
-            throw new IllegalArgumentException("An update needs a resource with a server id.");
-        }
-        String resourceId = id.getIdPart();
-        requireUsable(session);
-        return recorded("Updating " + type + "/" + resourceId + " through the authorized session",
-                "PUT " + session.fhirBaseUrl() + "/" + type + "/" + resourceId, () -> {
-                    ServerSession serverSession = sessionFor(session);
-                    return pluginFor(serverSession, session).update(serverSession, resource,
-                            originFor(serverSession, type, resourceId, versionId));
-                });
+        return replace(session, resource, "Updating", versionId, false);
     }
 
     /**
@@ -261,20 +247,39 @@ public final class SmartFhirAccess {
      */
     public ServerWriteResult restore(SmartAuthorizationSession session, IBaseResource resource)
             throws ServerOperationException {
+        return replace(session, resource, "Restoring", null, true);
+    }
+
+    /**
+     * PUTs a resource through the authorized session and records the attempt.
+     *
+     * <p>An update and a restore differ only in their precondition: an update names the version
+     * it replaces with {@code If-Match}, and a restore carries {@code If-None-Match: *} because
+     * the version it puts back no longer exists on the server.</p>
+     *
+     * @param activity the verb the diagnostics name, "Updating" or "Restoring"
+     * @param versionId the version to match, or {@code null} for no {@code If-Match}
+     * @param requireAbsence whether the write may only apply to an unused id
+     */
+    private ServerWriteResult replace(SmartAuthorizationSession session, IBaseResource resource,
+            String activity, String versionId, boolean requireAbsence)
+            throws ServerOperationException {
         Objects.requireNonNull(session, "session");
         Objects.requireNonNull(resource, "resource");
         String type = requireType(resource.fhirType());
         IIdType id = resource.getIdElement();
         if (id == null || !id.hasIdPart()) {
-            throw new IllegalArgumentException("A restore needs a resource with a server id.");
+            throw new IllegalArgumentException("A write needs a resource with a server id.");
         }
         String resourceId = id.getIdPart();
         requireUsable(session);
-        return recorded("Restoring " + type + "/" + resourceId + " through the authorized session",
+        return recorded(activity + " " + type + "/" + resourceId
+                + " through the authorized session",
                 "PUT " + session.fhirBaseUrl() + "/" + type + "/" + resourceId, () -> {
                     ServerSession serverSession = sessionFor(session);
+                    ServerOrigin origin = originFor(serverSession, type, resourceId, versionId);
                     return pluginFor(serverSession, session).update(serverSession, resource,
-                            originFor(serverSession, type, resourceId, null).requiringAbsence());
+                            requireAbsence ? origin.requiringAbsence() : origin);
                 });
     }
 

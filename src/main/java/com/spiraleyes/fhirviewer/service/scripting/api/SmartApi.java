@@ -13,6 +13,7 @@ import com.spiraleyes.fhirviewer.server.ServerOperationException;
 import com.spiraleyes.fhirviewer.server.ServerWriteResult;
 import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationSession;
 import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
+import com.spiraleyes.fhirviewer.server.smart.SmartUrls;
 
 /**
  * Script-facing facade over an existing authorized SMART session. Never exposes tokens.
@@ -250,12 +251,15 @@ public class SmartApi {
      * grant's operation and resource scope so narrowing the scope cannot strand a reversal. It
      * still needs an active session -- the bearer is the only credential -- and only ever
      * writes to the URL that session was granted for, which must be the URL the entry names:
-     * a later session for another server must not receive this before-image.</p>
+     * a later session for another server must not receive this before-image. The two URLs are
+     * compared after normalization, so the same server written with a trailing slash is not
+     * mistaken for a different one.</p>
      *
      * <p>An update or patch is reverted with {@code If-Match} naming the version that write
      * produced, because the before-image's own version predates it. A delete is reverted by a
-     * restore carrying {@code If-None-Match: *} after checking the id is still free, so a
-     * resource recreated later is never overwritten.</p>
+     * restore carrying {@code If-None-Match: *} after trying to check the id is still free, so a
+     * resource recreated later is never overwritten; a session that may write but not read
+     * still sends that conditional restore, and the server's refusal is what stops it.</p>
      *
      * @param serverBaseUrl the URL the journalled write was made against
      * @param plan the recorded plan, which must carry a before-image
@@ -276,7 +280,7 @@ public class SmartApi {
             throw new ScriptApiException(
                     "No active SMART session, so its write cannot be undone here.");
         }
-        if (!currentUrl.equals(serverBaseUrl)) {
+        if (!sameServer(currentUrl, serverBaseUrl)) {
             throw new ScriptApiException("The active SMART session is not the one that made this"
                     + " write (it is authorized for " + currentUrl + "), so the before-image"
                     + " cannot be restored here.");
@@ -284,13 +288,11 @@ public class SmartApi {
         String type = plan.resourceType();
         String id = plan.resourceId();
         boolean restoring = "delete".equals(plan.operation());
+        if (restoring) {
+            requireStillAbsent(type, id);
+        }
         try {
             if (restoring) {
-                if (access.read(session, type, id).isPresent()) {
-                    throw new ScriptApiException(type + "/" + id + " exists again, so restoring"
-                            + " the before-image would overwrite a resource created after the"
-                            + " delete. Nothing was sent.");
-                }
                 access.restore(session, before);
             } else {
                 access.update(session, before, plan.versionId());
@@ -302,6 +304,45 @@ public class SmartApi {
                         + " undo wrote nothing and will not overwrite it.", refused);
             }
             throw new ScriptApiException("Undo failed: " + refused.getMessage(), refused);
+        }
+    }
+
+    /**
+     * Cancels restoring a deleted resource when a readable id is already occupied again.
+     *
+     * <p>The boundary is the conditional write, not this read: the restore carries
+     * {@code If-None-Match: *}, so the server refuses an id that something took between the
+     * read and the write -- the one gap a read alone can only narrow. The read therefore only
+     * makes the usual answer readable instead of a bare {@code 412}; it must never be able to
+     * block the restore. A session may hold write scope without read scope, and a delete such
+     * a session could have made must stay revertible, so a refused or failed read falls
+     * through to the conditional write and the server decides.</p>
+     */
+    private void requireStillAbsent(String type, String id) {
+        boolean present;
+        try {
+            present = access.read(session, type, id).isPresent();
+        } catch (ServerOperationException unreadable) {
+            // Not permitted, or not answered: the token may still write, so the conditional
+            // restore is sent. Diagnostics already recorded the failed read.
+            return;
+        }
+        if (present) {
+            throw new ScriptApiException(type + "/" + id + " exists again, so restoring the"
+                    + " before-image would overwrite a resource created after the delete."
+                    + " Nothing was sent.");
+        }
+    }
+
+    /**
+     * True when both base URLs name the same server, compared after the normalization the
+     * bearer's destination goes through. A URL that cannot be normalized matches nothing.
+     */
+    private static boolean sameServer(String one, String other) {
+        try {
+            return SmartUrls.normalizeFhirBase(one).equals(SmartUrls.normalizeFhirBase(other));
+        } catch (IllegalArgumentException unusable) {
+            return false;
         }
     }
 

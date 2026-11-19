@@ -469,9 +469,15 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 && serverService.supportsWrite(server) && writePolicy.isEnabled()) {
             return true;
         }
-        applyWrites(false);
-        setStatus("Server writes were turned off: the active server changed, the grant expired, or it can no longer accept writes.");
+        revokeGrant("the active server changed, the grant expired, or it can no longer accept"
+                + " writes.");
         return false;
+    }
+
+    /** Ends the grant and says why, so every refusal that turns writes off reads the same. */
+    private void revokeGrant(String because) {
+        applyWrites(false);
+        setStatus("Server writes were turned off: " + because);
     }
 
     /** Stops an idle grant even if no Run starts before the deadline. */
@@ -633,8 +639,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         boolean smart = isSmartEntry(entry);
         if (smart) {
             if (!writePolicy.isEnabled()) {
-                applyWrites(false);
-                setStatus("Server writes were turned off: the grant expired or was revoked.");
+                revokeGrant("the grant expired or was revoked.");
                 return;
             }
             if (!smartApi.isSessionActive()) {

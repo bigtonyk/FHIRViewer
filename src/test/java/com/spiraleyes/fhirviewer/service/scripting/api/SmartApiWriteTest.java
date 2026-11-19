@@ -61,6 +61,8 @@ class SmartApiWriteTest {
     private final AtomicReference<String> lastBody = new AtomicReference<>();
     private volatile boolean rejectWrites;
     private volatile boolean hideBeforeImage;
+    private volatile boolean resourceAbsent;
+    private volatile boolean refuseReads;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -96,7 +98,13 @@ class SmartApiWriteTest {
             status = 200;
             body = CAPABILITY_JSON;
         } else if ("GET".equals(exchange.getRequestMethod())) {
-            if (hideBeforeImage) {
+            if (refuseReads) {
+                status = 403;
+                body = OPERATION_OUTCOME;
+            } else if (resourceAbsent) {
+                status = 404;
+                body = OPERATION_OUTCOME;
+            } else if (hideBeforeImage) {
                 status = 500;
                 body = OPERATION_OUTCOME;
             } else {
@@ -320,4 +328,57 @@ class SmartApiWriteTest {
         assertEquals("GET", lastMethod.get(), "nothing may be written when the id is occupied");
     }
 
+    @Test
+    @DisplayName("Undoing a SMART delete restores the before-image with If-None-Match")
+    void undoOfDeleteRestoresWhileTheIdIsFree() {
+        WriteJournal journal = new WriteJournal();
+        SmartApi writing = api(WritePolicy.enabled(null, null, journal, 0, null, null));
+        writing.delete("Patient", "example-1");
+        WriteJournal.Undo plan = journal.undoFor(journal.entries().get(0)).orElseThrow();
+
+        resourceAbsent = true;
+        writing.restoreBeforeImage(baseUrl, plan);
+
+        assertEquals("PUT", lastMethod.get());
+        assertTrue(lastAuthorization.get().contains("tok-write"));
+        assertEquals("*", lastIfNoneMatch.get(),
+                "a restore must be conditional on the id still being free");
+        assertNull(lastIfMatch.get(), "a restore has no version to name");
+        assertTrue(lastBody.get().contains("\"id\":\"example-1\""),
+                "the body must be the deleted resource: " + lastBody.get());
+    }
+
+    @Test
+    @DisplayName("A refused pre-read does not stop the conditional restore")
+    void restoreProceedsWhenTheIdCannotBeRead() {
+        WriteJournal journal = new WriteJournal();
+        SmartApi writing = api(WritePolicy.enabled(null, null, journal, 0, null, null));
+        writing.delete("Patient", "example-1");
+        WriteJournal.Undo plan = journal.undoFor(journal.entries().get(0)).orElseThrow();
+
+        // A session that may write but not read, as after re-authorizing with narrower scopes.
+        refuseReads = true;
+        writing.restoreBeforeImage(baseUrl, plan);
+
+        assertEquals("PUT", lastMethod.get(),
+                "a read the token may not make must not block the restore it may write");
+        assertEquals("*", lastIfNoneMatch.get(),
+                "the conditional write is what keeps an occupied id from being overwritten");
+        assertNull(lastIfMatch.get());
+    }
+
+    @Test
+    @DisplayName("A before-image is not restored through a session for another server")
+    void undoRefusesAnotherServersBeforeImage() {
+        SmartApi writing = api(WritePolicy.enabled(null, null, new WriteJournal(), 0, null, null));
+        WriteJournal.Undo plan = new WriteJournal.Undo("update", "Patient", "example-1", "2",
+                patient("example-1"));
+
+        ScriptApiException refused = assertThrows(ScriptApiException.class,
+                () -> writing.restoreBeforeImage("http://other.example/fhir", plan));
+
+        assertTrue(refused.getMessage().contains("not the one that made this write"),
+                refused.getMessage());
+        assertNull(lastMethod.get(), "nothing may be sent to the session's server");
+    }
 }

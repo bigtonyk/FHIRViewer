@@ -92,9 +92,11 @@ made the write. Undo is best effort: it can overwrite later changes to the resou
 and is available only while the console is open. Undoing a delete is the one case where the
 restore is conditional: the version the delete removed no longer exists, so the update is
 sent with `If-None-Match: *`, and a server that honours it refuses the write if anything has
-taken the id since. The console reads the id first, so a refusal is reported as the id
-having been taken by a new resource, with the undo writing nothing instead of overwriting
-it.
+taken the id since. The console reads the id first, so a refusal is usually reported as the
+id having been taken by a new resource, with the undo writing nothing instead of
+overwriting it. If the session may write but not read, that read is refused and the
+conditional restore is still sent: the server's refusal, not the read, is what prevents the
+overwrite.
 
 **Review Unknown** handles a timed-out write by reading the affected resource and letting
 you mark the journal entry reviewed. A create that timed out before the server returned an
