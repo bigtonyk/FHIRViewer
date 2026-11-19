@@ -362,6 +362,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         setOnCloseRequest(event -> {
             if (dirty() && !confirmDiscard()) {
                 event.consume();
+                return;
+            }
+            if (!mayClose()) {
+                event.consume();
             }
         });
     }
@@ -1604,6 +1608,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (dirty(editor.getText(), savedContent) && !confirmDiscard()) {
             return;
         }
+        if (!mayDiscardJournal("opening another script", "Open Anyway")) {
+            setStatus("Open cancelled: a write with an unknown outcome is still unreviewed.");
+            return;
+        }
         editor.setText(content);
         savedContent = content;
         currentFile = path;
@@ -1677,6 +1685,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 return;
             }
         }
+        if (!mayDiscardJournal("loading the example", "Load Example")) {
+            setStatus("Example not loaded: a write with an unknown outcome is still unreviewed.");
+            return;
+        }
         editor.setText(example);
         savedContent = example;
         // The example is not the file that was open: keep the buffer untitled so Save asks
@@ -1715,17 +1727,27 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         return !current.equals(saved);
     }
 
+    /** A themed warning owned by this console; the caller supplies its text and buttons. */
+    private Alert warning(String title, String header, String content) {
+        Alert alert = new Alert(Alert.AlertType.WARNING);
+        Window owner = ownerWindow();
+        if (owner != null) {
+            alert.initOwner(owner);
+        }
+        alert.setTitle(title);
+        alert.setHeaderText(header);
+        alert.setContentText(content);
+        alert.getDialogPane().getStylesheets().addAll(stylesheets);
+        return alert;
+    }
+
     /** Asks whether unsaved edits may be discarded; Save writes them first. */
     private boolean confirmDiscard() {
-        Alert alert = new Alert(Alert.AlertType.WARNING);
-        alert.initOwner(getDialogPane().getScene().getWindow());
-        alert.setTitle("Unsaved script");
-        alert.setHeaderText("The script has unsaved changes.");
-        alert.setContentText("Save them before closing, or discard them.");
+        Alert alert = warning("Unsaved script", "The script has unsaved changes.",
+                "Save them before closing, or discard them.");
         ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);
         ButtonType discard = new ButtonType("Discard", ButtonBar.ButtonData.NO);
         alert.getButtonTypes().setAll(save, discard, ButtonType.CANCEL);
-        alert.getDialogPane().getStylesheets().addAll(stylesheets);
         Optional<ButtonType> choice = alert.showAndWait();
         if (choice.isEmpty() || choice.get() == ButtonType.CANCEL) {
             return false;
@@ -1734,6 +1756,91 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             return onSave(false);
         }
         return true;
+    }
+
+    /**
+     * True when the console may close without losing the record of a write whose outcome
+     * was never established.
+     *
+     * <p>The write journal, and the before-images and identifier hints beside it, are held
+     * only in this dialog. An unreviewed unknown outcome would therefore disappear with the
+     * window, leaving no record that a write may have reached the server. A close is not
+     * silent then: the user either reviews the outcome or accepts that it has to be
+     * reconciled by hand. Package-private so a UI test can ask without a native dialog.</p>
+     */
+    boolean mayClose() {
+        return mayDiscardJournal("closing this console", "Close Anyway");
+    }
+
+    /**
+     * True when the journal may be cleared, by a close or by a buffer replacement.
+     *
+     * <p>Open and Example both replace the buffer and clear the journal with it, which
+     * drops an unreviewed unknown outcome just as silently as closing used to. Every
+     * clearing path asks this first.</p>
+     *
+     * @param action       what is about to clear it, completing "so ... drops the record"
+     * @param proceedLabel the affirmative button, naming the action that discards it
+     */
+    private boolean mayDiscardJournal(String action, String proceedLabel) {
+        List<WriteJournal.Entry> unresolved = writeJournal.unresolvedUnknowns();
+        if (unresolved.isEmpty()) {
+            return true;
+        }
+        return confirmDiscardUnknownOutcomes(unresolved, action, proceedLabel);
+    }
+
+    /** Confirmation seam, protected so a UI test can answer it without a native dialog. */
+    protected boolean confirmDiscardUnknownOutcomes(List<WriteJournal.Entry> unresolved,
+            String action, String proceedLabel) {
+        Alert alert = warning("Unreviewed unknown write outcomes",
+                unresolved.size() == 1
+                        ? "One write may or may not have reached the server."
+                        : unresolved.size()
+                                + " writes may or may not have reached the server.",
+                describeUnreviewed(unresolved)
+                        + "The write journal is kept only while this console is open, so "
+                        + action + " drops the record of what still needs checking.\n\n"
+                        + "Review it with Review Unknown, or continue and reconcile the"
+                        + " resource on the server by hand.");
+        ButtonType proceed = new ButtonType(proceedLabel, ButtonBar.ButtonData.OK_DONE);
+        ButtonType stay = new ButtonType("Keep Reviewing", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(proceed, stay);
+        Button proceedButton = (Button) alert.getDialogPane().lookupButton(proceed);
+        Button stayButton = (Button) alert.getDialogPane().lookupButton(stay);
+        if (stayButton != null) {
+            // The safe answer is the default: Enter must not discard the record.
+            alert.setOnShown(event -> {
+                if (proceedButton != null) {
+                    proceedButton.setDefaultButton(false);
+                }
+                stayButton.setDefaultButton(true);
+                stayButton.requestFocus();
+            });
+        }
+        return alert.showAndWait().filter(proceed::equals).isPresent();
+    }
+
+    /** One line per unreviewed outcome, newest first and capped, with no request bodies. */
+    private static String describeUnreviewed(List<WriteJournal.Entry> unresolved) {
+        List<String> lines = new ArrayList<>();
+        for (int index = unresolved.size() - 1; index >= 0 && lines.size() < 5; index--) {
+            lines.add(unreviewedLine(unresolved.get(index)));
+        }
+        if (unresolved.size() > lines.size()) {
+            lines.add("and " + (unresolved.size() - lines.size()) + " more");
+        }
+        return "Not reviewed yet:\n\u2022 " + String.join("\n\u2022 ", lines) + "\n\n";
+    }
+
+    /** One entry as the warning names it: enough to find the write, nothing from the request. */
+    private static String unreviewedLine(WriteJournal.Entry entry) {
+        String target = entry.resourceType() == null ? "a resource"
+                : entry.resourceId() == null ? entry.resourceType()
+                : entry.resourceType() + "/" + entry.resourceId();
+        boolean idUnknown = entry.resourceId() == null && "create".equals(entry.operation());
+        return entry.operation() + " " + target + " on " + entry.serverName()
+                + (idUnknown ? " (the server may have assigned an id)" : "");
     }
 
     private static String message(Throwable problem) {

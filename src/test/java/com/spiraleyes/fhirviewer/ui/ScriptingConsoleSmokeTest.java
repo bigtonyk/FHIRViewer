@@ -949,6 +949,119 @@ class ScriptingConsoleSmokeTest {
     }
 
     @Test
+    @DisplayName("Closing with an unreviewed unknown write asks before the journal is lost")
+    void closingWarnsAboutAnUnreviewedUnknownWrite() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        FhirServerManager manager = managerWithServer();
+        WriteProbeConsole console = onFxThread(() -> new WriteProbeConsole(service, manager,
+                summary -> true, true));
+
+        onFxThread(() -> {
+            assertTrue(console.mayClose(), "a console with no writes closes silently");
+            assertEquals(0, console.discardWarnings);
+
+            WriteJournal.Entry unknown = console.writeJournalForTest().record(
+                    manager.active().orElseThrow(), "update", "Patient", "1", "v1",
+                    WriteJournal.Status.UNKNOWN, "TIMEOUT", Duration.ZERO);
+            assertFalse(console.mayClose(),
+                    "an unreviewed unknown outcome must stop the console closing");
+            assertEquals(1, console.discardWarnings);
+            assertEquals("closing this console", console.discardAction);
+            assertEquals(1, console.lastUnresolved.size(),
+                    "the warning must name every unreviewed outcome");
+            assertEquals("update", console.lastUnresolved.get(0).operation());
+
+            console.writeJournalForTest().markResolved(unknown);
+            assertTrue(console.mayClose(), "a reviewed outcome no longer blocks the close");
+            assertEquals(1, console.discardWarnings, "a reviewed entry must not warn again");
+
+            // A create whose id never came back is named by type, and accepting the warning
+            // still lets the user close.
+            console.writeJournalForTest().record(manager.active().orElseThrow(), "create",
+                    "Patient", null, null, WriteJournal.Status.UNKNOWN, "TIMEOUT",
+                    Duration.ZERO);
+            console.approveDiscard = true;
+            assertTrue(console.mayClose(), "accepting the warning lets the console close");
+            assertEquals(2, console.discardWarnings);
+            assertNull(console.lastUnresolved.get(0).resourceId(),
+                    "a create whose id never came back is still named");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Opening another script warns before dropping an unreviewed unknown write")
+    void openingAnotherScriptWarnsAboutAnUnreviewedUnknownWrite() throws Exception {
+        requireToolkit();
+        Path script = directory.resolve("replacement.jsh");
+        Files.writeString(script, "System.out.println(\"replacement\");\n");
+        WritableService service = new WritableService();
+        FhirServerManager manager = managerWithServer();
+        WriteProbeConsole console = onFxThread(() -> new WriteProbeConsole(service, manager,
+                summary -> true, true, script));
+
+        onFxThread(() -> {
+            console.writeJournalForTest().record(manager.active().orElseThrow(), "update",
+                    "Patient", "1", "v1", WriteJournal.Status.UNKNOWN, "TIMEOUT",
+                    Duration.ZERO);
+
+            console.openButtonForTest().fire();
+
+            assertEquals(1, console.discardWarnings,
+                    "Open must ask before clearing the journal");
+            assertEquals("opening another script", console.discardAction);
+            assertEquals(1, console.writeJournalForTest().size(),
+                    "refusing the warning must keep the journal");
+            assertTrue(console.editorTextForTest().isBlank(),
+                    "refusing the warning must not replace the buffer either");
+            assertTrue(console.boundFileForTest().isEmpty(),
+                    "refusing the warning must not bind the new file");
+
+            console.approveDiscard = true;
+            console.openButtonForTest().fire();
+
+            assertEquals(2, console.discardWarnings);
+            assertTrue(console.writeJournalForTest().entries().isEmpty(),
+                    "accepting the warning clears the journal with the buffer");
+            assertEquals(script, console.boundFileForTest().orElse(null),
+                    "accepting the warning loads the script");
+            assertEquals("System.out.println(\"replacement\");",
+                    console.editorTextForTest().strip());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Loading the example warns before dropping an unreviewed unknown write")
+    void loadingTheExampleWarnsAboutAnUnreviewedUnknownWrite() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        FhirServerManager manager = managerWithServer();
+        WriteProbeConsole console = onFxThread(() -> new WriteProbeConsole(service, manager,
+                summary -> true, true));
+
+        onFxThread(() -> {
+            console.writeJournalForTest().record(manager.active().orElseThrow(), "update",
+                    "Patient", "1", "v1", WriteJournal.Status.UNKNOWN, "TIMEOUT",
+                    Duration.ZERO);
+
+            console.exampleButtonForTest().fire();
+
+            assertEquals(1, console.discardWarnings,
+                    "loading the example must ask before clearing the journal");
+            assertEquals("loading the example", console.discardAction);
+            assertEquals(1, console.writeJournalForTest().size());
+            assertTrue(console.editorTextForTest().isBlank(),
+                    "refusing the warning must not load the example");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
     @DisplayName("A run shows a write summary separately from its output")
     void runShowsWriteSummary() throws Exception {
         requireToolkit();
@@ -2007,6 +2120,10 @@ class ScriptingConsoleSmokeTest {
         WriteScope scopeToChoose;
         String reconciliationText;
         boolean approveUndo = true;
+        boolean approveDiscard;
+        int discardWarnings;
+        String discardAction;
+        List<WriteJournal.Entry> lastUnresolved = List.of();
 
         WriteProbeConsole(FhirServerService service, FhirServerManager manager,
                 WritePolicy.Confirmation confirmation, boolean approveWrites) {
@@ -2050,6 +2167,15 @@ class ScriptingConsoleSmokeTest {
         protected boolean confirmReconciliation(WriteJournal.Entry entry, String readResult) {
             reconciliationText = readResult;
             return true;
+        }
+
+        @Override
+        protected boolean confirmDiscardUnknownOutcomes(List<WriteJournal.Entry> unresolved,
+                String action, String proceedLabel) {
+            discardWarnings++;
+            discardAction = action;
+            lastUnresolved = List.copyOf(unresolved);
+            return approveDiscard;
         }
 
         @Override
