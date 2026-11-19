@@ -206,13 +206,28 @@ public final class WriteJournal {
 
     /** The newest unknown-outcome entry the user has not reviewed yet. */
     public Optional<Entry> lastUnresolvedUnknown() {
-        for (int index = entries.size() - 1; index >= 0; index--) {
-            Entry entry = entries.get(index);
+        List<Entry> unresolved = unresolvedUnknowns();
+        return unresolved.isEmpty()
+                ? Optional.empty()
+                : Optional.of(unresolved.get(unresolved.size() - 1));
+    }
+
+    /**
+     * Every unknown outcome the user has not reviewed, oldest first.
+     *
+     * <p>The journal lives only while the console is open, and so does this list. A console
+     * about to close asks about these first: each entry can describe a write the server did
+     * apply, and once the window is gone nothing here records that the question was left
+     * open.</p>
+     */
+    public List<Entry> unresolvedUnknowns() {
+        List<Entry> found = new ArrayList<>();
+        for (Entry entry : entries) {
             if (entry.status() == Status.UNKNOWN && !resolved.contains(entry)) {
-                return Optional.of(entry);
+                found.add(entry);
             }
         }
-        return Optional.empty();
+        return List.copyOf(found);
     }
 
     /** Marks an unknown outcome as reviewed, without asserting what the server did. */
