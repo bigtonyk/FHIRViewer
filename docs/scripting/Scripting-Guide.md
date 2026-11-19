@@ -86,8 +86,9 @@ writes for Run does not let a saved suite write. A suite may finish with an opti
 **Undo Last Write** reapplies the resource captured just before the latest successful
 update, patch or delete, or deletes a resource the write created. Undo is a separate,
 explicitly confirmed recovery write outside the script grant's operation/resource scope,
-so narrowing the scope cannot strand a reversal. It still requires server writes to be on
-and a writable target. Undo is best effort: it can overwrite later changes to the resource
+so narrowing the scope cannot strand a reversal. It still requires server writes to be on,
+and either a writable active server or an authorized SMART session, depending on which API
+made the write. Undo is best effort: it can overwrite later changes to the resource
 and is available only while the console is open. Undoing a delete is the one case where the
 restore is conditional: the version the delete removed no longer exists, so the update is
 sent with `If-None-Match: *`, and a server that honours it refuses the write if anything has
@@ -115,8 +116,10 @@ bearer and can only reach the URL that session was granted for, and the server's
 decide what its token may do. Both need the console's write opt-in and obey its scope and
 budget. Deleting a resource through either asks for confirmation immediately before the
 request, with Cancel as the default; cancelling sends nothing. A SMART attempt appears in
-the journal as `SMART session`, because it has no configured server entry, and it keeps no
-before-image, so Undo Last Write does not offer it.
+the journal as `SMART session`, because it has no configured server entry. A SMART update,
+patch or delete captures the prior resource the way `fhir` does, and Undo Last Write
+restores it through the same session's bearer; a SMART create has no before-image, and
+neither has a write whose prior resource could not be read, so those are never offered.
 
 ## Validation and FHIRPath
 

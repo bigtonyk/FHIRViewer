@@ -24,6 +24,9 @@ import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
  */
 public class SmartApi {
 
+    /** The journal name for a write through this session: no configured server owns it. */
+    public static final String JOURNAL_SERVER_NAME = "SMART session";
+
     private volatile SmartAuthorizationSession session;
     private volatile SmartFhirAccess access;
     private volatile WritePolicy writePolicy = WritePolicy.READ_ONLY;
@@ -128,11 +131,13 @@ public class SmartApi {
         String resourceId = id.getIdPart();
         String versionId = resource.getMeta() == null ? null : resource.getMeta().getVersionId();
         SmartAuthorizationSession current = requireWrite("update", type);
+        IBaseResource before = readBefore(current, type, resourceId);
         long started = System.nanoTime();
         try {
             ServerWriteResult result = access.update(current, resource, versionId);
             record("update", type, resourceId, result.versionId(),
-                    WriteJournal.Status.SUCCEEDED, "", started);
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("update", type, resourceId, result.versionId(), before));
             return result;
         } catch (ServerOperationException e) {
             throw failedWrite("update", type, resourceId, versionId, e, started);
@@ -156,12 +161,15 @@ public class SmartApi {
         }
         Objects.requireNonNull(format, "format");
         SmartAuthorizationSession current = requireWrite("patch", resourceType);
+        IBaseResource before = readBefore(current, resourceType, resourceId);
         long started = System.nanoTime();
         try {
             ServerWriteResult result = access.patch(current, resourceType, resourceId, body,
                     format, versionId);
             record("patch", resourceType, resourceId, result.versionId(),
-                    WriteJournal.Status.SUCCEEDED, "", started);
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("patch", resourceType, resourceId,
+                            result.versionId(), before));
             return result;
         } catch (ServerOperationException e) {
             throw failedWrite("patch", resourceType, resourceId, versionId, e, started);
@@ -188,10 +196,14 @@ public class SmartApi {
                     WriteJournal.Status.CANCELLED, "cancelled", started);
             throw new WriteDeniedException("Delete cancelled.");
         }
+        // Read only after the confirmation, so the before-image is as close as possible to
+        // the delete and a cancelled prompt costs no extra request.
+        IBaseResource before = readBefore(current, resourceType, resourceId);
         try {
             access.delete(current, resourceType, resourceId, versionId);
             record("delete", resourceType, resourceId, versionId,
-                    WriteJournal.Status.SUCCEEDED, "", started);
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("delete", resourceType, resourceId, versionId, before));
         } catch (ServerOperationException e) {
             throw failedWrite("delete", resourceType, resourceId, versionId, e, started);
         }
@@ -214,22 +226,109 @@ public class SmartApi {
     }
 
     /**
-     * Records one attempt against the session's server.
-     *
-     * <p>No before-image is kept: undoing a SMART write is the server's own history or a
-     * deliberate script's job, and the console's Undo resolves configured servers. The
-     * entry exists so the attempt is visible and a timeout is not silently retried.</p>
+     * Reads the resource immediately before a write so the console can offer a best-effort
+     * undo, exactly as a configured-server write does. A failed read must never block the
+     * write the user approved: the undo is optional and this extra request is best effort.
      */
+    private IBaseResource readBefore(SmartAuthorizationSession current, String resourceType,
+            String resourceId) {
+        if (writePolicy.journal() == null || current == null || access == null
+                || resourceType == null || resourceId == null) {
+            return null;
+        }
+        try {
+            return access.read(current, resourceType, resourceId).orElse(null);
+        } catch (ServerOperationException | RuntimeException unreadable) {
+            return null;
+        }
+    }
+
+    /**
+     * Puts a captured before-image back, as the console's Undo Last Write does.
+     *
+     * <p>Local recovery only: this is not a script operation, and it deliberately ignores the
+     * grant's operation and resource scope so narrowing the scope cannot strand a reversal. It
+     * still needs an active session -- the bearer is the only credential -- and only ever
+     * writes to the URL that session was granted for, which must be the URL the entry names:
+     * a later session for another server must not receive this before-image.</p>
+     *
+     * <p>An update or patch is reverted with {@code If-Match} naming the version that write
+     * produced, because the before-image's own version predates it. A delete is reverted by a
+     * restore carrying {@code If-None-Match: *} after checking the id is still free, so a
+     * resource recreated later is never overwritten.</p>
+     *
+     * @param serverBaseUrl the URL the journalled write was made against
+     * @param plan the recorded plan, which must carry a before-image
+     * @throws ScriptApiException when the session is gone or different, the plan has no
+     *         before-image, or the server refuses the recovery write
+     */
+    public void restoreBeforeImage(String serverBaseUrl, WriteJournal.Undo plan) {
+        Objects.requireNonNull(plan, "plan");
+        IBaseResource before = plan.before();
+        if (before == null) {
+            throw new ScriptApiException("No before-image was captured for this write.");
+        }
+        if (plan.resourceType() == null || plan.resourceId() == null) {
+            throw new ScriptApiException("The write has no resource id to restore.");
+        }
+        String currentUrl = sessionBaseUrl();
+        if (currentUrl == null || access == null) {
+            throw new ScriptApiException(
+                    "No active SMART session, so its write cannot be undone here.");
+        }
+        if (!currentUrl.equals(serverBaseUrl)) {
+            throw new ScriptApiException("The active SMART session is not the one that made this"
+                    + " write (it is authorized for " + currentUrl + "), so the before-image"
+                    + " cannot be restored here.");
+        }
+        String type = plan.resourceType();
+        String id = plan.resourceId();
+        boolean restoring = "delete".equals(plan.operation());
+        try {
+            if (restoring) {
+                if (access.read(session, type, id).isPresent()) {
+                    throw new ScriptApiException(type + "/" + id + " exists again, so restoring"
+                            + " the before-image would overwrite a resource created after the"
+                            + " delete. Nothing was sent.");
+                }
+                access.restore(session, before);
+            } else {
+                access.update(session, before, plan.versionId());
+            }
+        } catch (ServerOperationException refused) {
+            if (restoring && refused.kind() == ServerOperationException.Kind.CONFLICT) {
+                throw new ScriptApiException(type + "/" + id + " was taken by a new resource"
+                        + " before the restore arrived (" + refused.getMessage() + "), so the"
+                        + " undo wrote nothing and will not overwrite it.", refused);
+            }
+            throw new ScriptApiException("Undo failed: " + refused.getMessage(), refused);
+        }
+    }
+
+    /** Records one attempt against the session's server, with no undo information. */
     private void record(String operation, String resourceType, String resourceId,
             String versionId, WriteJournal.Status status, String detail, long started) {
+        record(operation, resourceType, resourceId, versionId, status, detail, started, null);
+    }
+
+    /**
+     * Records one attempt against the session's server.
+     *
+     * <p>The plan travels with the entry, so a listener never sees a successful write before
+     * its before-image is available and the console can enable Undo as soon as it appears. An
+     * entry exists either way so the attempt is visible and a timeout is not silently retried.</p>
+     */
+    private void record(String operation, String resourceType, String resourceId,
+            String versionId, WriteJournal.Status status, String detail, long started,
+            WriteJournal.Undo undo) {
         WriteJournal journal = writePolicy.journal();
         if (journal == null) {
             return;
         }
         SmartAuthorizationSession current = session;
-        journal.record("SMART session", current == null ? "" : current.fhirBaseUrl(), operation,
-                resourceType, resourceId, versionId, status, detail,
-                Duration.ofNanos(Math.max(0L, System.nanoTime() - started)));
+        journal.record(JOURNAL_SERVER_NAME, current == null ? "" : current.fhirBaseUrl(),
+                operation, resourceType, resourceId, versionId, status, detail,
+                Duration.ofNanos(Math.max(0L, System.nanoTime() - started)), undo);
     }
 
     /**
@@ -244,7 +343,7 @@ public class SmartApi {
                 failure.kind().name(), started);
         if (unknown) {
             SmartAuthorizationSession current = session;
-            return new WriteOutcomeUnknownException(operation, "SMART session",
+            return new WriteOutcomeUnknownException(operation, JOURNAL_SERVER_NAME,
                     current == null ? "" : current.fhirBaseUrl(), failure);
         }
         String target = resourceType + (resourceId == null ? "" : "/" + resourceId);

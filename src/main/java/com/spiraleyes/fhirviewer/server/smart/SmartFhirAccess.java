@@ -245,6 +245,39 @@ public final class SmartFhirAccess {
                 });
     }
 
+    /**
+     * Puts a resource a delete removed back through the authorized session.
+     *
+     * <p>The write carries {@code If-None-Match: *} instead of an {@code If-Match}: the
+     * version the delete removed no longer exists, so the only safe condition is that the id
+     * is still free. A server that has recreated something under it answers {@code 412},
+     * reported unchanged, so this recovery write never overwrites a newer resource.</p>
+     *
+     * @param session the authorized session; never {@code null}
+     * @param resource the resource to put back, with the type and id it had before the delete
+     * @return the id and version the server now reports
+     * @throws ServerOperationException when the session cannot be used, the scopes refuse the
+     *         write, the id is occupied, or the transport fails
+     */
+    public ServerWriteResult restore(SmartAuthorizationSession session, IBaseResource resource)
+            throws ServerOperationException {
+        Objects.requireNonNull(session, "session");
+        Objects.requireNonNull(resource, "resource");
+        String type = requireType(resource.fhirType());
+        IIdType id = resource.getIdElement();
+        if (id == null || !id.hasIdPart()) {
+            throw new IllegalArgumentException("A restore needs a resource with a server id.");
+        }
+        String resourceId = id.getIdPart();
+        requireUsable(session);
+        return recorded("Restoring " + type + "/" + resourceId + " through the authorized session",
+                "PUT " + session.fhirBaseUrl() + "/" + type + "/" + resourceId, () -> {
+                    ServerSession serverSession = sessionFor(session);
+                    return pluginFor(serverSession, session).update(serverSession, resource,
+                            originFor(serverSession, type, resourceId, null).requiringAbsence());
+                });
+    }
+
     private static String requireType(String resourceType) {
         if (resourceType == null || resourceType.isBlank()) {
             throw new IllegalArgumentException("A resource type is required.");

@@ -33,8 +33,9 @@
   carry only the session's bearer, reach only the URL it was granted for, and are
   accepted or refused by the scopes the server issued it. The console's write
   opt-in, scope, budget, delete confirmation and unknown-outcome reporting apply to
-  both APIs; a SMART attempt is journalled as `SMART session` and has no
-  before-image, so Undo Last Write does not offer it.
+  both APIs; a SMART attempt is journalled as `SMART session`, and an update,
+  patch or delete through the session captures the prior resource so Undo Last
+  Write can restore it through the same bearer.
 
 # FHIR Viewer 2.0
 

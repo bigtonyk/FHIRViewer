@@ -618,15 +618,33 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             setStatus("Turn on server writes to undo the last write.");
             return;
         }
-        if (!ensureWriteTarget()) {
-            return;
-        }
         Optional<WriteJournal.Entry> candidate = writeJournal.lastUndoable();
         if (candidate.isEmpty()) {
+            // Nothing to revert, but this is still where a stale target is noticed.
+            if (!ensureWriteTarget()) {
+                return;
+            }
             setStatus("Nothing to undo: no successful write with a captured before-image.");
             return;
         }
         WriteJournal.Entry entry = candidate.get();
+        // A SMART write names no configured server: its session is the only way back, and a
+        // session since authorized for another URL must not receive this before-image.
+        boolean smart = isSmartEntry(entry);
+        if (smart) {
+            if (!writePolicy.isEnabled()) {
+                applyWrites(false);
+                setStatus("Server writes were turned off: the grant expired or was revoked.");
+                return;
+            }
+            if (!smartApi.isSessionActive()) {
+                setStatus("The SMART session is no longer authorized, so its write cannot be"
+                        + " undone here.");
+                return;
+            }
+        } else if (!ensureWriteTarget()) {
+            return;
+        }
         Optional<WriteJournal.Undo> plan = writeJournal.undoFor(entry);
         if (plan.isEmpty()) {
             setStatus("That write has no undo information.");
@@ -646,9 +664,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             } else {
                 // Keep an audit trail of a failed revert without copying a server body
                 // into the journal; the status line carries the readable reason.
-                FhirServerConfiguration failedServer = serverFor(entry);
-                if (failedServer != null) {
-                    recordUndo(failedServer, plan.get(), WriteJournal.Status.FAILED, "undo-failed");
+                // A configured server that is gone sent nothing, so it gets no row of its
+                // own; a SMART reversal needs no configured server and always has one.
+                if (smart || serverFor(entry) != null) {
+                    recordUndo(entry, plan.get(), WriteJournal.Status.FAILED, "undo-failed");
                 }
                 setStatus("Undo failed: " + attempt.failure());
             }
@@ -691,8 +710,53 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         return alert.showAndWait().filter(undo::equals).isPresent();
     }
 
+    /**
+     * Reverts one journalled write, through the SMART session's bearer or a configured
+     * server.
+     *
+     * <p>Only the request differs between the two: the before-image check, the success
+     * bookkeeping and the outcome message are shared, and the candidate, its gating and the
+     * journal row all live with the caller.</p>
+     */
     private String undoWrite(WriteJournal.Entry entry, WriteJournal.Undo plan)
             throws Exception {
+        if ("create".equals(plan.operation())) {
+            undoCreate(entry, plan);
+            recordUndo(entry, plan, WriteJournal.Status.SUCCEEDED, "");
+            return "Undid create of " + plan.resourceType() + "/" + plan.resourceId() + ".";
+        }
+        IBaseResource before = plan.before();
+        if (before == null) {
+            throw new IllegalStateException("No before-image was captured for this write.");
+        }
+        if (isSmartEntry(entry)) {
+            // Only this request carries the session's bearer, and only to the URL the entry
+            // names; everything around it is the same recovery path.
+            smartApi.restoreBeforeImage(entry.serverBaseUrl(), plan);
+        } else {
+            restoreOnConfiguredServer(entry, plan, before);
+        }
+        recordUndo(entry, plan, WriteJournal.Status.SUCCEEDED, "");
+        return "Restored " + plan.resourceType() + "/" + plan.resourceId() + ".";
+    }
+
+    /** Deletes the resource a create made. Only configured servers record create plans. */
+    private void undoCreate(WriteJournal.Entry entry, WriteJournal.Undo plan)
+            throws ServerOperationException {
+        FhirServerConfiguration server = configuredServerForUndo(entry);
+        if (plan.resourceId() == null) {
+            throw new IllegalStateException("The created resource id is unknown.");
+        }
+        serverService.delete(server, ServerOrigin.of(server.pluginId(), server.baseUrl(),
+                plan.resourceType(), plan.resourceId(), plan.versionId()));
+    }
+
+    /**
+     * The configured server an undo must use, or a refusal that sends nothing: a server that
+     * was removed is not replaced by one that merely shares its URL, and one that cannot accept
+     * writes cannot be reverted here.
+     */
+    private FhirServerConfiguration configuredServerForUndo(WriteJournal.Entry entry) {
         FhirServerConfiguration server = serverFor(entry);
         if (server == null) {
             throw new IllegalStateException("The server " + entry.serverName()
@@ -702,19 +766,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             throw new IllegalStateException("The server " + server.name()
                     + " does not accept writes, so it cannot be reverted here.");
         }
-        if ("create".equals(plan.operation())) {
-            if (plan.resourceId() == null) {
-                throw new IllegalStateException("The created resource id is unknown.");
-            }
-            serverService.delete(server, ServerOrigin.of(server.pluginId(), server.baseUrl(),
-                    plan.resourceType(), plan.resourceId(), plan.versionId()));
-            recordUndo(server, plan, WriteJournal.Status.SUCCEEDED, "");
-            return "Undid create of " + plan.resourceType() + "/" + plan.resourceId() + ".";
-        }
-        IBaseResource before = plan.before();
-        if (before == null) {
-            throw new IllegalStateException("No before-image was captured for this write.");
-        }
+        return server;
+    }
+
+    /** Reverts an update, patch or delete on the configured server that made it. */
+    private void restoreOnConfiguredServer(WriteJournal.Entry entry, WriteJournal.Undo plan,
+            IBaseResource before) throws ServerOperationException {
+        FhirServerConfiguration server = configuredServerForUndo(entry);
         boolean restoring = "delete".equals(plan.operation());
         if (restoring) {
             requireStillAbsent(server, plan);
@@ -742,8 +800,6 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                     + refused.getMessage() + "), so the undo wrote nothing and will not"
                     + " overwrite it.");
         }
-        recordUndo(server, plan, WriteJournal.Status.SUCCEEDED, "");
-        return "Restored " + plan.resourceType() + "/" + plan.resourceId() + ".";
     }
 
     /**
@@ -771,10 +827,21 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
     }
 
-    private void recordUndo(FhirServerConfiguration server, WriteJournal.Undo plan,
+    /** True when this entry was written through the SMART session rather than a server. */
+    private static boolean isSmartEntry(WriteJournal.Entry entry) {
+        return SmartApi.JOURNAL_SERVER_NAME.equals(entry.serverName());
+    }
+
+    /**
+     * Journals an undo beside the write it reverts, naming the server that write named: a
+     * SMART row keeps its session name, and a configured row records the same name and URL
+     * as before, because {@link #serverFor} matched both.
+     */
+    private void recordUndo(WriteJournal.Entry entry, WriteJournal.Undo plan,
             WriteJournal.Status status, String detail) {
-        writeJournal.record(server, "undo", plan.resourceType(), plan.resourceId(),
-                plan.versionId(), status, detail, Duration.ZERO);
+        writeJournal.record(entry.serverName(), entry.serverBaseUrl(), "undo",
+                plan.resourceType(), plan.resourceId(), plan.versionId(), status, detail,
+                Duration.ZERO);
     }
 
     private FhirServerConfiguration serverFor(WriteJournal.Entry entry) {

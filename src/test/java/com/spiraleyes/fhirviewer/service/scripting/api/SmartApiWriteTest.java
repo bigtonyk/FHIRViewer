@@ -2,6 +2,7 @@ package com.spiraleyes.fhirviewer.service.scripting.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -56,8 +57,10 @@ class SmartApiWriteTest {
     private final AtomicReference<String> lastMethod = new AtomicReference<>();
     private final AtomicReference<String> lastAuthorization = new AtomicReference<>();
     private final AtomicReference<String> lastIfMatch = new AtomicReference<>();
+    private final AtomicReference<String> lastIfNoneMatch = new AtomicReference<>();
     private final AtomicReference<String> lastBody = new AtomicReference<>();
     private volatile boolean rejectWrites;
+    private volatile boolean hideBeforeImage;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -84,6 +87,7 @@ class SmartApiWriteTest {
         lastMethod.set(exchange.getRequestMethod());
         lastAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
         lastIfMatch.set(exchange.getRequestHeaders().getFirst("If-Match"));
+        lastIfNoneMatch.set(exchange.getRequestHeaders().getFirst("If-None-Match"));
         lastBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
         exchange.getResponseHeaders().set("Content-Type", "application/fhir+json");
         int status;
@@ -91,6 +95,15 @@ class SmartApiWriteTest {
         if (exchange.getRequestURI().getPath().endsWith("/metadata")) {
             status = 200;
             body = CAPABILITY_JSON;
+        } else if ("GET".equals(exchange.getRequestMethod())) {
+            if (hideBeforeImage) {
+                status = 500;
+                body = OPERATION_OUTCOME;
+            } else {
+                status = 200;
+                body = "{\"resourceType\":\"Patient\",\"id\":\"example-1\","
+                        + "\"meta\":{\"versionId\":\"1\"},\"active\":true}";
+            }
         } else if (rejectWrites) {
             status = 403;
             body = OPERATION_OUTCOME;
@@ -129,6 +142,12 @@ class SmartApiWriteTest {
     private SmartApi api(WritePolicy policy) {
         api.useWritePolicy(policy);
         return api;
+    }
+
+    private static Patient patient(String id) {
+        Patient patient = new Patient();
+        patient.setId(id);
+        return patient;
     }
 
     @Test
@@ -224,4 +243,81 @@ class SmartApiWriteTest {
         assertEquals(WriteJournal.Status.FAILED, journal.entries().get(0).status());
         assertEquals("FORBIDDEN", journal.entries().get(0).detail());
     }
+
+    @Test
+    @DisplayName("An update captures the prior resource and undo is offered for it")
+    void updateCapturesBeforeImageAndUndoIsOffered() {
+        WriteJournal journal = new WriteJournal();
+        SmartApi writing = api(WritePolicy.enabled(null, null, journal, 0, null, null));
+
+        writing.update(patient("example-1"));
+
+        WriteJournal.Entry entry = journal.entries().get(0);
+        WriteJournal.Undo plan = journal.undoFor(entry).orElseThrow();
+        assertTrue(plan.canUndo(), "an update with a before-image must be undoable");
+        assertEquals("example-1", plan.before().getIdElement().getIdPart());
+        assertEquals(entry, journal.lastUndoable().orElseThrow(),
+                "the console must offer undo for a SMART write that captured a before-image");
+    }
+
+    @Test
+    @DisplayName("Undo of a SMART update restores the before-image through the session")
+    void undoRestoresTheSmartBeforeImage() {
+        WriteJournal journal = new WriteJournal();
+        SmartApi writing = api(WritePolicy.enabled(null, null, journal, 0, null, null));
+        writing.update(patient("example-1"));
+        WriteJournal.Undo plan = journal.undoFor(journal.entries().get(0)).orElseThrow();
+
+        writing.restoreBeforeImage(baseUrl, plan);
+
+        assertEquals("PUT", lastMethod.get());
+        assertTrue(lastAuthorization.get().contains("tok-write"),
+                "the reversal must carry the session's bearer: " + lastAuthorization.get());
+        assertTrue(lastIfMatch.get() != null && lastIfMatch.get().contains("2"),
+                "the undo must name the version the reverted write produced: "
+                        + lastIfMatch.get());
+        assertTrue(lastBody.get().contains("\"active\":true"),
+                "the body must be the captured before-image: " + lastBody.get());
+    }
+
+    @Test
+    @DisplayName("No undo is offered, and none is sent, when no before-image could be captured")
+    void undoIsRefusedWithoutABeforeImage() {
+        hideBeforeImage = true;
+        WriteJournal journal = new WriteJournal();
+        SmartApi writing = api(WritePolicy.enabled(null, null, journal, 0, null, null));
+
+        writing.update(patient("example-1"));
+
+        WriteJournal.Entry entry = journal.entries().get(0);
+        assertEquals(WriteJournal.Status.SUCCEEDED, entry.status(),
+                "an unreadable prior resource must not block the write");
+        assertFalse(journal.undoFor(entry).orElseThrow().canUndo(),
+                "there is nothing to restore");
+        assertTrue(journal.lastUndoable().isEmpty(),
+                "Undo Last Write must not offer a write with no before-image");
+
+        ScriptApiException refused = assertThrows(ScriptApiException.class,
+                () -> writing.restoreBeforeImage(baseUrl, new WriteJournal.Undo("update",
+                        "Patient", "example-1", "2", null)));
+        assertTrue(refused.getMessage().contains("No before-image"), refused.getMessage());
+    }
+
+    @Test
+    @DisplayName("Undoing a SMART delete writes nothing when the id has been taken again")
+    void undoOfDeleteRefusesWhenTheIdIsOccupied() {
+        WriteJournal journal = new WriteJournal();
+        SmartApi writing = api(WritePolicy.enabled(null, null, journal, 0, null, null));
+
+        writing.delete("Patient", "example-1");
+        WriteJournal.Undo plan = journal.undoFor(journal.entries().get(0)).orElseThrow();
+        assertEquals("delete", plan.operation());
+        assertNotNull(plan.before(), "a delete must capture the resource it removes");
+
+        ScriptApiException refused = assertThrows(ScriptApiException.class,
+                () -> writing.restoreBeforeImage(baseUrl, plan));
+        assertTrue(refused.getMessage().contains("exists again"), refused.getMessage());
+        assertEquals("GET", lastMethod.get(), "nothing may be written when the id is occupied");
+    }
+
 }
