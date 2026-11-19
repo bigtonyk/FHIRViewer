@@ -812,20 +812,17 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
      *
      * <p>The boundary is the conditional write, not this read: the restore carries
      * {@code If-None-Match: *} (see {@link ServerOrigin#requiringAbsence()}), so the server
-     * refuses an id that something took between the read and the write -- the one gap a read
-     * alone can only narrow. The read therefore only makes the usual answer readable instead of
-     * a bare 412; it must never be able to block the restore. A server may refuse or fail the
-     * read while still accepting writes, and a delete such a server accepted must stay
-     * revertible, so an unreadable id falls through to the conditional write and the server
-     * decides.</p>
+     * refuses an id something took between the read and the write. The read only makes the
+     * usual answer readable instead of a bare 412, so a refused or unanswered read falls
+     * through to the conditional write and the server decides: one that will not answer this
+     * read may still accept the write, and a delete it accepted must stay revertible.</p>
      */
     private void requireStillAbsent(FhirServerConfiguration server, WriteJournal.Undo plan) {
         IBaseResource existing;
         try {
             existing = serverService.read(server, plan.resourceType(), plan.resourceId());
-        } catch (Exception unreadable) {
-            // Refused or not answered: the conditional restore is sent anyway, and the server's
-            // refusal, not this read, is what stops an overwrite.
+        } catch (ServerOperationException unreadable) {
+            // Refused or unanswered: the conditional write is the guard, so the restore is sent.
             return;
         }
         if (existing != null) {

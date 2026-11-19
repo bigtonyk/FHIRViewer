@@ -2004,6 +2004,8 @@ class ScriptingConsoleSmokeTest {
             Thread.sleep(25);
         }
         onFxThread(() -> {
+            assertEquals(2, service.readCalls,
+                    "the undo must still try the read whose refusal it falls through");
             assertEquals(1, service.updateCalls,
                     "a read the server cannot answer must not block the restore it accepts");
             assertTrue(service.lastUpdateOrigin.onlyIfAbsent(),
