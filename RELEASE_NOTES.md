@@ -24,6 +24,10 @@
   the review reads up to five pages of ten before it answers, so a match past
   the first page is found and a truncated result is reported as unresolved
   rather than as not applied.
+- An unknown outcome that is still unreviewed is not lost silently when the
+  journal would be cleared: closing the console, opening another script and
+  loading the example all warn, name the writes, and ask for a review first,
+  because the journal exists only while the console is open.
 - Writes use the active server's saved credentials, not the SMART session;
   `smart` remains read-only.
 

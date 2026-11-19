@@ -102,7 +102,11 @@ search on a bare value matches the value under any system. One failing identifie
 does not end the review, and the search follows the server's next links for up to five
 pages of ten before it answers: when the server reported more matches than were read, a
 miss is reported as "may still have been applied" rather than as absence. Review never
-changes the server: it reads or searches, then clears the journal entry.
+changes the server: it reads or searches, then clears the journal entry. The journal lives
+only while the console is open, so anything that would clear it (closing the console,
+opening another script, or loading the example) asks first when an outcome is still
+unreviewed and names those writes: review the entry, or accept the warning and reconcile
+the resource on the server by hand.
 
 Only `fhir` writes are enabled. `server` remains an inspection API. Writes use the active
 server's saved credentials, not the SMART session. Deleting a resource asks for
