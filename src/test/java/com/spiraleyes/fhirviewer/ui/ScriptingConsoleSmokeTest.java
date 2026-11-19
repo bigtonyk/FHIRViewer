@@ -1973,6 +1973,50 @@ class ScriptingConsoleSmokeTest {
     }
 
     @Test
+    @DisplayName("A delete whose id cannot be read is still restored conditionally")
+    void deleteUndoProceedsWhenTheIdCannotBeRead() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        Patient before = new Patient();
+        before.setId("1");
+        before.getMeta().setVersionId("v1");
+        before.addName().setFamily("Before");
+        service.readResource = before;
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        onFxThread(() -> {
+            console.bindingsForTest().fhir.delete("Patient", "1", "v1");
+            assertEquals(1, service.deleteCalls);
+            // A server that cannot answer this read, as a write-only token's server may not:
+            // the conditional write, not the read, is what keeps the restore safe.
+            service.failRead = true;
+            console.undoButtonForTest().fire();
+            return null;
+        });
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!console.statusTextForTest().contains("Restored")
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertEquals(1, service.updateCalls,
+                    "a read the server cannot answer must not block the restore it accepts");
+            assertTrue(service.lastUpdateOrigin.onlyIfAbsent(),
+                    "the restore must still carry If-None-Match: *");
+            assertEquals("Restored Patient/1.", console.statusTextForTest());
+            assertTrue(console.writeJournalTextForTest().contains("[undone]"),
+                    console.writeJournalTextForTest());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
     @DisplayName("A restore the server refuses with 412 is reported and the delete stays undoable")
     void aRestoreRefusedAsAConflictIsReported() throws Exception {
         requireToolkit();
@@ -2292,6 +2336,7 @@ class ScriptingConsoleSmokeTest {
         ServerOrigin lastDeleteOrigin;
         boolean failCreateAsTimeout;
         boolean failUpdateAsConflict;
+        boolean failRead;
         final List<SearchRequest> searchRequests = new java.util.ArrayList<>();
         final java.util.Set<String> failSearchIdentifiers = new java.util.LinkedHashSet<>();
         final java.util.Map<String, SearchResultPage> pages = new java.util.HashMap<>();
@@ -2338,8 +2383,14 @@ class ScriptingConsoleSmokeTest {
 
         @Override
         public org.hl7.fhir.instance.model.api.IBaseResource read(FhirServerConfiguration server,
-                String resourceType, String resourceId) {
+                String resourceType, String resourceId)
+                throws com.spiraleyes.fhirviewer.server.ServerOperationException {
             readCalls++;
+            if (failRead) {
+                throw new com.spiraleyes.fhirviewer.server.ServerOperationException(
+                        com.spiraleyes.fhirviewer.server.ServerOperationException.Kind.UNREACHABLE,
+                        "read Patient/" + resourceId + " was refused");
+            }
             return deletedIds.contains(resourceId) ? null : readResource;
         }
 

@@ -808,22 +808,25 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     }
 
     /**
-     * Cancels restoring a deleted resource when something occupies its id again.
+     * Cancels restoring a deleted resource when a readable id is already occupied again.
      *
-     * <p>A restore cannot use If-Match: the version the delete removed no longer exists. So the
-     * write itself carries {@code If-None-Match: *} (see
-     * {@link ServerOrigin#requiringAbsence()}), which is what makes it safe. This read is what
-     * lets the answer be readable rather than a bare 412: one that answers means the undo is no
-     * longer safe, and a read that fails leaves the same question open. Both cases send nothing.</p>
+     * <p>The boundary is the conditional write, not this read: the restore carries
+     * {@code If-None-Match: *} (see {@link ServerOrigin#requiringAbsence()}), so the server
+     * refuses an id that something took between the read and the write -- the one gap a read
+     * alone can only narrow. The read therefore only makes the usual answer readable instead of
+     * a bare 412; it must never be able to block the restore. A server may refuse or fail the
+     * read while still accepting writes, and a delete such a server accepted must stay
+     * revertible, so an unreadable id falls through to the conditional write and the server
+     * decides.</p>
      */
     private void requireStillAbsent(FhirServerConfiguration server, WriteJournal.Undo plan) {
         IBaseResource existing;
         try {
             existing = serverService.read(server, plan.resourceType(), plan.resourceId());
         } catch (Exception unreadable) {
-            throw new IllegalStateException(plan.resourceType() + "/" + plan.resourceId()
-                    + " could not be read (" + message(unreadable) + "), so there is no telling"
-                    + " whether it was recreated. Nothing was sent.");
+            // Refused or not answered: the conditional restore is sent anyway, and the server's
+            // refusal, not this read, is what stops an overwrite.
+            return;
         }
         if (existing != null) {
             throw new IllegalStateException(plan.resourceType() + "/" + plan.resourceId()

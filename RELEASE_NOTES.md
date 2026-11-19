@@ -17,7 +17,8 @@
   The restore carries `If-None-Match: *`, so a resource created at that id after
   the delete makes the server refuse the undo; the status line then reports that
   the id was taken by a new resource and that nothing was written, instead of
-  overwriting it.
+  overwriting it. A read that is refused or fails does not block the restore
+  either, because the conditional write is what decides.
 - **Review Unknown** for a timed-out create searches the identifiers the
   submitted resource carried. A search hit counts only when the resource really
   carries that identifier, one lookup failing no longer abandons the others, and
