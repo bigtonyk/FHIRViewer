@@ -59,6 +59,7 @@ import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteRunResult;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.DialogPane;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
@@ -422,40 +423,112 @@ class ScriptingConsoleSmokeTest {
         }
     }
 
+    /**
+     * The write opt-in must reach the SMART facade the Workbench shares, and closing the
+     * console must end the grant that facade holds.
+     */
     @Test
-    @DisplayName("Closing the application asks a showing console before its journal is lost")
-    void closingTheApplicationAsksTheOpenConsole() throws Exception {
+    @DisplayName("The console's write opt-in reaches the shared SMART session and ends with it")
+    void writeOptInReachesTheSharedSmartSession() throws Exception {
         requireToolkit();
-        WritableService service = new WritableService();
-        FhirServerManager manager = managerWithServer();
+        SmartSessionHolder holder = new SmartSessionHolder();
+        holder.set(session("stub-token", "stub-patient"), null);
         WriteProbeConsole console = onFxThread(() -> {
-            WriteProbeConsole created = new WriteProbeConsole(service, manager,
-                    summary -> true, true);
+            WriteProbeConsole created = new WriteProbeConsole(new WritableService(),
+                    managerWithServer(), summary -> true, true, holder);
             created.show();
             return created;
         });
 
         onFxThread(() -> {
-            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
-                    "a console with nothing unreviewed lets the application close");
-
-            console.writeJournalForTest().record(manager.active().orElseThrow(), "update",
-                    "Patient", "1", "v1", WriteJournal.Status.UNKNOWN, "TIMEOUT",
-                    Duration.ZERO);
-            assertFalse(ScriptingConsoleDialog.confirmConsolesMayClose(),
-                    "an unreviewed unknown outcome must stop the application closing");
-            assertEquals("closing this console", console.discardAction,
-                    "the application must ask the console's own close question");
-
-            console.approveDiscard = true;
-            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
-                    "accepting the warning lets the application close");
-
+            assertFalse(holder.api().isWriteEnabled(), "writes start off for a session");
+            console.allowWritesForTest().fire();
+            assertTrue(holder.api().isWriteEnabled(),
+                    "the opt-in must reach the shared SMART facade");
             console.close();
-            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
-                    "a console that is no longer showing must not be asked again");
             return null;
         });
+        onFxThread(() -> {
+            assertFalse(holder.api().isWriteEnabled(),
+                    "a closed console must not leave a live grant on the shared facade");
+            return null;
+        });
+    }
+
+    /**
+     * The opt-in also covers SMART writes, so the warning that asks for it has to say where
+     * those go: previously the session's own server was only in the docs.
+     */
+    @Test
+    @DisplayName("The write warning names the SMART session's server when one is active")
+    void writeWarningNamesTheSmartSessionServer() throws Exception {
+        requireToolkit();
+        SmartSessionHolder holder = new SmartSessionHolder();
+        holder.set(session("stub-token", "stub-patient"), null);
+        DialogProbeConsole console = onFxThread(() -> {
+            DialogProbeConsole created = new DialogProbeConsole(new WritableService(),
+                    managerWithServer(), holder);
+            created.show();
+            return created;
+        });
+
+        AtomicReference<String> warningText = new AtomicReference<>();
+        CountDownLatch finished = new CountDownLatch(1);
+        Thread helper = new Thread(() -> {
+            while (finished.getCount() > 0) {
+                Platform.runLater(() -> {
+                    String text = dialogContentText("Allow server writes?");
+                    if (text != null) {
+                        warningText.set(text);
+                    }
+                    clickDialogButton("Allow server writes?", "Allow Writes");
+                });
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException interrupted) {
+                    return;
+                }
+            }
+        }, "scripting-console-smart-warning");
+        helper.setDaemon(true);
+        helper.start();
+        Platform.runLater(() -> {
+            try {
+                console.allowWritesForTest().fire();
+            } finally {
+                finished.countDown();
+            }
+        });
+
+        boolean answered;
+        try {
+            answered = finished.await(10, TimeUnit.SECONDS);
+        } finally {
+            helper.interrupt();
+        }
+        assertTrue(answered, "the write warning was not answered");
+        assertNotNull(warningText.get(), "the write warning was not shown");
+        assertTrue(warningText.get().contains("authorized SMART session"),
+                "the opt-in covers SMART writes, so the warning must say so: "
+                        + warningText.get());
+        assertTrue(warningText.get().contains("http://example.com/fhir"),
+                "the warning must name the session's server: " + warningText.get());
+        onFxThread(() -> {
+            console.close();
+            return null;
+        });
+    }
+
+    /** The content text of a showing dialog with this title, or null when none is up. */
+    private static String dialogContentText(String title) {
+        for (Window window : Window.getWindows()) {
+            if (window instanceof Stage stage && stage.isShowing()
+                    && title.equals(stage.getTitle()) && stage.getScene() != null
+                    && stage.getScene().getRoot() instanceof DialogPane pane) {
+                return pane.getContentText();
+            }
+        }
+        return null;
     }
 
     private static SmartAuthorizationSession session(String token, String patient) {
@@ -1093,6 +1166,42 @@ class ScriptingConsoleSmokeTest {
             assertTrue(console.editorTextForTest().isBlank(),
                     "refusing the warning must not load the example");
             console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Closing the application asks a showing console before its journal is lost")
+    void closingTheApplicationAsksTheOpenConsole() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        FhirServerManager manager = managerWithServer();
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, manager,
+                    summary -> true, true);
+            created.show();
+            return created;
+        });
+
+        onFxThread(() -> {
+            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "a console with nothing unreviewed lets the application close");
+
+            console.writeJournalForTest().record(manager.active().orElseThrow(), "update",
+                    "Patient", "1", "v1", WriteJournal.Status.UNKNOWN, "TIMEOUT",
+                    Duration.ZERO);
+            assertFalse(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "an unreviewed unknown outcome must stop the application closing");
+            assertEquals("closing this console", console.discardAction,
+                    "the application must ask the console's own close question");
+
+            console.approveDiscard = true;
+            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "accepting the warning lets the application close");
+
+            console.close();
+            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "a console that is no longer showing must not be asked again");
             return null;
         });
     }
@@ -2184,6 +2293,15 @@ class ScriptingConsoleSmokeTest {
             this.fileToOpen = null;
         }
 
+        WriteProbeConsole(FhirServerService service, FhirServerManager manager,
+                WritePolicy.Confirmation confirmation, boolean approveWrites,
+                SmartSessionHolder smartSessions) {
+            super(new ThemeManager(), new FhirService(), service, manager,
+                    new ScriptingCoordinator(), smartSessions, confirmation);
+            this.approveWrites = approveWrites;
+            this.fileToOpen = null;
+        }
+
         @Override
         protected boolean confirmWriteAccess(FhirServerConfiguration server) {
             return approveWrites;
@@ -2226,6 +2344,12 @@ class ScriptingConsoleSmokeTest {
         DialogProbeConsole(FhirServerService service, FhirServerManager manager) {
             super(new ThemeManager(), new FhirService(), service, manager,
                     new ScriptingCoordinator(), null);
+        }
+
+        DialogProbeConsole(FhirServerService service, FhirServerManager manager,
+                SmartSessionHolder smartSessions) {
+            super(new ThemeManager(), new FhirService(), service, manager,
+                    new ScriptingCoordinator(), smartSessions);
         }
     }
 

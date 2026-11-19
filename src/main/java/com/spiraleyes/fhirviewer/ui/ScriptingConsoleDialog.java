@@ -252,6 +252,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         this.serverService = serverService;
         this.serverManager = serverManager;
         this.smartApi = smartSessions == null ? new SmartApi() : smartSessions.api();
+        // The holder hands every console the same facade, so a write grant left over from a
+        // previous console is cleared rather than inherited by this one.
+        this.smartApi.useWritePolicy(WritePolicy.READ_ONLY);
         this.writeConfirmation = writeConfirmation == null
                 ? this::confirmWriteOnFxThread
                 : writeConfirmation;
@@ -276,7 +279,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 + " session until Reset Session."));
         updateRunModeLabel();
         allowWrites.setTooltip(new Tooltip("Allow fhir.create, fhir.update, fhir.patch and"
-                + " fhir.delete to change the active FHIR server for this console session."));
+                + " fhir.delete to change the active FHIR server, and the same writes through"
+                + " an authorized SMART session, for this console session."));
         allowWrites.setOnAction(event -> onWriteToggle());
         allowSuiteWrites.setTooltip(new Tooltip("Off by default: Run Tests uses a read-only"
                 + " API even while interactive Run may write. Turn this on only for suites"
@@ -375,6 +379,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         setOnHidden(event -> {
             SHOWING.remove(this);
             writeExpiryCheck.stop();
+            // Revoking is what ends the grant on the shared SMART facade too: the facade
+            // holds this very policy object, not a copy of it.
             writePolicy.revoke();
             coordinator.close();
         });
@@ -408,6 +414,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                         WRITE_IDLE_TIMEOUT, writeScope)
                 : WritePolicy.READ_ONLY;
         writePolicy = policy;
+        smartApi.useWritePolicy(policy);
         bindings = createBindings(policy);
         writeTarget = enabled ? serverManager.active().orElse(null) : null;
         allowWrites.setSelected(enabled);
@@ -524,7 +531,12 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         warning.initOwner(owner);
         warning.setTitle("Allow server writes?");
         warning.setHeaderText("Allow scripts in this window to change " + server.name() + "?");
-        warning.setContentText("Writes go to:\n" + server.name() + " (" + server.baseUrl() + ")\n\n"
+        String smartTarget = smartApi.sessionBaseUrl();
+        warning.setContentText("Writes go to:\n" + server.name() + " (" + server.baseUrl() + ")"
+                + (smartTarget == null ? ""
+                        : "\nand, through the authorized SMART session, to " + smartTarget
+                                + " within the scopes that session was given")
+                + "\n\n"
                 + "This grant allows: " + writeScope.describe() + ". Deletes ask again before"
                 + " they are sent. Scripts are not sandboxed. Undo is best effort and only"
                 + " covers writes made in this console session. Only allow this for code you"

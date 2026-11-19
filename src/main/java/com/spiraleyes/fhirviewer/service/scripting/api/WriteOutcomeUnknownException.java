@@ -17,13 +17,22 @@ public final class WriteOutcomeUnknownException extends ScriptApiException {
 
     public WriteOutcomeUnknownException(String operation, FhirServerConfiguration server,
             Throwable cause) {
-        super(operation + " request to " + server.name() + " (" + server.baseUrl()
+        this(operation, server.name(), server.baseUrl(), cause);
+    }
+
+    /**
+     * As above for a server with no configured entry, such as a SMART session, which is
+     * named by its own URL.
+     */
+    public WriteOutcomeUnknownException(String operation, String serverName,
+            String serverBaseUrl, Throwable cause) {
+        super(operation + " request to " + serverName + " (" + serverBaseUrl
                 + ") timed out after it may have been sent, so its outcome is unknown."
                 + " Read or search before retrying; repeating it could apply the change twice.",
                 cause);
         this.operation = operation;
-        this.serverName = server.name();
-        this.serverBaseUrl = server.baseUrl();
+        this.serverName = serverName;
+        this.serverBaseUrl = serverBaseUrl;
     }
 
     /** The operation whose result is unknown, for example {@code create}. */

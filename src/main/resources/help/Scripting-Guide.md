@@ -34,7 +34,7 @@ Scripts receive these top-level final variables:
 | `server` | `ServerApi` | Inspect configured servers and capabilities |
 | `log` | `LogApi` | Print info/warn/error messages |
 | `test` | `TestApi` | Assertions for automated tests |
-| `smart` | `SmartApi` | Read through the Workbench's authorized SMART session |
+| `smart` | `SmartApi` | Read and write through the Workbench's authorized SMART session |
 | `batch` | `BatchProcessor` | Process a list of resources one at a time |
 
 ## FHIR resource operations
@@ -75,8 +75,9 @@ without storing request bodies, and the run summary shows the counts.
 **Write scope...** narrows the grant to selected operations and resource types. For example,
 a grant can allow `update` and `patch` on `Patient` only; every other write is refused before
 a request is sent, even through an old `fhir` reference. A server can also be marked
-**Read-only server** in Tools > FHIR Servers; that refuses Save to Server and every script
-write regardless of the grant.
+**Read-only server** in Tools > FHIR Servers; that refuses Save to Server and every `fhir`
+write regardless of the grant. A SMART session is separate: its writes carry the session's
+own grant and the scopes the server issued it.
 
 Test runs have a separate **Allow writes in test runs** checkbox, off by default. Turning on
 writes for Run does not let a saved suite write. A suite may finish with an optional
@@ -108,10 +109,14 @@ the application, opening another script, or loading the example) asks first when
 outcome is still unreviewed and names those writes: review the entry, or accept the
 warning and reconcile the resource on the server by hand.
 
-Only `fhir` writes are enabled. `server` remains an inspection API. Writes use the active
-server's saved credentials, not the SMART session. Deleting a resource asks for
-confirmation immediately before the request, with Cancel as the default; cancelling sends
-nothing.
+`fhir` and `smart` are the writing APIs; `server` remains an inspection API. `fhir` writes
+use the active server's saved credentials, `smart` writes use the authorized session's
+bearer and can only reach the URL that session was granted for, and the server's scopes
+decide what its token may do. Both need the console's write opt-in and obey its scope and
+budget. Deleting a resource through either asks for confirmation immediately before the
+request, with Cancel as the default; cancelling sends nothing. A SMART attempt appears in
+the journal as `SMART session`, because it has no configured server entry, and it keeps no
+before-image, so Undo Last Write does not offer it.
 
 ## Validation and FHIRPath
 
@@ -181,9 +186,24 @@ if (smart.isSessionActive()) {
 ```
 
 Raw tokens are never exposed. Scope restrictions and expiry are enforced;
-`read` throws `ScriptApiException` when no session is active.
+`smart.read` throws `ScriptApiException` when no session is active.
 
-`smart` is read-only. Server writes go through `fhir` and its explicit console opt-in.
+The same session can write once **Allow server writes** is on for the console:
+
+```java
+if (smart.isWriteEnabled()) {
+    ServerWriteResult created = smart.create(patient);
+    smart.update(patient);
+    smart.delete("Patient", created.resourceId());
+}
+```
+
+`smart.create`, `smart.update`, `smart.patch` and `smart.delete` send the session's bearer
+and nothing else, so they can only reach the server the session was authorized for. The
+scopes the server granted decide whether it accepts them: a `403` is reported as
+`ScriptApiException` and recorded as a failed attempt, never retried. The console's
+opt-in, write scope and budget apply exactly as they do to `fhir`, deletes are confirmed,
+and a timeout is reported as an unknown outcome instead of a safe retry.
 
 Authorize in **Tools → SMART Launch Workbench...** before opening the console. The
 session is shared with the console and stays in application memory after the Workbench
@@ -383,7 +403,9 @@ if (!smart.isSessionActive()) {
 ```
 
 `smart.read` enforces the session's scopes and expiry; it throws `ScriptApiException` when
-no session is active. Raw tokens are never exposed.
+no session is active. Raw tokens are never exposed. Writes are refused with
+`WriteDeniedException` until **Allow server writes** is on, and the session's own scopes
+still decide whether the server accepts them.
 
 ## Security and troubleshooting
 
@@ -469,6 +491,13 @@ execute its `// case:` suites without leaving the console.
 - `String launchPatientId()`
 - `String launchEncounterId()`
 - `IBaseResource read(String resourceType, String id)`
+- `boolean isWriteEnabled()`
+- `String sessionBaseUrl()`
+- `ServerWriteResult create(IBaseResource)` / `ServerWriteResult update(IBaseResource)`
+- `ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat)`
+  and the same with a trailing `String versionId`
+- `void delete(String resourceType, String resourceId)` and the same with a trailing
+  `String versionId`
 
 ### SearchResults
 - `List<IBaseResource> resources()`

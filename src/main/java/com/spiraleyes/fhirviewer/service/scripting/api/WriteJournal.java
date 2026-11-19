@@ -90,6 +90,17 @@ public final class WriteJournal {
     }
 
     /**
+     * Records one attempt against a server with no configured entry, such as a SMART
+     * session, which is identified by the URL its token was issued for.
+     */
+    public Entry record(String serverName, String serverBaseUrl, String operation,
+            String resourceType, String resourceId, String versionId, Status status,
+            String detail, Duration elapsed) {
+        return record(serverName, serverBaseUrl, operation, resourceType, resourceId, versionId,
+                status, detail, elapsed, null);
+    }
+
+    /**
      * Records one attempt with its undo plan and notifies listeners once.
      *
      * <p>The plan travels with the entry so a listener never sees a successful write before
@@ -99,9 +110,18 @@ public final class WriteJournal {
     public Entry record(FhirServerConfiguration server, String operation, String resourceType,
             String resourceId, String versionId, Status status, String detail, Duration elapsed,
             Undo undo) {
+        return record(server == null ? "unknown" : server.name(),
+                server == null ? "" : server.baseUrl(), operation, resourceType, resourceId,
+                versionId, status, detail, elapsed, undo);
+    }
+
+    /** Records one attempt against a named server and notifies listeners once. */
+    public Entry record(String serverName, String serverBaseUrl, String operation,
+            String resourceType, String resourceId, String versionId, Status status,
+            String detail, Duration elapsed, Undo undo) {
         Entry entry = new Entry(Instant.now(),
-                server == null ? "unknown" : server.name(),
-                server == null ? "" : server.baseUrl(),
+                serverName == null || serverName.isBlank() ? "unknown" : serverName,
+                serverBaseUrl == null ? "" : serverBaseUrl,
                 operation, resourceType, resourceId, versionId,
                 status == null ? Status.FAILED : status,
                 detail == null ? "" : detail,

@@ -28,8 +28,13 @@
   journal would be cleared: closing the console or the application, opening
   another script and loading the example all warn, name the writes, and ask for a
   review first, because the journal exists only while the console is open.
-- Writes use the active server's saved credentials, not the SMART session;
-  `smart` remains read-only.
+- `fhir` writes use the active server's saved credentials. `smart` can now create,
+  update, patch and delete through the authorized SMART session: those requests
+  carry only the session's bearer, reach only the URL it was granted for, and are
+  accepted or refused by the scopes the server issued it. The console's write
+  opt-in, scope, budget, delete confirmation and unknown-outcome reporting apply to
+  both APIs; a SMART attempt is journalled as `SMART session` and has no
+  before-image, so Undo Last Write does not offer it.
 
 # FHIR Viewer 2.0
 
