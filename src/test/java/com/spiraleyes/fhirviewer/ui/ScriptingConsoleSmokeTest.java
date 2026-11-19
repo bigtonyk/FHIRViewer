@@ -9,6 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.GraphicsEnvironment;
 import java.io.File;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -31,6 +34,11 @@ import org.junit.jupiter.api.io.TempDir;
 
 import org.hl7.fhir.r4.model.Patient;
 
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+
+import ca.uhn.fhir.context.FhirContext;
+
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
@@ -41,13 +49,16 @@ import com.spiraleyes.fhirviewer.server.SearchResultPage;
 import com.spiraleyes.fhirviewer.server.ServerDefinition;
 import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.server.ServerWriteResult;
+import com.spiraleyes.fhirviewer.server.StandardFhirRestPlugin;
 import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationSession;
+import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
 import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
 import com.spiraleyes.fhirviewer.server.smart.SmartTokenResponse;
 import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.service.scripting.FailingScriptingSessions;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
 import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
+import com.spiraleyes.fhirviewer.service.scripting.api.SmartApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.WriteDeniedException;
 import com.spiraleyes.fhirviewer.service.scripting.api.WriteJournal;
 import com.spiraleyes.fhirviewer.service.scripting.api.WriteOutcomeUnknownException;
@@ -517,6 +528,126 @@ class ScriptingConsoleSmokeTest {
             console.close();
             return null;
         });
+    }
+
+    /**
+     * The console's own SMART branch, end to end: a journalled SMART entry, the Undo button,
+     * the session's server receiving the restore, and the reversal journalled beside it.
+     *
+     * <p>Only the restore call and the journal predicate were tested before, so a mistake in
+     * the console's routing or gating would not have shown up. The stub checks the credential
+     * too: the reversal must carry the session's bearer, not a configured server's.</p>
+     */
+    @Test
+    @DisplayName("Undo Last Write reverts a SMART entry through the session's server")
+    void undoRevertsASmartEntry() throws Exception {
+        requireToolkit();
+        String capability = "{\"resourceType\":\"CapabilityStatement\",\"status\":\"active\","
+                + "\"date\":\"2024-01-01\",\"kind\":\"instance\",\"fhirVersion\":\"4.0.1\","
+                + "\"format\":[\"json\"],\"rest\":[{\"mode\":\"server\","
+                + "\"resource\":[{\"type\":\"Patient\"}]}]}";
+        AtomicInteger restores = new AtomicInteger();
+        AtomicReference<String> authorization = new AtomicReference<>();
+        AtomicReference<String> ifMatch = new AtomicReference<>();
+        AtomicReference<String> body = new AtomicReference<>();
+        HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        stub.createContext("/", exchange -> handleRestore(exchange, capability, restores,
+                authorization, ifMatch, body));
+        stub.start();
+        String baseUrl = "http://127.0.0.1:" + stub.getAddress().getPort();
+        try {
+            FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+            registry.register(new StandardFhirRestPlugin(FhirContext.forR4()));
+            SmartSessionHolder holder = new SmartSessionHolder();
+            holder.set(new SmartAuthorizationSession(baseUrl, new SmartTokenResponse("tok-undo",
+                    "Bearer", 3600L, "patient/*.write", "1", null, null, null), null),
+                    new SmartFhirAccess(registry));
+
+            Patient before = new Patient();
+            before.setId("Patient/1");
+            before.addName().setFamily("Before");
+
+            WriteProbeConsole console = onFxThread(() -> {
+                WriteProbeConsole created = new WriteProbeConsole(new WritableService(),
+                        managerWithServer(), summary -> true, true, holder);
+                created.show();
+                created.allowWritesForTest().fire();
+                created.writeJournalForTest().record(SmartApi.JOURNAL_SERVER_NAME, baseUrl,
+                        "update", "Patient", "1", "2", WriteJournal.Status.SUCCEEDED, "",
+                        Duration.ZERO,
+                        new WriteJournal.Undo("update", "Patient", "1", "2", before));
+                assertFalse(created.undoButtonForTest().isDisable(),
+                        "a SMART entry with a before-image must enable Undo Last Write");
+                created.undoButtonForTest().fire();
+                return created;
+            });
+
+            long deadline = System.currentTimeMillis() + 10_000;
+            while ((restores.get() < 1
+                    || !console.writeJournalTextForTest().contains("[undone]"))
+                    && System.currentTimeMillis() < deadline) {
+                Thread.sleep(25);
+            }
+
+            assertEquals(1, restores.get(), "the stub must receive one restore");
+            assertTrue(authorization.get() != null && authorization.get().contains("tok-undo"),
+                    "the restore must carry the session's bearer: " + authorization.get());
+            assertTrue(ifMatch.get() != null && ifMatch.get().contains("2"),
+                    "the restore must name the version the reverted write produced: "
+                            + ifMatch.get());
+            assertTrue(body.get() != null && body.get().contains("Before"),
+                    "the restore must send the captured before-image: " + body.get());
+
+            onFxThread(() -> {
+                List<WriteJournal.Entry> entries = console.writeJournalForTest().entries();
+                assertEquals(2, entries.size(), "the SMART write and its undo: "
+                        + console.writeJournalTextForTest());
+                assertTrue(console.writeJournalForTest().isUndone(entries.get(0)),
+                        "the reverted write must be marked undone");
+                assertEquals("undo", entries.get(1).operation());
+                assertEquals(SmartApi.JOURNAL_SERVER_NAME, entries.get(1).serverName(),
+                        "the reversal is journalled as the session it went through");
+                assertEquals(baseUrl, entries.get(1).serverBaseUrl());
+                assertEquals(WriteJournal.Status.SUCCEEDED, entries.get(1).status(),
+                        console.writeJournalTextForTest());
+                console.close();
+                return null;
+            });
+        } finally {
+            stub.stop(0);
+        }
+    }
+
+    /** Answers the capability check and records the restore the console sends. */
+    private static void handleRestore(HttpExchange exchange, String capability,
+            AtomicInteger restores, AtomicReference<String> authorization,
+            AtomicReference<String> ifMatch, AtomicReference<String> body) throws java.io.IOException {
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+        String request = new String(exchange.getRequestBody().readAllBytes(),
+                StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/fhir+json");
+        int status = 200;
+        String response = "";
+        if (path.endsWith("/metadata")) {
+            response = capability;
+        } else if ("PUT".equals(method)) {
+            restores.incrementAndGet();
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            ifMatch.set(exchange.getRequestHeaders().getFirst("If-Match"));
+            body.set(request);
+            exchange.getResponseHeaders().set("ETag", "W/\"3\"");
+            response = "{\"resourceType\":\"Patient\",\"id\":\"1\","
+                    + "\"meta\":{\"versionId\":\"3\"}}";
+        } else {
+            status = 404;
+            response = "{\"resourceType\":\"OperationOutcome\"}";
+        }
+        byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(status, bytes.length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(bytes);
+        }
     }
 
     /** The content text of a showing dialog with this title, or null when none is up. */
