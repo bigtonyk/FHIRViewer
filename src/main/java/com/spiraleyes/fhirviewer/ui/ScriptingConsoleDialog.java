@@ -12,6 +12,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.function.BiConsumer;
@@ -160,6 +161,18 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             new KeyFrame(javafx.util.Duration.seconds(15), event -> checkWriteExpiry()));
 
     private static File lastDirectory;
+
+    /**
+     * The consoles on screen, so the application window can ask them before it closes.
+     *
+     * <p>Closing the owner window hides an owned dialog without delivering that dialog's
+     * own close request, so a journal with an unreviewed unknown outcome would vanish
+     * without a question. Only showing consoles are listed: nothing off screen can lose
+     * anything the user could still see.</p>
+     */
+    private static final List<ScriptingConsoleDialog> SHOWING =
+            new CopyOnWriteArrayList<>();
+
     private Path currentFile;
 
     private String savedContent = "";
@@ -354,7 +367,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         // Dialog.close() is final, so cleanup goes here: hide fires for a Close
         // press and a programmatic close alike — the arrangement SmartLaunchDialog
         // records in its own comment, for the same reason.
+        setOnShowing(event -> {
+            if (!SHOWING.contains(this)) {
+                SHOWING.add(this);
+            }
+        });
         setOnHidden(event -> {
+            SHOWING.remove(this);
             writeExpiryCheck.stop();
             writePolicy.revoke();
             coordinator.close();
@@ -1754,6 +1773,22 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
         if (choice.get() == save) {
             return onSave(false);
+        }
+        return true;
+    }
+
+    /**
+     * True when every console on screen agrees the application may close, asking each one
+     * that still holds an unreviewed unknown outcome.
+     *
+     * <p>The application window's close request and its Exit action call this first: they
+     * close the consoles as owned dialogs, which skips their own close request.</p>
+     */
+    static boolean confirmConsolesMayClose() {
+        for (ScriptingConsoleDialog console : SHOWING) {
+            if (!console.mayClose()) {
+                return false;
+            }
         }
         return true;
     }

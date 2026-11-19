@@ -422,6 +422,42 @@ class ScriptingConsoleSmokeTest {
         }
     }
 
+    @Test
+    @DisplayName("Closing the application asks a showing console before its journal is lost")
+    void closingTheApplicationAsksTheOpenConsole() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        FhirServerManager manager = managerWithServer();
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, manager,
+                    summary -> true, true);
+            created.show();
+            return created;
+        });
+
+        onFxThread(() -> {
+            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "a console with nothing unreviewed lets the application close");
+
+            console.writeJournalForTest().record(manager.active().orElseThrow(), "update",
+                    "Patient", "1", "v1", WriteJournal.Status.UNKNOWN, "TIMEOUT",
+                    Duration.ZERO);
+            assertFalse(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "an unreviewed unknown outcome must stop the application closing");
+            assertEquals("closing this console", console.discardAction,
+                    "the application must ask the console's own close question");
+
+            console.approveDiscard = true;
+            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "accepting the warning lets the application close");
+
+            console.close();
+            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "a console that is no longer showing must not be asked again");
+            return null;
+        });
+    }
+
     private static SmartAuthorizationSession session(String token, String patient) {
         SmartTokenResponse tokens = new SmartTokenResponse(
                 token, "Bearer", 3600L, "patient/*.read", patient, null, null, null);
