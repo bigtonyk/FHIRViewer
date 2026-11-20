@@ -107,6 +107,41 @@ class WritePolicyTest {
     }
 
     @Test
+    void aWriteWithItsOwnAuthorizationStillNeedsTheGrantAndItsScope() {
+        assertThrows(WriteDeniedException.class, () -> WritePolicy.READ_ONLY
+                .requireWriteWithItsOwnAuthorization("create", "Patient", "the SMART session"));
+
+        WritePolicy policy = WritePolicy.enabled(null, null, null, 0, null, null,
+                WriteScope.operations(WriteScope.Operation.CREATE));
+        policy.requireWriteWithItsOwnAuthorization("create", "Patient", "the SMART session");
+        assertThrows(WriteDeniedException.class, () -> policy
+                .requireWriteWithItsOwnAuthorization("update", "Patient", "the SMART session"));
+    }
+
+    @Test
+    void aWriteWithItsOwnAuthorizationChargesTheBudget() {
+        WritePolicy policy = WritePolicy.enabled(null, null, null, 1, null, null);
+
+        policy.requireWriteWithItsOwnAuthorization("create", "Patient", "the SMART session");
+
+        assertThrows(WriteDeniedException.class, () -> policy
+                .requireWriteWithItsOwnAuthorization("create", "Patient", "the SMART session"));
+    }
+
+    @Test
+    void aGrantBoundToAConfiguredServerStillAllowsASessionWrite() {
+        ServerDefinition approved = ServerDefinition.named("Approved",
+                "https://approved.example.org/fhir").build();
+        WritePolicy policy = WritePolicy.enabled(null, approved, null, 0, null, null);
+
+        // The binding still applies to the saved-credential path...
+        policy.requireWrite(approved, "create", "Patient");
+        // ...but a session carries its own authorization for its own server, so the
+        // console's server binding is not what decides that write.
+        policy.requireWriteWithItsOwnAuthorization("create", "Patient", "the SMART session");
+    }
+
+    @Test
     void startingARunDoesNotItselfRefreshTheDeadline() {
         AtomicLong now = new AtomicLong(1_000_000_000L);
         WritePolicy policy = WritePolicy.enabled(null, null, null, 0, null,

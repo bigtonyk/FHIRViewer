@@ -162,6 +162,16 @@ class SmartApiTest {
         assertNull(api.launchPatientId());
     }
 
+    @Test
+    void sessionBaseUrlIsTheUrlTheTokenMayBeSentTo() {
+        SmartApi api = new SmartApi(session("tok", "example-1"), null);
+        assertEquals("http://example.com/fhir", api.sessionBaseUrl());
+
+        SmartAuthorizationSession loggedOut = session("tok", "example-1");
+        loggedOut.logout();
+        assertNull(new SmartApi(loggedOut, null).sessionBaseUrl());
+    }
+
     private static SmartAuthorizationSession session(String accessToken, String patientId) {
         SmartTokenResponse tokens = new SmartTokenResponse(
                 accessToken, "Bearer", 3600L, "patient/*.read", patientId,

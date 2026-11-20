@@ -27,8 +27,9 @@ import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
  *
  * <p>Undo is best effort. For update, patch and delete, the API stores a separate
  * before-image beside the entry so the console can offer to put the previous
- * resource back. Those images are held only in memory for the life of the console;
- * they are never rendered in the journal and never persisted.</p>
+ * resource back. A create needs none: the id it made is enough to delete it again.
+ * Those images are held only in memory for the life of the console; they are never
+ * rendered in the journal and never persisted.</p>
  */
 public final class WriteJournal {
 
@@ -90,6 +91,17 @@ public final class WriteJournal {
     }
 
     /**
+     * Records one attempt against a server with no configured entry, such as a SMART
+     * session, which is identified by the URL its token was issued for.
+     */
+    public Entry record(String serverName, String serverBaseUrl, String operation,
+            String resourceType, String resourceId, String versionId, Status status,
+            String detail, Duration elapsed) {
+        return record(serverName, serverBaseUrl, operation, resourceType, resourceId, versionId,
+                status, detail, elapsed, null);
+    }
+
+    /**
      * Records one attempt with its undo plan and notifies listeners once.
      *
      * <p>The plan travels with the entry so a listener never sees a successful write before
@@ -99,9 +111,18 @@ public final class WriteJournal {
     public Entry record(FhirServerConfiguration server, String operation, String resourceType,
             String resourceId, String versionId, Status status, String detail, Duration elapsed,
             Undo undo) {
+        return record(server == null ? "unknown" : server.name(),
+                server == null ? "" : server.baseUrl(), operation, resourceType, resourceId,
+                versionId, status, detail, elapsed, undo);
+    }
+
+    /** Records one attempt against a named server and notifies listeners once. */
+    public Entry record(String serverName, String serverBaseUrl, String operation,
+            String resourceType, String resourceId, String versionId, Status status,
+            String detail, Duration elapsed, Undo undo) {
         Entry entry = new Entry(Instant.now(),
-                server == null ? "unknown" : server.name(),
-                server == null ? "" : server.baseUrl(),
+                serverName == null || serverName.isBlank() ? "unknown" : serverName,
+                serverBaseUrl == null ? "" : serverBaseUrl,
                 operation, resourceType, resourceId, versionId,
                 status == null ? Status.FAILED : status,
                 detail == null ? "" : detail,
@@ -206,13 +227,28 @@ public final class WriteJournal {
 
     /** The newest unknown-outcome entry the user has not reviewed yet. */
     public Optional<Entry> lastUnresolvedUnknown() {
-        for (int index = entries.size() - 1; index >= 0; index--) {
-            Entry entry = entries.get(index);
+        List<Entry> unresolved = unresolvedUnknowns();
+        return unresolved.isEmpty()
+                ? Optional.empty()
+                : Optional.of(unresolved.get(unresolved.size() - 1));
+    }
+
+    /**
+     * Every unknown outcome the user has not reviewed, oldest first.
+     *
+     * <p>The journal lives only while the console is open, and so does this list. A console
+     * about to close asks about these first: each entry can describe a write the server did
+     * apply, and once the window is gone nothing here records that the question was left
+     * open.</p>
+     */
+    public List<Entry> unresolvedUnknowns() {
+        List<Entry> found = new ArrayList<>();
+        for (Entry entry : entries) {
             if (entry.status() == Status.UNKNOWN && !resolved.contains(entry)) {
-                return Optional.of(entry);
+                found.add(entry);
             }
         }
-        return Optional.empty();
+        return List.copyOf(found);
     }
 
     /** Marks an unknown outcome as reviewed, without asserting what the server did. */

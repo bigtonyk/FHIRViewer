@@ -81,4 +81,24 @@ class WriteJournalTest {
         assertTrue(journal.isResolved(entry));
         assertTrue(journal.lastUnresolvedUnknown().isEmpty());
     }
+
+    @Test
+    void unresolvedUnknownsListsEveryUnreviewedOutcomeOldestFirst() {
+        WriteJournal journal = new WriteJournal();
+        journal.record(null, "update", "Patient", "1", "v1",
+                WriteJournal.Status.UNKNOWN, "TIMEOUT", Duration.ZERO);
+        WriteJournal.Entry created = journal.record(null, "create", "Patient", null, null,
+                WriteJournal.Status.UNKNOWN, "TIMEOUT", Duration.ZERO);
+        journal.record(null, "delete", "Patient", "2", null,
+                WriteJournal.Status.FAILED, "CONFLICT", Duration.ZERO);
+
+        assertEquals(2, journal.unresolvedUnknowns().size(),
+                "a plain failure is not something to review");
+        assertEquals("update", journal.unresolvedUnknowns().get(0).operation());
+
+        journal.markResolved(created);
+
+        assertEquals(1, journal.unresolvedUnknowns().size());
+        assertEquals("update", journal.lastUnresolvedUnknown().orElseThrow().operation());
+    }
 }

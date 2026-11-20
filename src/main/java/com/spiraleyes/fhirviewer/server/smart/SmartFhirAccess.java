@@ -6,16 +6,20 @@ import java.util.Objects;
 import java.util.Optional;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.instance.model.api.IIdType;
 
 import com.spiraleyes.fhirviewer.server.FhirServerPlugin;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
+import com.spiraleyes.fhirviewer.server.PatchFormat;
 import com.spiraleyes.fhirviewer.server.ServerDefinition;
 import com.spiraleyes.fhirviewer.server.ServerOperationException;
+import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.server.ServerSession;
+import com.spiraleyes.fhirviewer.server.ServerWriteResult;
 import com.spiraleyes.fhirviewer.ui.ServerErrors;
 
 /**
- * The minimal authorized FHIR reads a SMART session enables, and only ever against the
+ * The authorized FHIR reads and writes a SMART session enables, and only ever against the
  * server that granted the session.
  *
  * <p>This is Phase 04's operation surface. It sends no token of its own: every call
@@ -87,28 +91,9 @@ public final class SmartFhirAccess {
         if (patientId == null || patientId.isBlank()) {
             return Optional.empty();
         }
-        Instant started = Instant.now();
-        diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
-                SmartDiagnosticsEvent.Kind.REQUEST_STARTED,
-                "Reading patient context through the authorized session",
-                "GET " + session.fhirBaseUrl() + "/Patient/" + patientId);
-        try {
-            Optional<IBaseResource> result = readGranted(session, "Patient", patientId);
-            long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
-            diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
-                    SmartDiagnosticsEvent.Kind.REQUEST_COMPLETED,
-                    "Patient context read completed",
-                    "status=200, elapsed=" + elapsedMillis + "ms");
-            return result;
-        } catch (ServerOperationException failure) {
-            long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
-            int status = failure.httpStatus();
-            diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
-                    SmartDiagnosticsEvent.Kind.FAILED,
-                    "Patient context read failed: " + ServerErrors.redact(failure.getMessage()),
-                    "status=" + status + ", elapsed=" + elapsedMillis + "ms");
-            throw failure;
-        }
+        return recorded("Reading the patient context through the authorized session",
+                "GET " + session.fhirBaseUrl() + "/Patient/" + patientId,
+                () -> readGranted(session, "Patient", patientId));
     }
 
     /**
@@ -138,32 +123,235 @@ public final class SmartFhirAccess {
             throw new IllegalArgumentException("A resource id is required for a read.");
         }
         requireUsable(session);
+        String type = resourceType.strip();
+        String id = resourceId.strip();
+        return recorded("Reading " + type + " through the authorized session",
+                "GET " + session.fhirBaseUrl() + "/" + type + "/" + id,
+                () -> readGranted(session, type, id));
+    }
+
+    /**
+     * Creates a resource through the authorized session.
+     *
+     * <p>The session's scopes decide whether its token may create this type: a refusal is
+     * the server's {@code 403}, reported unchanged. Nothing here retries or works around a
+     * scope, and the request can only go to the session's own FHIR base URL.</p>
+     *
+     * @param session the authorized session; never {@code null}
+     * @param resource the resource to create, with its type set
+     * @return the id and version the server assigned
+     * @throws ServerOperationException when the session cannot be used, the scopes refuse
+     *         the create, or the transport fails
+     */
+    public ServerWriteResult create(SmartAuthorizationSession session, IBaseResource resource)
+            throws ServerOperationException {
+        Objects.requireNonNull(session, "session");
+        Objects.requireNonNull(resource, "resource");
+        String type = requireType(resource.fhirType());
+        requireUsable(session);
+        return recorded("Creating " + type + " through the authorized session",
+                "POST " + session.fhirBaseUrl() + "/" + type, () -> {
+                    ServerSession serverSession = sessionFor(session);
+                    return pluginFor(serverSession, session).create(serverSession, resource);
+                });
+    }
+
+    /**
+     * Replaces a resource through the authorized session.
+     *
+     * @param session the authorized session; never {@code null}
+     * @param resource the resource to update; its id is required and decides the URL
+     * @param versionId the {@code meta.versionId} last seen, or {@code null} for no
+     *                  {@code If-Match}
+     * @return the id and version the server now reports
+     * @throws ServerOperationException when the session cannot be used, the scopes refuse
+     *         the update, the server reports a conflict, or the transport fails
+     */
+    public ServerWriteResult update(SmartAuthorizationSession session, IBaseResource resource,
+            String versionId) throws ServerOperationException {
+        return replace(session, resource, "Updating", versionId, false);
+    }
+
+    /**
+     * Applies a partial update through the authorized session.
+     *
+     * @param session the authorized session; never {@code null}
+     * @param resourceType the FHIR resource type
+     * @param resourceId the server-assigned id
+     * @param body the patch document, already written in {@code format}
+     * @param format the patch format the body is written in
+     * @param versionId the {@code meta.versionId} last seen, or {@code null} for no
+     *                  {@code If-Match}
+     * @return the id and version the server now reports
+     * @throws ServerOperationException when the session cannot be used, the scopes refuse
+     *         the patch, the server reports a conflict, or the transport fails
+     */
+    public ServerWriteResult patch(SmartAuthorizationSession session, String resourceType,
+            String resourceId, String body, PatchFormat format, String versionId)
+            throws ServerOperationException {
+        Objects.requireNonNull(session, "session");
+        Objects.requireNonNull(format, "format");
+        String type = requireType(resourceType);
+        String id = requireId(resourceId);
+        if (body == null || body.isBlank()) {
+            throw new IllegalArgumentException("A patch body is required and must not be blank.");
+        }
+        requireUsable(session);
+        return recorded("Patching " + type + "/" + id + " through the authorized session",
+                "PATCH " + session.fhirBaseUrl() + "/" + type + "/" + id, () -> {
+                    ServerSession serverSession = sessionFor(session);
+                    return pluginFor(serverSession, session).patch(serverSession,
+                            originFor(serverSession, type, id, versionId), body, format);
+                });
+    }
+
+    /**
+     * Deletes a resource through the authorized session.
+     *
+     * @param session the authorized session; never {@code null}
+     * @param resourceType the FHIR resource type
+     * @param resourceId the server-assigned id
+     * @param versionId the {@code meta.versionId} last seen, or {@code null} for no
+     *                  {@code If-Match}
+     * @throws ServerOperationException when the session cannot be used, the scopes refuse
+     *         the delete, or the transport fails
+     */
+    public void delete(SmartAuthorizationSession session, String resourceType, String resourceId,
+            String versionId) throws ServerOperationException {
+        Objects.requireNonNull(session, "session");
+        String type = requireType(resourceType);
+        String id = requireId(resourceId);
+        requireUsable(session);
+        recorded("Deleting " + type + "/" + id + " through the authorized session",
+                "DELETE " + session.fhirBaseUrl() + "/" + type + "/" + id, () -> {
+                    ServerSession serverSession = sessionFor(session);
+                    pluginFor(serverSession, session).delete(serverSession,
+                            originFor(serverSession, type, id, versionId));
+                    return null;
+                });
+    }
+
+    /**
+     * Puts a resource a delete removed back through the authorized session.
+     *
+     * <p>The write carries {@code If-None-Match: *} instead of an {@code If-Match}: the
+     * version the delete removed no longer exists, so the only safe condition is that the id
+     * is still free. A server that has recreated something under it answers {@code 412},
+     * reported unchanged, so this recovery write never overwrites a newer resource.</p>
+     *
+     * @param session the authorized session; never {@code null}
+     * @param resource the resource to put back, with the type and id it had before the delete
+     * @return the id and version the server now reports
+     * @throws ServerOperationException when the session cannot be used, the scopes refuse the
+     *         write, the id is occupied, or the transport fails
+     */
+    public ServerWriteResult restore(SmartAuthorizationSession session, IBaseResource resource)
+            throws ServerOperationException {
+        return replace(session, resource, "Restoring", null, true);
+    }
+
+    /**
+     * PUTs a resource through the authorized session and records the attempt.
+     *
+     * <p>An update and a restore differ only in their precondition: an update names the version
+     * it replaces with {@code If-Match}, and a restore carries {@code If-None-Match: *} because
+     * the version it puts back no longer exists on the server.</p>
+     *
+     * @param activity the verb the diagnostics name, "Updating" or "Restoring"
+     * @param versionId the version to match, or {@code null} for no {@code If-Match}
+     * @param requireAbsence whether the write may only apply to an unused id
+     */
+    private ServerWriteResult replace(SmartAuthorizationSession session, IBaseResource resource,
+            String activity, String versionId, boolean requireAbsence)
+            throws ServerOperationException {
+        Objects.requireNonNull(session, "session");
+        Objects.requireNonNull(resource, "resource");
+        String type = requireType(resource.fhirType());
+        IIdType id = resource.getIdElement();
+        if (id == null || !id.hasIdPart()) {
+            throw new IllegalArgumentException("A write needs a resource with a server id.");
+        }
+        String resourceId = id.getIdPart();
+        requireUsable(session);
+        return recorded(activity + " " + type + "/" + resourceId
+                + " through the authorized session",
+                "PUT " + session.fhirBaseUrl() + "/" + type + "/" + resourceId, () -> {
+                    ServerSession serverSession = sessionFor(session);
+                    ServerOrigin origin = originFor(serverSession, type, resourceId, versionId);
+                    return pluginFor(serverSession, session).update(serverSession, resource,
+                            requireAbsence ? origin.requiringAbsence() : origin);
+                });
+    }
+
+    private static String requireType(String resourceType) {
+        if (resourceType == null || resourceType.isBlank()) {
+            throw new IllegalArgumentException("A resource type is required.");
+        }
+        return resourceType.strip();
+    }
+
+    private static String requireId(String resourceId) {
+        if (resourceId == null || resourceId.isBlank()) {
+            throw new IllegalArgumentException("A resource id is required.");
+        }
+        return resourceId.strip();
+    }
+
+    /** The origin a write is addressed to, always on this session's own server. */
+    private static ServerOrigin originFor(ServerSession serverSession, String resourceType,
+            String resourceId, String versionId) {
+        return ServerOrigin.of(serverSession.server().pluginId(), serverSession.server().baseUrl(),
+                resourceType, resourceId,
+                versionId == null || versionId.isBlank() ? null : versionId.strip());
+    }
+
+    /**
+     * The plugin that serves this session's server, or a clear refusal: a build without one
+     * cannot send the session's token anywhere, which is not the session's fault.
+     */
+    private FhirServerPlugin pluginFor(ServerSession serverSession,
+            SmartAuthorizationSession session) throws ServerOperationException {
+        FhirServerPlugin plugin = registry.pluginFor(serverSession.server());
+        if (plugin == null) {
+            throw new ServerOperationException(ServerOperationException.Kind.UNSUPPORTED,
+                    "No plugin in this build can talk to " + session.fhirBaseUrl()
+                            + ", so the authorized request cannot be sent.");
+        }
+        return plugin;
+    }
+
+    /**
+     * Runs one authorized call, recording that it started and how it ended.
+     *
+     * <p>Only the method, the URL and the status are recorded: request bodies and tokens
+     * never reach the diagnostics, which are shown on screen.</p>
+     */
+    private <T> T recorded(String activity, String detail, GrantedCall<T> call)
+            throws ServerOperationException {
         Instant started = Instant.now();
-        String endpoint = session.fhirBaseUrl() + "/" + resourceType.strip() + "/"
-                + resourceId.strip();
         diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
-                SmartDiagnosticsEvent.Kind.REQUEST_STARTED,
-                "Reading " + resourceType.strip() + " through the authorized session",
-                "GET " + endpoint);
+                SmartDiagnosticsEvent.Kind.REQUEST_STARTED, activity, detail);
         try {
-            Optional<IBaseResource> result = readGranted(session, resourceType.strip(),
-                    resourceId.strip());
+            T result = call.call();
             long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
             diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
-                    SmartDiagnosticsEvent.Kind.REQUEST_COMPLETED,
-                    resourceType.strip() + " read completed",
-                    "status=200, elapsed=" + elapsedMillis + "ms");
+                    SmartDiagnosticsEvent.Kind.REQUEST_COMPLETED, activity,
+                    "elapsed=" + elapsedMillis + "ms");
             return result;
         } catch (ServerOperationException failure) {
             long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
-            int status = failure.httpStatus();
             diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
                     SmartDiagnosticsEvent.Kind.FAILED,
-                    resourceType.strip() + " read failed: "
-                            + ServerErrors.redact(failure.getMessage()),
-                    "status=" + status + ", elapsed=" + elapsedMillis + "ms");
+                    activity + " failed: " + ServerErrors.redact(failure.getMessage()),
+                    "status=" + failure.httpStatus() + ", elapsed=" + elapsedMillis + "ms");
             throw failure;
         }
+    }
+
+    /** One authorized request, so a caller can supply a lambda that may throw. */
+    @FunctionalInterface
+    private interface GrantedCall<T> {
+        T call() throws ServerOperationException;
     }
 
     /**
@@ -204,14 +392,9 @@ public final class SmartFhirAccess {
     private Optional<IBaseResource> readGranted(SmartAuthorizationSession session,
             String resourceType, String resourceId) throws ServerOperationException {
         ServerSession serverSession = sessionFor(session);
-        FhirServerPlugin plugin = registry.pluginFor(serverSession.server());
-        if (plugin == null) {
-            throw new ServerOperationException(ServerOperationException.Kind.UNSUPPORTED,
-                    "No plugin in this build can talk to " + session.fhirBaseUrl()
-                            + ", so the authorized read cannot be sent.");
-        }
         try {
-            return Optional.ofNullable(plugin.read(serverSession, resourceType, resourceId));
+            return Optional.ofNullable(pluginFor(serverSession, session)
+                    .read(serverSession, resourceType, resourceId));
         } catch (ServerOperationException failure) {
             if (failure.kind() == ServerOperationException.Kind.NOT_FOUND) {
                 return Optional.empty();

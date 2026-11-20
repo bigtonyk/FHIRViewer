@@ -12,6 +12,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.function.BiConsumer;
@@ -160,6 +161,18 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             new KeyFrame(javafx.util.Duration.seconds(15), event -> checkWriteExpiry()));
 
     private static File lastDirectory;
+
+    /**
+     * The consoles on screen, so the application window can ask them before it closes.
+     *
+     * <p>Closing the owner window hides an owned dialog without delivering that dialog's
+     * own close request, so a journal with an unreviewed unknown outcome would vanish
+     * without a question. Only showing consoles are listed: nothing off screen can lose
+     * anything the user could still see.</p>
+     */
+    private static final List<ScriptingConsoleDialog> SHOWING =
+            new CopyOnWriteArrayList<>();
+
     private Path currentFile;
 
     private String savedContent = "";
@@ -239,6 +252,9 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         this.serverService = serverService;
         this.serverManager = serverManager;
         this.smartApi = smartSessions == null ? new SmartApi() : smartSessions.api();
+        // The holder hands every console the same facade, so a write grant left over from a
+        // previous console is cleared rather than inherited by this one.
+        this.smartApi.useWritePolicy(WritePolicy.READ_ONLY);
         this.writeConfirmation = writeConfirmation == null
                 ? this::confirmWriteOnFxThread
                 : writeConfirmation;
@@ -263,7 +279,8 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 + " session until Reset Session."));
         updateRunModeLabel();
         allowWrites.setTooltip(new Tooltip("Allow fhir.create, fhir.update, fhir.patch and"
-                + " fhir.delete to change the active FHIR server for this console session."));
+                + " fhir.delete to change the active FHIR server, and the same writes through"
+                + " an authorized SMART session, for this console session."));
         allowWrites.setOnAction(event -> onWriteToggle());
         allowSuiteWrites.setTooltip(new Tooltip("Off by default: Run Tests uses a read-only"
                 + " API even while interactive Run may write. Turn this on only for suites"
@@ -354,13 +371,25 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         // Dialog.close() is final, so cleanup goes here: hide fires for a Close
         // press and a programmatic close alike — the arrangement SmartLaunchDialog
         // records in its own comment, for the same reason.
+        setOnShowing(event -> {
+            if (!SHOWING.contains(this)) {
+                SHOWING.add(this);
+            }
+        });
         setOnHidden(event -> {
+            SHOWING.remove(this);
             writeExpiryCheck.stop();
+            // Revoking is what ends the grant on the shared SMART facade too: the facade
+            // holds this very policy object, not a copy of it.
             writePolicy.revoke();
             coordinator.close();
         });
         setOnCloseRequest(event -> {
             if (dirty() && !confirmDiscard()) {
+                event.consume();
+                return;
+            }
+            if (!mayClose()) {
                 event.consume();
             }
         });
@@ -385,6 +414,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                         WRITE_IDLE_TIMEOUT, writeScope)
                 : WritePolicy.READ_ONLY;
         writePolicy = policy;
+        smartApi.useWritePolicy(policy);
         bindings = createBindings(policy);
         writeTarget = enabled ? serverManager.active().orElse(null) : null;
         allowWrites.setSelected(enabled);
@@ -439,9 +469,15 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 && serverService.supportsWrite(server) && writePolicy.isEnabled()) {
             return true;
         }
-        applyWrites(false);
-        setStatus("Server writes were turned off: the active server changed, the grant expired, or it can no longer accept writes.");
+        revokeGrant("the active server changed, the grant expired, or it can no longer accept"
+                + " writes.");
         return false;
+    }
+
+    /** Ends the grant and says why, so every refusal that turns writes off reads the same. */
+    private void revokeGrant(String because) {
+        applyWrites(false);
+        setStatus("Server writes were turned off: " + because);
     }
 
     /** Stops an idle grant even if no Run starts before the deadline. */
@@ -501,7 +537,12 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         warning.initOwner(owner);
         warning.setTitle("Allow server writes?");
         warning.setHeaderText("Allow scripts in this window to change " + server.name() + "?");
-        warning.setContentText("Writes go to:\n" + server.name() + " (" + server.baseUrl() + ")\n\n"
+        String smartTarget = smartApi.sessionBaseUrl();
+        warning.setContentText("Writes go to:\n" + server.name() + " (" + server.baseUrl() + ")"
+                + (smartTarget == null ? ""
+                        : "\nand, through the authorized SMART session, to " + smartTarget
+                                + " within the scopes that session was given")
+                + "\n\n"
                 + "This grant allows: " + writeScope.describe() + ". Deletes ask again before"
                 + " they are sent. Scripts are not sandboxed. Undo is best effort and only"
                 + " covers writes made in this console session. Only allow this for code you"
@@ -583,15 +624,32 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             setStatus("Turn on server writes to undo the last write.");
             return;
         }
-        if (!ensureWriteTarget()) {
-            return;
-        }
         Optional<WriteJournal.Entry> candidate = writeJournal.lastUndoable();
         if (candidate.isEmpty()) {
+            // Nothing to revert, but this is still where a stale target is noticed.
+            if (!ensureWriteTarget()) {
+                return;
+            }
             setStatus("Nothing to undo: no successful write with a captured before-image.");
             return;
         }
         WriteJournal.Entry entry = candidate.get();
+        // A SMART write names no configured server: its session is the only way back, and a
+        // session since authorized for another URL must not receive this before-image.
+        boolean smart = isSmartEntry(entry);
+        if (smart) {
+            if (!writePolicy.isEnabled()) {
+                revokeGrant("the grant expired or was revoked.");
+                return;
+            }
+            if (!smartApi.isSessionActive()) {
+                setStatus("The SMART session is no longer authorized, so its write cannot be"
+                        + " undone here.");
+                return;
+            }
+        } else if (!ensureWriteTarget()) {
+            return;
+        }
         Optional<WriteJournal.Undo> plan = writeJournal.undoFor(entry);
         if (plan.isEmpty()) {
             setStatus("That write has no undo information.");
@@ -611,9 +669,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             } else {
                 // Keep an audit trail of a failed revert without copying a server body
                 // into the journal; the status line carries the readable reason.
-                FhirServerConfiguration failedServer = serverFor(entry);
-                if (failedServer != null) {
-                    recordUndo(failedServer, plan.get(), WriteJournal.Status.FAILED, "undo-failed");
+                // A configured server that is gone sent nothing, so it gets no row of its
+                // own; a SMART reversal needs no configured server and always has one.
+                if (smart || serverFor(entry) != null) {
+                    recordUndo(entry, plan.get(), WriteJournal.Status.FAILED, "undo-failed");
                 }
                 setStatus("Undo failed: " + attempt.failure());
             }
@@ -656,8 +715,59 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         return alert.showAndWait().filter(undo::equals).isPresent();
     }
 
+    /**
+     * Reverts one journalled write, through the SMART session's bearer or a configured
+     * server.
+     *
+     * <p>Only the request differs between the two: the before-image check, the success
+     * bookkeeping and the outcome message are shared, and the candidate, its gating and the
+     * journal row all live with the caller.</p>
+     */
     private String undoWrite(WriteJournal.Entry entry, WriteJournal.Undo plan)
             throws Exception {
+        if ("create".equals(plan.operation())) {
+            // A create is undone by deleting what it made, and only the transport differs: a
+            // SMART entry's delete carries the session's bearer to the URL it names.
+            if (isSmartEntry(entry)) {
+                smartApi.deleteCreated(entry.serverBaseUrl(), plan);
+            } else {
+                undoCreate(entry, plan);
+            }
+            recordUndo(entry, plan, WriteJournal.Status.SUCCEEDED, "");
+            return "Undid create of " + plan.resourceType() + "/" + plan.resourceId() + ".";
+        }
+        IBaseResource before = plan.before();
+        if (before == null) {
+            throw new IllegalStateException("No before-image was captured for this write.");
+        }
+        if (isSmartEntry(entry)) {
+            // Only this request carries the session's bearer, and only to the URL the entry
+            // names; everything around it is the same recovery path.
+            smartApi.restoreBeforeImage(entry.serverBaseUrl(), plan);
+        } else {
+            restoreOnConfiguredServer(entry, plan, before);
+        }
+        recordUndo(entry, plan, WriteJournal.Status.SUCCEEDED, "");
+        return "Restored " + plan.resourceType() + "/" + plan.resourceId() + ".";
+    }
+
+    /** Deletes the resource a create made on the configured server that made it. */
+    private void undoCreate(WriteJournal.Entry entry, WriteJournal.Undo plan)
+            throws ServerOperationException {
+        FhirServerConfiguration server = configuredServerForUndo(entry);
+        if (plan.resourceId() == null) {
+            throw new IllegalStateException("The created resource id is unknown.");
+        }
+        serverService.delete(server, ServerOrigin.of(server.pluginId(), server.baseUrl(),
+                plan.resourceType(), plan.resourceId(), plan.versionId()));
+    }
+
+    /**
+     * The configured server an undo must use, or a refusal that sends nothing: a server that
+     * was removed is not replaced by one that merely shares its URL, and one that cannot accept
+     * writes cannot be reverted here.
+     */
+    private FhirServerConfiguration configuredServerForUndo(WriteJournal.Entry entry) {
         FhirServerConfiguration server = serverFor(entry);
         if (server == null) {
             throw new IllegalStateException("The server " + entry.serverName()
@@ -667,19 +777,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             throw new IllegalStateException("The server " + server.name()
                     + " does not accept writes, so it cannot be reverted here.");
         }
-        if ("create".equals(plan.operation())) {
-            if (plan.resourceId() == null) {
-                throw new IllegalStateException("The created resource id is unknown.");
-            }
-            serverService.delete(server, ServerOrigin.of(server.pluginId(), server.baseUrl(),
-                    plan.resourceType(), plan.resourceId(), plan.versionId()));
-            recordUndo(server, plan, WriteJournal.Status.SUCCEEDED, "");
-            return "Undid create of " + plan.resourceType() + "/" + plan.resourceId() + ".";
-        }
-        IBaseResource before = plan.before();
-        if (before == null) {
-            throw new IllegalStateException("No before-image was captured for this write.");
-        }
+        return server;
+    }
+
+    /** Reverts an update, patch or delete on the configured server that made it. */
+    private void restoreOnConfiguredServer(WriteJournal.Entry entry, WriteJournal.Undo plan,
+            IBaseResource before) throws ServerOperationException {
+        FhirServerConfiguration server = configuredServerForUndo(entry);
         boolean restoring = "delete".equals(plan.operation());
         if (restoring) {
             requireStillAbsent(server, plan);
@@ -707,27 +811,25 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                     + refused.getMessage() + "), so the undo wrote nothing and will not"
                     + " overwrite it.");
         }
-        recordUndo(server, plan, WriteJournal.Status.SUCCEEDED, "");
-        return "Restored " + plan.resourceType() + "/" + plan.resourceId() + ".";
     }
 
     /**
-     * Cancels restoring a deleted resource when something occupies its id again.
+     * Cancels restoring a deleted resource when a readable id is already occupied again.
      *
-     * <p>A restore cannot use If-Match: the version the delete removed no longer exists. So the
-     * write itself carries {@code If-None-Match: *} (see
-     * {@link ServerOrigin#requiringAbsence()}), which is what makes it safe. This read is what
-     * lets the answer be readable rather than a bare 412: one that answers means the undo is no
-     * longer safe, and a read that fails leaves the same question open. Both cases send nothing.</p>
+     * <p>The boundary is the conditional write, not this read: the restore carries
+     * {@code If-None-Match: *} (see {@link ServerOrigin#requiringAbsence()}), so the server
+     * refuses an id something took between the read and the write. The read only makes the
+     * usual answer readable instead of a bare 412, so a refused or unanswered read falls
+     * through to the conditional write and the server decides: one that will not answer this
+     * read may still accept the write, and a delete it accepted must stay revertible.</p>
      */
     private void requireStillAbsent(FhirServerConfiguration server, WriteJournal.Undo plan) {
         IBaseResource existing;
         try {
             existing = serverService.read(server, plan.resourceType(), plan.resourceId());
-        } catch (Exception unreadable) {
-            throw new IllegalStateException(plan.resourceType() + "/" + plan.resourceId()
-                    + " could not be read (" + message(unreadable) + "), so there is no telling"
-                    + " whether it was recreated. Nothing was sent.");
+        } catch (ServerOperationException unreadable) {
+            // Refused or unanswered: the conditional write is the guard, so the restore is sent.
+            return;
         }
         if (existing != null) {
             throw new IllegalStateException(plan.resourceType() + "/" + plan.resourceId()
@@ -736,10 +838,21 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         }
     }
 
-    private void recordUndo(FhirServerConfiguration server, WriteJournal.Undo plan,
+    /** True when this entry was written through the SMART session rather than a server. */
+    private static boolean isSmartEntry(WriteJournal.Entry entry) {
+        return SmartApi.JOURNAL_SERVER_NAME.equals(entry.serverName());
+    }
+
+    /**
+     * Journals an undo beside the write it reverts, naming the server that write named: a
+     * SMART row keeps its session name, and a configured row records the same name and URL
+     * as before, because {@link #serverFor} matched both.
+     */
+    private void recordUndo(WriteJournal.Entry entry, WriteJournal.Undo plan,
             WriteJournal.Status status, String detail) {
-        writeJournal.record(server, "undo", plan.resourceType(), plan.resourceId(),
-                plan.versionId(), status, detail, Duration.ZERO);
+        writeJournal.record(entry.serverName(), entry.serverBaseUrl(), "undo",
+                plan.resourceType(), plan.resourceId(), plan.versionId(), status, detail,
+                Duration.ZERO);
     }
 
     private FhirServerConfiguration serverFor(WriteJournal.Entry entry) {
@@ -1604,6 +1717,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         if (dirty(editor.getText(), savedContent) && !confirmDiscard()) {
             return;
         }
+        if (!mayDiscardJournal("opening another script", "Open Anyway")) {
+            setStatus("Open cancelled: a write with an unknown outcome is still unreviewed.");
+            return;
+        }
         editor.setText(content);
         savedContent = content;
         currentFile = path;
@@ -1677,6 +1794,10 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
                 return;
             }
         }
+        if (!mayDiscardJournal("loading the example", "Load Example")) {
+            setStatus("Example not loaded: a write with an unknown outcome is still unreviewed.");
+            return;
+        }
         editor.setText(example);
         savedContent = example;
         // The example is not the file that was open: keep the buffer untitled so Save asks
@@ -1715,17 +1836,27 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         return !current.equals(saved);
     }
 
+    /** A themed warning owned by this console; the caller supplies its text and buttons. */
+    private Alert warning(String title, String header, String content) {
+        Alert alert = new Alert(Alert.AlertType.WARNING);
+        Window owner = ownerWindow();
+        if (owner != null) {
+            alert.initOwner(owner);
+        }
+        alert.setTitle(title);
+        alert.setHeaderText(header);
+        alert.setContentText(content);
+        alert.getDialogPane().getStylesheets().addAll(stylesheets);
+        return alert;
+    }
+
     /** Asks whether unsaved edits may be discarded; Save writes them first. */
     private boolean confirmDiscard() {
-        Alert alert = new Alert(Alert.AlertType.WARNING);
-        alert.initOwner(getDialogPane().getScene().getWindow());
-        alert.setTitle("Unsaved script");
-        alert.setHeaderText("The script has unsaved changes.");
-        alert.setContentText("Save them before closing, or discard them.");
+        Alert alert = warning("Unsaved script", "The script has unsaved changes.",
+                "Save them before closing, or discard them.");
         ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);
         ButtonType discard = new ButtonType("Discard", ButtonBar.ButtonData.NO);
         alert.getButtonTypes().setAll(save, discard, ButtonType.CANCEL);
-        alert.getDialogPane().getStylesheets().addAll(stylesheets);
         Optional<ButtonType> choice = alert.showAndWait();
         if (choice.isEmpty() || choice.get() == ButtonType.CANCEL) {
             return false;
@@ -1734,6 +1865,107 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
             return onSave(false);
         }
         return true;
+    }
+
+    /**
+     * True when every console on screen agrees the application may close, asking each one
+     * that still holds an unreviewed unknown outcome.
+     *
+     * <p>The application window's close request and its Exit action call this first: they
+     * close the consoles as owned dialogs, which skips their own close request.</p>
+     */
+    static boolean confirmConsolesMayClose() {
+        for (ScriptingConsoleDialog console : SHOWING) {
+            if (!console.mayClose()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * True when the console may close without losing the record of a write whose outcome
+     * was never established.
+     *
+     * <p>The write journal, and the before-images and identifier hints beside it, are held
+     * only in this dialog. An unreviewed unknown outcome would therefore disappear with the
+     * window, leaving no record that a write may have reached the server. A close is not
+     * silent then: the user either reviews the outcome or accepts that it has to be
+     * reconciled by hand. Package-private so a UI test can ask without a native dialog.</p>
+     */
+    boolean mayClose() {
+        return mayDiscardJournal("closing this console", "Close Anyway");
+    }
+
+    /**
+     * True when the journal may be cleared, by a close or by a buffer replacement.
+     *
+     * <p>Open and Example both replace the buffer and clear the journal with it, which
+     * drops an unreviewed unknown outcome just as silently as closing used to. Every
+     * clearing path asks this first.</p>
+     *
+     * @param action       what is about to clear it, completing "so ... drops the record"
+     * @param proceedLabel the affirmative button, naming the action that discards it
+     */
+    private boolean mayDiscardJournal(String action, String proceedLabel) {
+        List<WriteJournal.Entry> unresolved = writeJournal.unresolvedUnknowns();
+        if (unresolved.isEmpty()) {
+            return true;
+        }
+        return confirmDiscardUnknownOutcomes(unresolved, action, proceedLabel);
+    }
+
+    /** Confirmation seam, protected so a UI test can answer it without a native dialog. */
+    protected boolean confirmDiscardUnknownOutcomes(List<WriteJournal.Entry> unresolved,
+            String action, String proceedLabel) {
+        Alert alert = warning("Unreviewed unknown write outcomes",
+                unresolved.size() == 1
+                        ? "One write may or may not have reached the server."
+                        : unresolved.size()
+                                + " writes may or may not have reached the server.",
+                describeUnreviewed(unresolved)
+                        + "The write journal is kept only while this console is open, so "
+                        + action + " drops the record of what still needs checking.\n\n"
+                        + "Review it with Review Unknown, or continue and reconcile the"
+                        + " resource on the server by hand.");
+        ButtonType proceed = new ButtonType(proceedLabel, ButtonBar.ButtonData.OK_DONE);
+        ButtonType stay = new ButtonType("Keep Reviewing", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(proceed, stay);
+        Button proceedButton = (Button) alert.getDialogPane().lookupButton(proceed);
+        Button stayButton = (Button) alert.getDialogPane().lookupButton(stay);
+        if (stayButton != null) {
+            // The safe answer is the default: Enter must not discard the record.
+            alert.setOnShown(event -> {
+                if (proceedButton != null) {
+                    proceedButton.setDefaultButton(false);
+                }
+                stayButton.setDefaultButton(true);
+                stayButton.requestFocus();
+            });
+        }
+        return alert.showAndWait().filter(proceed::equals).isPresent();
+    }
+
+    /** One line per unreviewed outcome, newest first and capped, with no request bodies. */
+    private static String describeUnreviewed(List<WriteJournal.Entry> unresolved) {
+        List<String> lines = new ArrayList<>();
+        for (int index = unresolved.size() - 1; index >= 0 && lines.size() < 5; index--) {
+            lines.add(unreviewedLine(unresolved.get(index)));
+        }
+        if (unresolved.size() > lines.size()) {
+            lines.add("and " + (unresolved.size() - lines.size()) + " more");
+        }
+        return "Not reviewed yet:\n\u2022 " + String.join("\n\u2022 ", lines) + "\n\n";
+    }
+
+    /** One entry as the warning names it: enough to find the write, nothing from the request. */
+    private static String unreviewedLine(WriteJournal.Entry entry) {
+        String target = entry.resourceType() == null ? "a resource"
+                : entry.resourceId() == null ? entry.resourceType()
+                : entry.resourceType() + "/" + entry.resourceId();
+        boolean idUnknown = entry.resourceId() == null && "create".equals(entry.operation());
+        return entry.operation() + " " + target + " on " + entry.serverName()
+                + (idUnknown ? " (the server may have assigned an id)" : "");
     }
 
     private static String message(Throwable problem) {

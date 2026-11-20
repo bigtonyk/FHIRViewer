@@ -17,15 +17,30 @@
   The restore carries `If-None-Match: *`, so a resource created at that id after
   the delete makes the server refuse the undo; the status line then reports that
   the id was taken by a new resource and that nothing was written, instead of
-  overwriting it.
+  overwriting it. A read that is refused or fails does not block the restore
+  either, because the conditional write is what decides.
+- Undoing a create deletes the resource the write made, through whichever API made
+  it. For a SMART create that delete carries the session's bearer and the version
+  the create produced as `If-Match`, so a resource replaced at that id since the
+  create is left alone and the status line says nothing was deleted.
 - **Review Unknown** for a timed-out create searches the identifiers the
   submitted resource carried. A search hit counts only when the resource really
   carries that identifier, one lookup failing no longer abandons the others, and
   the review reads up to five pages of ten before it answers, so a match past
   the first page is found and a truncated result is reported as unresolved
   rather than as not applied.
-- Writes use the active server's saved credentials, not the SMART session;
-  `smart` remains read-only.
+- An unknown outcome that is still unreviewed is not lost silently when the
+  journal would be cleared: closing the console or the application, opening
+  another script and loading the example all warn, name the writes, and ask for a
+  review first, because the journal exists only while the console is open.
+- `fhir` writes use the active server's saved credentials. `smart` can now create,
+  update, patch and delete through the authorized SMART session: those requests
+  carry only the session's bearer, reach only the URL it was granted for, and are
+  accepted or refused by the scopes the server issued it. The console's write
+  opt-in, scope, budget, delete confirmation and unknown-outcome reporting apply to
+  both APIs; a SMART attempt is journalled as `SMART session`, and an update,
+  patch or delete through the session captures the prior resource so Undo Last
+  Write can restore it through the same bearer.
 
 # FHIR Viewer 2.0
 
