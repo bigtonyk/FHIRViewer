@@ -63,7 +63,7 @@ public class SmartApi {
     }
 
     public boolean isSessionActive() {
-        return session != null && !session.isLoggedOut() && !session.isExpired();
+        return session != null && !session.needsReauthorization();
     }
 
     public List<String> grantedScopes() {

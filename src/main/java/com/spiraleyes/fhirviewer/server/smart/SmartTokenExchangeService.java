@@ -12,7 +12,8 @@ import java.util.Objects;
 
 /**
  * Exchanges an authorization code for tokens (authorization-code grant
- * with PKCE, public client — no client secret).
+ * with PKCE, public client — no client secret), and renews them with the
+ * refresh-token grant.
  *
  * <p>A deliberate sibling of {@code server.TokenEndpointClient}: that
  * client sends {@code grant_type=client_credentials} with a secret, while
@@ -63,19 +64,51 @@ public final class SmartTokenExchangeService {
         require(code, "An authorization code is required for the exchange.");
         require(redirectUri, "The redirect URI from the authorization request is required.");
         require(verifier, "The PKCE verifier from the authorization request is required.");
-        URI endpoint = parseEndpoint(tokenEndpoint.strip());
         String form = "grant_type=authorization_code"
                 + "&code=" + encode(code)
                 + "&redirect_uri=" + encode(redirectUri.strip())
                 + "&client_id=" + encode(clientId.strip())
                 + "&code_verifier=" + encode(verifier);
+        return grant(tokenEndpoint, form, "exchange");
+    }
+
+    /**
+     * Trades a refresh token for a new access token (RFC 6749 §6), as a public client.
+     *
+     * <p>The body carries the refresh token and the client id and nothing else: no secret,
+     * because a public client has none, and no {@code scope}, so the server re-issues what it
+     * granted rather than a subset this client guessed at. The response may carry a new
+     * refresh token; whether to keep the old one is the session's decision.</p>
+     *
+     * @param tokenEndpoint the token URL from discovery; never blank
+     * @param clientId the public client id; never blank
+     * @param refreshToken the refresh token the last grant issued; never blank
+     * @return the grant the endpoint issued
+     * @throws SmartAuthorizationException when the endpoint refuses (an expired or revoked
+     *         refresh token is {@code invalid_grant}), answers unusably, or cannot be reached
+     */
+    public SmartTokenResponse refresh(String tokenEndpoint, String clientId, String refreshToken)
+            throws SmartAuthorizationException {
+        require(tokenEndpoint, "A token endpoint is required to renew the session.");
+        require(clientId, "An OAuth client id is required to renew the session.");
+        require(refreshToken, "A refresh token is required to renew the session.");
+        String form = "grant_type=refresh_token"
+                + "&refresh_token=" + encode(refreshToken)
+                + "&client_id=" + encode(clientId.strip());
+        return grant(tokenEndpoint, form, "refresh");
+    }
+
+    /** Posts one grant request and reads the grant, or the server's reason for refusing. */
+    private SmartTokenResponse grant(String tokenEndpoint, String form, String what)
+            throws SmartAuthorizationException {
+        URI endpoint = parseEndpoint(tokenEndpoint.strip());
         HttpResponse<InputStream> response = post(endpoint, form);
         int status = response.statusCode();
         String body = readCapped(response.body());
         if (status < 200 || status >= 300) {
             throw new SmartAuthorizationException(
                     SmartAuthorizationException.Kind.TOKEN_EXCHANGE_FAILED,
-                    "The token endpoint refused the exchange (HTTP " + status + ")"
+                    "The token endpoint refused the " + what + " (HTTP " + status + ")"
                             + errorDetail(body) + ".");
         }
         return SmartTokenResponse.from(body).orElseThrow(() ->

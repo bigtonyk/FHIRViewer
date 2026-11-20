@@ -272,7 +272,7 @@ public final class SmartLaunchDialog extends Dialog<SmartLaunchDialog.Result> {
         if (existing == null) {
             return;
         }
-        if (existing.isLoggedOut() || existing.isExpired()) {
+        if (existing.needsReauthorization()) {
             sessionHolder.clear();
             return;
         }

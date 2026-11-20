@@ -114,7 +114,8 @@ public final class SmartAuthorizationFlow {
                             + ", patient context: "
                             + (tokens.patient() == null ? "absent" : "present"));
             String subject = validateIdentity(tokens, config, discovered, authState);
-            return new SmartAuthorizationSession(config.issuer(), tokens, subject);
+            return new SmartAuthorizationSession(config.issuer(), tokens, subject,
+                    discovered.tokenEndpoint(), config.clientId());
         } finally {
             callback.close();
         }

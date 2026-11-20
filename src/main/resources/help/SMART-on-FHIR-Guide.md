@@ -178,7 +178,7 @@ itself:
 
 | Field | Meaning |
 |---|---|
-| State | Whether the session is active or has been logged out |
+| State | Whether the session is active or has been logged out, and whether it can renew itself |
 | Granted scopes | The scopes the server granted (which may differ from what you asked for) |
 | Patient | The patient context, when the server supplied one |
 | Encounter | The encounter context, when supplied |
@@ -192,6 +192,24 @@ itself:
   Resource access panel — there is nothing to read.
 - The granted scopes may be fewer than the ones you requested. That is the server's
   decision, and the Session panel reports the granted set, not the requested set.
+
+### Session renewal
+
+Some servers issue very short-lived access tokens; Smile CDR's default is about a minute.
+If the server also issued a **refresh token**, the session renews itself:
+
+- Before a read or write, a token that has expired, or will within 15 seconds, is renewed
+  first with `grant_type=refresh_token` and the client id. No secret is sent.
+- If the server answers **401** to a token that has not expired (it was revoked early), the
+  session renews once and retries the request once. A second 401 is reported as it is.
+- A new refresh token from the server replaces the old one. The patient, encounter and user
+  stay those of the original launch.
+- If the server refuses the renewal (for example `invalid_grant`), the refresh token is
+  dropped and you are asked to authorize again.
+
+Servers only issue a refresh token when you ask for one: add **`offline_access`** or
+**`online_access`** to the scopes. The Session panel's State line says whether the current
+session can renew itself. Renewals appear in the Diagnostics tab, with tokens redacted.
 
 ---
 
@@ -462,8 +480,6 @@ client secret, authorization header, or patient data.
 
 - **Diagnostics are in-memory only.** The Diagnostics tab, export, and clear all apply to the
   current workbench session. Nothing survives a restart.
-- **No refresh-token use.** If the server issues a refresh token, the grant records it but the
-  Workbench does not use it to obtain a new access token.
 - **No `Accept` negotiation** beyond `application/json` for discovery.
 - **A non-matching document issuer is reported but not resolved.** The Workbench does not
   guess which address is right; that is a deployment decision.

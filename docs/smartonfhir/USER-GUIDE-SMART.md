@@ -78,10 +78,15 @@ You need a SMART-enabled FHIR server and a registered **public** OAuth client on
    SMART sandbox. Do not use a production server with real patient data.
 2. **Register a public client.** In the server's administration console, register a client
    with `confidentiality = public`. The server will issue a **client ID**; record it.
-3. **Set the redirect URI.** The Workbench communicates over a loopback address chosen at
-   runtime, but the **registered redirect URI must be loopback http** — for example
-   `http://127.0.0.1:54321/callback`. The exact port does not matter: the Workbench picks a
-   free local port and the server must accept the pattern.
+3. **Set the redirect URI.** The redirect URI must be **loopback http**, for example
+   `http://127.0.0.1:54321/callback`. There are two ways to use it:
+   - **Any port.** Leave the Workbench's **Redirect URI** field blank. The Workbench picks a
+     free local port each time, so the server must accept any port on `127.0.0.1`.
+   - **A fixed port.** If the server matches the redirect URI exactly (Smile CDR does),
+     register one URI with an explicit port and path, then enter the same URI in the
+     **Redirect URI** field. The Workbench listens on that port and path and sends the URI
+     exactly as entered. `localhost` is accepted and is listened on at `127.0.0.1`. If
+     another program holds the port, Authorize says so; pick and register another port.
 4. **Request scopes.** At minimum request `launch/patient` if you want patient context, and
    `patient/*.read` if you want to read resources. Identity scopes (`openid`, `fhirUser`) are
    optional and produce an ID token.
@@ -101,6 +106,7 @@ You need a SMART-enabled FHIR server and a registered **public** OAuth client on
 | Name | A nickname for this launch, only used in the saved list |
 | Issuer | The FHIR server base URL, e.g. `https://fhir.example.com` |
 | Client ID | The public client ID you registered |
+| Redirect URI | Blank for any free port, or the exact loopback URI you registered |
 | Scopes | Space-separated, e.g. `launch/patient patient/*.read` |
 | Mode | **Standalone** or **EHR launch** |
 
@@ -172,7 +178,7 @@ itself:
 
 | Field | Meaning |
 |---|---|
-| State | Whether the session is active or has been logged out |
+| State | Whether the session is active or has been logged out, and whether it can renew itself |
 | Granted scopes | The scopes the server granted (which may differ from what you asked for) |
 | Patient | The patient context, when the server supplied one |
 | Encounter | The encounter context, when supplied |
@@ -186,6 +192,24 @@ itself:
   Resource access panel — there is nothing to read.
 - The granted scopes may be fewer than the ones you requested. That is the server's
   decision, and the Session panel reports the granted set, not the requested set.
+
+### Session renewal
+
+Some servers issue very short-lived access tokens; Smile CDR's default is about a minute.
+If the server also issued a **refresh token**, the session renews itself:
+
+- Before a read or write, a token that has expired, or will within 15 seconds, is renewed
+  first with `grant_type=refresh_token` and the client id. No secret is sent.
+- If the server answers **401** to a token that has not expired (it was revoked early), the
+  session renews once and retries the request once. A second 401 is reported as it is.
+- A new refresh token from the server replaces the old one. The patient, encounter and user
+  stay those of the original launch.
+- If the server refuses the renewal (for example `invalid_grant`), the refresh token is
+  dropped and you are asked to authorize again.
+
+Servers only issue a refresh token when you ask for one: add **`offline_access`** or
+**`online_access`** to the scopes. The Session panel's State line says whether the current
+session can renew itself. Renewals appear in the Diagnostics tab, with tokens redacted.
 
 ---
 
@@ -439,8 +463,8 @@ client secret, authorization header, or patient data.
 - **No client secret.** Public clients have none, and none is used anywhere in the flow. The
   Workbench posts the authorization code plus the PKCE verifier and the exact redirect URI —
   that is all the token endpoint receives.
-- **Loopback only.** The authorization redirect is always `127.0.0.1`. A code can never be
-  sent to a remote host.
+- **Loopback only.** The callback listener only ever binds `127.0.0.1`, including for a
+  registered `localhost` redirect URI. A code can never be sent to a remote host.
 - **Diagnostics are redacted before they leave the process.** The Diagnostics tab and every
   exported log file are run through redaction for bearer tokens, authorization codes,
   PKCE verifiers, client secrets, authorization headers, and patient identifiers. You can
@@ -456,8 +480,6 @@ client secret, authorization header, or patient data.
 
 - **Diagnostics are in-memory only.** The Diagnostics tab, export, and clear all apply to the
   current workbench session. Nothing survives a restart.
-- **No refresh-token use.** If the server issues a refresh token, the grant records it but the
-  Workbench does not use it to obtain a new access token.
 - **No `Accept` negotiation** beyond `application/json` for discovery.
 - **A non-matching document issuer is reported but not resolved.** The Workbench does not
   guess which address is right; that is a deployment decision.

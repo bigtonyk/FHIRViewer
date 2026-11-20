@@ -71,9 +71,7 @@ final class SmartSessionPane extends VBox {
             hide(scopesValue, patientValue, encounterValue, subjectValue, expiryValue);
             return;
         }
-        stateValue.setText(session.isExpired()
-                ? "Authorization expired. Authorize again for a new session."
-                : "Authorized. The access token is held in memory and never shown here.");
+        stateValue.setText(stateText(session));
         setRowVisible(stateValue, true);
         setRow(scopesValue, grantedText(session));
         // A launch can succeed without patient context — identity-scoped launches carry
@@ -85,6 +83,25 @@ final class SmartSessionPane extends VBox {
         setRow(subjectValue, session.subject().orElse(null));
         setRow(expiryValue, session.expiresAt().map(Object::toString)
                 .orElse("The server did not state a lifetime."));
+    }
+
+    /**
+     * Whether the session is usable, and whether it can renew itself.
+     *
+     * <p>Renewal is stated either way. A token server like Smile CDR's issues tokens that
+     * last about a minute, so "no refresh token" is the difference between a session that
+     * keeps working and one that needs a new authorization almost straight away.</p>
+     */
+    static String stateText(SmartAuthorizationSession session) {
+        if (session.needsReauthorization()) {
+            return "Authorization expired. Authorize again for a new session.";
+        }
+        String held = "Authorized. The access token is held in memory and never shown here.";
+        if (session.canRefresh()) {
+            return held + " It is renewed with the refresh token when it expires.";
+        }
+        return held + " No refresh token was issued, so authorize again when it expires"
+                + " (request offline_access or online_access to allow renewal).";
     }
 
     /**

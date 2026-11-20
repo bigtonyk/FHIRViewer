@@ -33,11 +33,13 @@ import com.spiraleyes.fhirviewer.ui.ServerErrors;
  *
  * <p>The session is never stored here: this object is stateless and reusable, two
  * sessions never share state, and nothing survives a logout because the session itself
- * holds the token. A logged-out or expired session is refused before a socket opens, so a
- * stale token is never sent and a failure is reported as "authorize again" rather than
- * as a confusing 401. HTTP 401 and 403 pass through as their own
- * {@link ServerOperationException.Kind} values with the server's explanation; there is
- * no retry loop — one attempt, then a message the user can act on.</p>
+ * holds the token. A logged-out session is refused before a socket opens. A token that
+ * has expired, or is about to, is renewed first when the session holds a refresh token,
+ * and refused otherwise, so a stale token is never sent and a failure is reported as
+ * "authorize again" rather than as a confusing 401. A 401 from the server is answered
+ * with one renewal and one retry, since a token can be revoked before its stated expiry;
+ * any further 401, and every 403, passes through as its own
+ * {@link ServerOperationException.Kind} with the server's explanation.</p>
  *
  * <p>Reads go through the application's existing {@link FhirServerPlugin} registry, so
  * an authorized read and an unauthenticated one differ in exactly one respect: which
@@ -45,8 +47,15 @@ import com.spiraleyes.fhirviewer.ui.ServerErrors;
  */
 public final class SmartFhirAccess {
 
+    /**
+     * How close to its stated expiry a token is renewed rather than sent: enough to cover
+     * a slow request and modest clock skew, short against Smile CDR's sixty-second tokens.
+     */
+    static final Duration RENEWAL_MARGIN = Duration.ofSeconds(15);
+
     private final FhirServerPluginRegistry registry;
     private final SmartDiagnostics diagnostics;
+    private final SmartTokenExchangeService tokenExchange;
 
     /**
      * @param registry the plugin registry that serves the session's server; never
@@ -63,8 +72,20 @@ public final class SmartFhirAccess {
      * @param diagnostics the diagnostic recorder; never {@code null}
      */
     SmartFhirAccess(FhirServerPluginRegistry registry, SmartDiagnostics diagnostics) {
+        this(registry, diagnostics, new SmartTokenExchangeService());
+    }
+
+    /**
+     * @param registry the plugin registry that serves the session's server; never
+     *                 {@code null}
+     * @param diagnostics the diagnostic recorder; never {@code null}
+     * @param tokenExchange the token client sessions renew through; never {@code null}
+     */
+    SmartFhirAccess(FhirServerPluginRegistry registry, SmartDiagnostics diagnostics,
+            SmartTokenExchangeService tokenExchange) {
         this.registry = Objects.requireNonNull(registry, "registry");
         this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
+        this.tokenExchange = Objects.requireNonNull(tokenExchange, "tokenExchange");
     }
 
     /**
@@ -91,7 +112,7 @@ public final class SmartFhirAccess {
         if (patientId == null || patientId.isBlank()) {
             return Optional.empty();
         }
-        return recorded("Reading the patient context through the authorized session",
+        return recorded(session, "Reading the patient context through the authorized session",
                 "GET " + session.fhirBaseUrl() + "/Patient/" + patientId,
                 () -> readGranted(session, "Patient", patientId));
     }
@@ -125,7 +146,7 @@ public final class SmartFhirAccess {
         requireUsable(session);
         String type = resourceType.strip();
         String id = resourceId.strip();
-        return recorded("Reading " + type + " through the authorized session",
+        return recorded(session, "Reading " + type + " through the authorized session",
                 "GET " + session.fhirBaseUrl() + "/" + type + "/" + id,
                 () -> readGranted(session, type, id));
     }
@@ -149,7 +170,7 @@ public final class SmartFhirAccess {
         Objects.requireNonNull(resource, "resource");
         String type = requireType(resource.fhirType());
         requireUsable(session);
-        return recorded("Creating " + type + " through the authorized session",
+        return recorded(session, "Creating " + type + " through the authorized session",
                 "POST " + session.fhirBaseUrl() + "/" + type, () -> {
                     ServerSession serverSession = sessionFor(session);
                     return pluginFor(serverSession, session).create(serverSession, resource);
@@ -197,7 +218,7 @@ public final class SmartFhirAccess {
             throw new IllegalArgumentException("A patch body is required and must not be blank.");
         }
         requireUsable(session);
-        return recorded("Patching " + type + "/" + id + " through the authorized session",
+        return recorded(session, "Patching " + type + "/" + id + " through the authorized session",
                 "PATCH " + session.fhirBaseUrl() + "/" + type + "/" + id, () -> {
                     ServerSession serverSession = sessionFor(session);
                     return pluginFor(serverSession, session).patch(serverSession,
@@ -222,7 +243,7 @@ public final class SmartFhirAccess {
         String type = requireType(resourceType);
         String id = requireId(resourceId);
         requireUsable(session);
-        recorded("Deleting " + type + "/" + id + " through the authorized session",
+        recorded(session, "Deleting " + type + "/" + id + " through the authorized session",
                 "DELETE " + session.fhirBaseUrl() + "/" + type + "/" + id, () -> {
                     ServerSession serverSession = sessionFor(session);
                     pluginFor(serverSession, session).delete(serverSession,
@@ -273,7 +294,7 @@ public final class SmartFhirAccess {
         }
         String resourceId = id.getIdPart();
         requireUsable(session);
-        return recorded(activity + " " + type + "/" + resourceId
+        return recorded(session, activity + " " + type + "/" + resourceId
                 + " through the authorized session",
                 "PUT " + session.fhirBaseUrl() + "/" + type + "/" + resourceId, () -> {
                     ServerSession serverSession = sessionFor(session);
@@ -326,13 +347,27 @@ public final class SmartFhirAccess {
      * <p>Only the method, the URL and the status are recorded: request bodies and tokens
      * never reach the diagnostics, which are shown on screen.</p>
      */
-    private <T> T recorded(String activity, String detail, GrantedCall<T> call)
-            throws ServerOperationException {
+    private <T> T recorded(SmartAuthorizationSession session, String activity, String detail,
+            GrantedCall<T> call) throws ServerOperationException {
         Instant started = Instant.now();
         diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
                 SmartDiagnosticsEvent.Kind.REQUEST_STARTED, activity, detail);
         try {
-            T result = call.call();
+            T result;
+            String sent = session.accessToken();
+            try {
+                result = call.call();
+            } catch (ServerOperationException refused) {
+                // A 401 means the request was not processed, so one retry with a renewed
+                // token is safe for a write as well as a read. Only one: a second 401 is
+                // the server's answer, not a stale token.
+                if (refused.kind() != ServerOperationException.Kind.UNAUTHORIZED
+                        || !session.canRefresh()) {
+                    throw refused;
+                }
+                renew(session, sent, "the server refused the access token (HTTP 401)");
+                result = call.call();
+            }
             long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
             diagnostics.record(SmartDiagnosticsEvent.Phase.FHIR_ACCESS,
                     SmartDiagnosticsEvent.Kind.REQUEST_COMPLETED, activity,
@@ -363,17 +398,66 @@ public final class SmartFhirAccess {
      * that looks like a permissions problem when the truth is "authorize again". Saying
      * it here is also what keeps the failure off any wire: nothing is transmitted.</p>
      */
-    private static void requireUsable(SmartAuthorizationSession session)
+    private void requireUsable(SmartAuthorizationSession session)
             throws ServerOperationException {
         if (session.isLoggedOut()) {
             throw new ServerOperationException(ServerOperationException.Kind.UNAUTHORIZED,
                     "This session was logged out, so it has no access token to send. "
                             + "Authorize again before reading.");
         }
+        if (session.expiresWithin(RENEWAL_MARGIN) && session.canRefresh()) {
+            renew(session, session.accessToken(), "the access token "
+                    + (session.isExpired() ? "has expired" : "is about to expire"));
+        }
         if (session.isExpired()) {
             throw new ServerOperationException(ServerOperationException.Kind.UNAUTHORIZED,
-                    "The access token has expired. Authorize again to get a new session.");
+                    "The access token has expired. Authorize again to get a new session."
+                            + (session.refreshToken().isEmpty()
+                                    ? " The server issued no refresh token; request the "
+                                            + "offline_access or online_access scope to let "
+                                            + "the session renew itself."
+                                    : ""));
         }
+    }
+
+    /**
+     * Renews the session's access token, recording why and how it went.
+     *
+     * <p>A refusal becomes {@code UNAUTHORIZED} with "authorize again", since the session
+     * has dropped its refresh token and only a new authorization can help; a network
+     * failure keeps its own kind, because the same renewal may work once the server can
+     * be reached.</p>
+     *
+     * @param staleToken the access token found wanting, so a renewal another thread
+     *                   already made is not repeated
+     * @param reason why the renewal is needed, for the diagnostics
+     */
+    private void renew(SmartAuthorizationSession session, String staleToken, String reason)
+            throws ServerOperationException {
+        diagnostics.record(SmartDiagnosticsEvent.Phase.SESSION,
+                SmartDiagnosticsEvent.Kind.REFRESH_STARTED,
+                "Renewing the session with its refresh token", reason);
+        try {
+            if (!session.refresh(tokenExchange, staleToken)) {
+                throw new ServerOperationException(ServerOperationException.Kind.UNAUTHORIZED,
+                        "The session could not be renewed. Authorize again.");
+            }
+        } catch (SmartAuthorizationException failed) {
+            diagnostics.record(SmartDiagnosticsEvent.Phase.SESSION,
+                    SmartDiagnosticsEvent.Kind.REFRESH_FAILED,
+                    "Session renewal failed: " + ServerErrors.redact(failed.getMessage()), null);
+            boolean refused =
+                    failed.kind() == SmartAuthorizationException.Kind.TOKEN_EXCHANGE_FAILED;
+            throw new ServerOperationException(refused
+                    ? ServerOperationException.Kind.UNAUTHORIZED
+                    : ServerOperationException.Kind.UNREACHABLE,
+                    "The session could not be renewed: " + failed.getMessage()
+                            + (refused ? " Authorize again." : ""), failed);
+        }
+        diagnostics.record(SmartDiagnosticsEvent.Phase.SESSION,
+                SmartDiagnosticsEvent.Kind.REFRESHED,
+                "Session renewed with a new access token",
+                session.expiresAt().map(at -> "expires " + at).orElse("expiry not stated"));
     }
 
     /**

@@ -24,7 +24,8 @@ Guide for registration details).
 | 7 | Retrieve a permitted FHIR resource (press **Read patient context**). | If patient context was granted, the patient resource is read and shown; Open in viewer offers to display it. |
 | 8 | Inspect patient/encounter context. | Session panel shows patient and encounter when granted; explains absence when not. |
 | 9 | Exercise an authorization failure. | E.g. use wrong scopes or revoke consent; a clear failure message appears, no token leaked. |
-| 10 | Exercise an expired token. | Wait for expiry or force it; Session panel says expired; reads refuse until re-authorized. |
+| 10 | Exercise an expired token without a refresh token. | Authorize without `offline_access`/`online_access`; wait for expiry; Session panel says expired; reads refuse until re-authorized, and the message names the scopes that allow renewal. |
+| 10a | Exercise renewal with a refresh token. | Authorize with `offline_access` (Smile CDR: tokens last about a minute); State line says the session renews itself; wait past expiry and read again; the read succeeds and Diagnostics shows "Session renewed", with no token in the text. |
 | 11 | Clear the session (logout). | Session panel resets to "No session exists yet"; token dropped from memory. |
 | 12 | Exercise an EHR launch simulation. | Switch mode to EHR launch; enter `iss` and `launch`; run discovery and authorize; context shown when supplied. |
 | 13 | Confirm existing FHIRViewer features still work. | Open a normal FHIR server, search, view a resource — unaffected by SMART changes. |

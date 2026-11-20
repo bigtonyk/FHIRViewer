@@ -64,8 +64,9 @@ public record LoopbackRedirect(String uri, String host, int port, String path) {
         }
         if (parsed.getPort() < 1 || parsed.getPort() > 65535) {
             throw new IllegalArgumentException(
-                    "The redirect URI needs an explicit port, such as http://127.0.0.1:8765/callback, "
-                            + "so it can match the one registered with the server.");
+                    "The redirect URI needs an explicit port, such as "
+                            + "http://127.0.0.1:8765/callback, so it can match the one "
+                            + "registered with the server.");
         }
         if (parsed.getRawQuery() != null || parsed.getRawFragment() != null
                 || parsed.getRawUserInfo() != null) {
