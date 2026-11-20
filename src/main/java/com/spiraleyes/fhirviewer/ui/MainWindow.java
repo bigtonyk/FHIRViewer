@@ -453,11 +453,13 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
         refreshProfileChoices();
         wireInteractions();
         startIgPackageAutoLoad();
-        // Closing the window is the last chance to save an edited resource.
+        // Closing the window is the last chance to save an edited resource and to keep an
+        // unreviewed scripting write outcome from disappearing with its console's journal.
         stage.setOnCloseRequest(event -> {
             if (!closingFromAction
                     && (!documentSession.confirmDiscard("closing the window")
-                            || !workspaceActions.closeDecision())) {
+                            || !workspaceActions.closeDecision()
+                            || !ScriptingConsoleDialog.confirmConsolesMayClose())) {
                 event.consume();
                 return;
             }
@@ -764,7 +766,8 @@ private final ServerCapabilitiesCache capabilitiesCache = new ServerCapabilities
     }
 
     private void closeWindow() {
-        if (!documentSession.confirmDiscard("exiting") || !workspaceActions.closeDecision()) {
+        if (!documentSession.confirmDiscard("exiting") || !workspaceActions.closeDecision()
+                || !ScriptingConsoleDialog.confirmConsolesMayClose()) {
             return;
         }
         // The close request handler runs inside stage.close() and must not ask about the

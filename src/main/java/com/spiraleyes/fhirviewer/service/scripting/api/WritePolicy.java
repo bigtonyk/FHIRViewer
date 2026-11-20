@@ -202,6 +202,32 @@ public final class WritePolicy {
                     + ", not " + describe(server) + ". Turn writes off and on again to approve"
                     + " a different server.");
         }
+        requireScope(operation, resourceType);
+        acquireBudget(describe(server), operation);
+        touch();
+    }
+
+    /**
+     * Checks a write that carries its own authorization rather than this grant's saved
+     * credentials, such as a SMART session writing to the URL its token was issued for.
+     *
+     * <p>The grant still has to be on, allow the operation and stay inside its budget; only
+     * the server binding is not applied, because the session's own authorization names the
+     * server and the scopes the server granted decide what its token may do. The grant's
+     * read-only flag describes a configured server, so it does not apply to a session
+     * either.</p>
+     *
+     * @param targetDescription what a budget prompt names, for example "the SMART session"
+     */
+    public void requireWriteWithItsOwnAuthorization(String operation, String resourceType,
+            String targetDescription) {
+        requireWrite();
+        requireScope(operation, resourceType);
+        acquireBudget(targetDescription, operation);
+        touch();
+    }
+
+    private void requireScope(String operation, String resourceType) {
         if (!scope.allows(operation, resourceType)) {
             throw new WriteDeniedException("The write scope for this grant does not allow "
                     + operation + (resourceType == null || resourceType.isBlank()
@@ -209,8 +235,6 @@ public final class WritePolicy {
                     + ". This grant allows " + scope.describe()
                     + ". Turn writes off and on again to change the scope.");
         }
-        acquireBudget(server, operation);
-        touch();
     }
 
     /** Starts a new run: the budget resets, and expiry pauses while the run is active. */
@@ -280,7 +304,7 @@ public final class WritePolicy {
         return confirmation.confirm(summary);
     }
 
-    private void acquireBudget(FhirServerConfiguration server, String operation) {
+    private void acquireBudget(String targetDescription, String operation) {
         if (writeBudget <= 0) {
             return;
         }
@@ -293,7 +317,7 @@ public final class WritePolicy {
                 continue;
             }
             boolean approved = budgetConfirmation != null
-                    && budgetConfirmation.confirm(used, describe(server));
+                    && budgetConfirmation.confirm(used, targetDescription);
             if (!approved) {
                 throw new WriteDeniedException("This run reached its " + writeBudget
                         + "-write budget. Enable writes again or raise the limit before"

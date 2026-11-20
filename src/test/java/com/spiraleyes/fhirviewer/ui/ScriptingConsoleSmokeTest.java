@@ -9,6 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.GraphicsEnvironment;
 import java.io.File;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -31,6 +34,11 @@ import org.junit.jupiter.api.io.TempDir;
 
 import org.hl7.fhir.r4.model.Patient;
 
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+
+import ca.uhn.fhir.context.FhirContext;
+
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
 import com.spiraleyes.fhirviewer.server.FhirServerPluginRegistry;
@@ -41,13 +49,16 @@ import com.spiraleyes.fhirviewer.server.SearchResultPage;
 import com.spiraleyes.fhirviewer.server.ServerDefinition;
 import com.spiraleyes.fhirviewer.server.ServerOrigin;
 import com.spiraleyes.fhirviewer.server.ServerWriteResult;
+import com.spiraleyes.fhirviewer.server.StandardFhirRestPlugin;
 import com.spiraleyes.fhirviewer.server.smart.SmartAuthorizationSession;
+import com.spiraleyes.fhirviewer.server.smart.SmartFhirAccess;
 import com.spiraleyes.fhirviewer.server.smart.SmartSessionHolder;
 import com.spiraleyes.fhirviewer.server.smart.SmartTokenResponse;
 import com.spiraleyes.fhirviewer.service.FhirService;
 import com.spiraleyes.fhirviewer.service.scripting.FailingScriptingSessions;
 import com.spiraleyes.fhirviewer.service.scripting.ScriptingCoordinator;
 import com.spiraleyes.fhirviewer.service.scripting.api.ScriptBindings;
+import com.spiraleyes.fhirviewer.service.scripting.api.SmartApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.WriteDeniedException;
 import com.spiraleyes.fhirviewer.service.scripting.api.WriteJournal;
 import com.spiraleyes.fhirviewer.service.scripting.api.WriteOutcomeUnknownException;
@@ -59,6 +70,7 @@ import com.spiraleyes.fhirviewer.service.scripting.testing.SuiteRunResult;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.DialogPane;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
@@ -420,6 +432,345 @@ class ScriptingConsoleSmokeTest {
             assertTrue(outcome.report().contains("1 passed, 0 failed"),
                     "the SMART case should pass: " + outcome.report());
         }
+    }
+
+    /**
+     * The write opt-in must reach the SMART facade the Workbench shares, and closing the
+     * console must end the grant that facade holds.
+     */
+    @Test
+    @DisplayName("The console's write opt-in reaches the shared SMART session and ends with it")
+    void writeOptInReachesTheSharedSmartSession() throws Exception {
+        requireToolkit();
+        SmartSessionHolder holder = new SmartSessionHolder();
+        holder.set(session("stub-token", "stub-patient"), null);
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(new WritableService(),
+                    managerWithServer(), summary -> true, true, holder);
+            created.show();
+            return created;
+        });
+
+        onFxThread(() -> {
+            assertFalse(holder.api().isWriteEnabled(), "writes start off for a session");
+            console.allowWritesForTest().fire();
+            assertTrue(holder.api().isWriteEnabled(),
+                    "the opt-in must reach the shared SMART facade");
+            console.close();
+            return null;
+        });
+        onFxThread(() -> {
+            assertFalse(holder.api().isWriteEnabled(),
+                    "a closed console must not leave a live grant on the shared facade");
+            return null;
+        });
+    }
+
+    /**
+     * The opt-in also covers SMART writes, so the warning that asks for it has to say where
+     * those go: previously the session's own server was only in the docs.
+     */
+    @Test
+    @DisplayName("The write warning names the SMART session's server when one is active")
+    void writeWarningNamesTheSmartSessionServer() throws Exception {
+        requireToolkit();
+        SmartSessionHolder holder = new SmartSessionHolder();
+        holder.set(session("stub-token", "stub-patient"), null);
+        DialogProbeConsole console = onFxThread(() -> {
+            DialogProbeConsole created = new DialogProbeConsole(new WritableService(),
+                    managerWithServer(), holder);
+            created.show();
+            return created;
+        });
+
+        AtomicReference<String> warningText = new AtomicReference<>();
+        CountDownLatch finished = new CountDownLatch(1);
+        Thread helper = new Thread(() -> {
+            while (finished.getCount() > 0) {
+                Platform.runLater(() -> {
+                    String text = dialogContentText("Allow server writes?");
+                    if (text != null) {
+                        warningText.set(text);
+                    }
+                    clickDialogButton("Allow server writes?", "Allow Writes");
+                });
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException interrupted) {
+                    return;
+                }
+            }
+        }, "scripting-console-smart-warning");
+        helper.setDaemon(true);
+        helper.start();
+        Platform.runLater(() -> {
+            try {
+                console.allowWritesForTest().fire();
+            } finally {
+                finished.countDown();
+            }
+        });
+
+        boolean answered;
+        try {
+            answered = finished.await(10, TimeUnit.SECONDS);
+        } finally {
+            helper.interrupt();
+        }
+        assertTrue(answered, "the write warning was not answered");
+        assertNotNull(warningText.get(), "the write warning was not shown");
+        assertTrue(warningText.get().contains("authorized SMART session"),
+                "the opt-in covers SMART writes, so the warning must say so: "
+                        + warningText.get());
+        assertTrue(warningText.get().contains("http://example.com/fhir"),
+                "the warning must name the session's server: " + warningText.get());
+        onFxThread(() -> {
+            console.close();
+            return null;
+        });
+    }
+
+    /**
+     * The console's own SMART branch, end to end: a journalled SMART entry, the Undo button,
+     * the session's server receiving the restore, and the reversal journalled beside it.
+     *
+     * <p>Only the restore call and the journal predicate were tested before, so a mistake in
+     * the console's routing or gating would not have shown up. The stub checks the credential
+     * too: the reversal must carry the session's bearer, not a configured server's.</p>
+     */
+    @Test
+    @DisplayName("Undo Last Write reverts a SMART entry through the session's server")
+    void undoRevertsASmartEntry() throws Exception {
+        requireToolkit();
+        String capability = "{\"resourceType\":\"CapabilityStatement\",\"status\":\"active\","
+                + "\"date\":\"2024-01-01\",\"kind\":\"instance\",\"fhirVersion\":\"4.0.1\","
+                + "\"format\":[\"json\"],\"rest\":[{\"mode\":\"server\","
+                + "\"resource\":[{\"type\":\"Patient\"}]}]}";
+        AtomicInteger restores = new AtomicInteger();
+        AtomicReference<String> authorization = new AtomicReference<>();
+        AtomicReference<String> ifMatch = new AtomicReference<>();
+        AtomicReference<String> body = new AtomicReference<>();
+        HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        stub.createContext("/", exchange -> handleRestore(exchange, capability, restores,
+                authorization, ifMatch, body));
+        stub.start();
+        String baseUrl = "http://127.0.0.1:" + stub.getAddress().getPort();
+        try {
+            FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+            registry.register(new StandardFhirRestPlugin(FhirContext.forR4()));
+            SmartSessionHolder holder = new SmartSessionHolder();
+            holder.set(new SmartAuthorizationSession(baseUrl, new SmartTokenResponse("tok-undo",
+                    "Bearer", 3600L, "patient/*.write", "1", null, null, null), null),
+                    new SmartFhirAccess(registry));
+
+            Patient before = new Patient();
+            before.setId("Patient/1");
+            before.addName().setFamily("Before");
+
+            WriteProbeConsole console = onFxThread(() -> {
+                WriteProbeConsole created = new WriteProbeConsole(new WritableService(),
+                        managerWithServer(), summary -> true, true, holder);
+                created.show();
+                created.allowWritesForTest().fire();
+                created.writeJournalForTest().record(SmartApi.JOURNAL_SERVER_NAME, baseUrl,
+                        "update", "Patient", "1", "2", WriteJournal.Status.SUCCEEDED, "",
+                        Duration.ZERO,
+                        new WriteJournal.Undo("update", "Patient", "1", "2", before));
+                assertFalse(created.undoButtonForTest().isDisable(),
+                        "a SMART entry with a before-image must enable Undo Last Write");
+                created.undoButtonForTest().fire();
+                return created;
+            });
+
+            long deadline = System.currentTimeMillis() + 10_000;
+            while ((restores.get() < 1
+                    || !console.writeJournalTextForTest().contains("[undone]"))
+                    && System.currentTimeMillis() < deadline) {
+                Thread.sleep(25);
+            }
+
+            assertEquals(1, restores.get(), "the stub must receive one restore");
+            assertTrue(authorization.get() != null && authorization.get().contains("tok-undo"),
+                    "the restore must carry the session's bearer: " + authorization.get());
+            assertTrue(ifMatch.get() != null && ifMatch.get().contains("2"),
+                    "the restore must name the version the reverted write produced: "
+                            + ifMatch.get());
+            assertTrue(body.get() != null && body.get().contains("Before"),
+                    "the restore must send the captured before-image: " + body.get());
+
+            onFxThread(() -> {
+                List<WriteJournal.Entry> entries = console.writeJournalForTest().entries();
+                assertEquals(2, entries.size(), "the SMART write and its undo: "
+                        + console.writeJournalTextForTest());
+                assertTrue(console.writeJournalForTest().isUndone(entries.get(0)),
+                        "the reverted write must be marked undone");
+                assertEquals("undo", entries.get(1).operation());
+                assertEquals(SmartApi.JOURNAL_SERVER_NAME, entries.get(1).serverName(),
+                        "the reversal is journalled as the session it went through");
+                assertEquals(baseUrl, entries.get(1).serverBaseUrl());
+                assertEquals(WriteJournal.Status.SUCCEEDED, entries.get(1).status(),
+                        console.writeJournalTextForTest());
+                console.close();
+                return null;
+            });
+        } finally {
+            stub.stop(0);
+        }
+    }
+
+    /**
+     * The console's SMART create undo, end to end: the entry a create leaves behind, the Undo
+     * button, a delete at the session's server carrying the version the create made, and no
+     * configured server involved at all.
+     */
+    @Test
+    @DisplayName("Undo Last Write deletes what a SMART create made, through the session")
+    void undoDeletesASmartCreatedResource() throws Exception {
+        requireToolkit();
+        String capability = "{\"resourceType\":\"CapabilityStatement\",\"status\":\"active\","
+                + "\"date\":\"2024-01-01\",\"kind\":\"instance\",\"fhirVersion\":\"4.0.1\","
+                + "\"format\":[\"json\"],\"rest\":[{\"mode\":\"server\","
+                + "\"resource\":[{\"type\":\"Patient\"}]}]}";
+        AtomicInteger deletes = new AtomicInteger();
+        AtomicReference<String> authorization = new AtomicReference<>();
+        AtomicReference<String> ifMatch = new AtomicReference<>();
+        HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        stub.createContext("/", exchange -> handleDeleteOfCreated(exchange, capability, deletes,
+                authorization, ifMatch));
+        stub.start();
+        String baseUrl = "http://127.0.0.1:" + stub.getAddress().getPort();
+        try {
+            FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+            registry.register(new StandardFhirRestPlugin(FhirContext.forR4()));
+            SmartSessionHolder holder = new SmartSessionHolder();
+            holder.set(new SmartAuthorizationSession(baseUrl, new SmartTokenResponse("tok-create",
+                    "Bearer", 3600L, "patient/*.write", "1", null, null, null), null),
+                    new SmartFhirAccess(registry));
+
+            WritableService service = new WritableService();
+            WriteProbeConsole console = onFxThread(() -> {
+                WriteProbeConsole created = new WriteProbeConsole(service,
+                        managerWithServer(), summary -> true, true, holder);
+                created.show();
+                created.allowWritesForTest().fire();
+                created.writeJournalForTest().record(SmartApi.JOURNAL_SERVER_NAME, baseUrl,
+                        "create", "Patient", "new-1", "1", WriteJournal.Status.SUCCEEDED, "",
+                        Duration.ZERO,
+                        new WriteJournal.Undo("create", "Patient", "new-1", "1", null));
+                assertFalse(created.undoButtonForTest().isDisable(),
+                        "a SMART create must be undoable, as a configured server's create is");
+                created.undoButtonForTest().fire();
+                return created;
+            });
+
+            long deadline = System.currentTimeMillis() + 10_000;
+            while ((deletes.get() < 1
+                    || !console.writeJournalTextForTest().contains("[undone]"))
+                    && System.currentTimeMillis() < deadline) {
+                Thread.sleep(25);
+            }
+
+            assertEquals(1, deletes.get(), "undoing a create should delete it once");
+            assertTrue(authorization.get() != null && authorization.get().contains("tok-create"),
+                    "the delete must carry the session's bearer: " + authorization.get());
+            assertTrue(ifMatch.get() != null && ifMatch.get().contains("1"),
+                    "the delete must name the version the create made: " + ifMatch.get());
+            assertEquals(0, service.deleteCalls,
+                    "a SMART create must not be undone through a configured server");
+
+            onFxThread(() -> {
+                List<WriteJournal.Entry> entries = console.writeJournalForTest().entries();
+                assertEquals(2, entries.size(), "the SMART create and its undo: "
+                        + console.writeJournalTextForTest());
+                assertTrue(console.writeJournalForTest().isUndone(entries.get(0)),
+                        "the reverted create must be marked undone");
+                assertEquals("undo", entries.get(1).operation());
+                assertEquals(SmartApi.JOURNAL_SERVER_NAME, entries.get(1).serverName(),
+                        "the reversal is journalled as the session it went through");
+                assertEquals(WriteJournal.Status.SUCCEEDED, entries.get(1).status(),
+                        console.writeJournalTextForTest());
+                console.close();
+                return null;
+            });
+        } finally {
+            stub.stop(0);
+        }
+    }
+
+    /** Answers the capability check and records the conditional delete the console sends. */
+    private static void handleDeleteOfCreated(HttpExchange exchange, String capability,
+            AtomicInteger deletes, AtomicReference<String> authorization,
+            AtomicReference<String> ifMatch) throws java.io.IOException {
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+        exchange.getRequestBody().readAllBytes();
+        exchange.getResponseHeaders().set("Content-Type", "application/fhir+json");
+        if (path.endsWith("/metadata")) {
+            byte[] metadata = capability.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, metadata.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(metadata);
+            }
+            return;
+        }
+        if ("DELETE".equals(method)) {
+            deletes.incrementAndGet();
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            ifMatch.set(exchange.getRequestHeaders().getFirst("If-Match"));
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+            return;
+        }
+        byte[] notFound = "{\"resourceType\":\"OperationOutcome\"}"
+                .getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(404, notFound.length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(notFound);
+        }
+    }
+
+    /** Answers the capability check and records the restore the console sends. */
+    private static void handleRestore(HttpExchange exchange, String capability,
+            AtomicInteger restores, AtomicReference<String> authorization,
+            AtomicReference<String> ifMatch, AtomicReference<String> body) throws java.io.IOException {
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+        String request = new String(exchange.getRequestBody().readAllBytes(),
+                StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/fhir+json");
+        int status = 200;
+        String response = "";
+        if (path.endsWith("/metadata")) {
+            response = capability;
+        } else if ("PUT".equals(method)) {
+            restores.incrementAndGet();
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            ifMatch.set(exchange.getRequestHeaders().getFirst("If-Match"));
+            body.set(request);
+            exchange.getResponseHeaders().set("ETag", "W/\"3\"");
+            response = "{\"resourceType\":\"Patient\",\"id\":\"1\","
+                    + "\"meta\":{\"versionId\":\"3\"}}";
+        } else {
+            status = 404;
+            response = "{\"resourceType\":\"OperationOutcome\"}";
+        }
+        byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(status, bytes.length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(bytes);
+        }
+    }
+
+    /** The content text of a showing dialog with this title, or null when none is up. */
+    private static String dialogContentText(String title) {
+        for (Window window : Window.getWindows()) {
+            if (window instanceof Stage stage && stage.isShowing()
+                    && title.equals(stage.getTitle()) && stage.getScene() != null
+                    && stage.getScene().getRoot() instanceof DialogPane pane) {
+                return pane.getContentText();
+            }
+        }
+        return null;
     }
 
     private static SmartAuthorizationSession session(String token, String patient) {
@@ -944,6 +1295,155 @@ class ScriptingConsoleSmokeTest {
             assertTrue(console.writeJournalTextForTest().contains("[reviewed]"),
                     console.writeJournalTextForTest());
             console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Closing with an unreviewed unknown write asks before the journal is lost")
+    void closingWarnsAboutAnUnreviewedUnknownWrite() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        FhirServerManager manager = managerWithServer();
+        WriteProbeConsole console = onFxThread(() -> new WriteProbeConsole(service, manager,
+                summary -> true, true));
+
+        onFxThread(() -> {
+            assertTrue(console.mayClose(), "a console with no writes closes silently");
+            assertEquals(0, console.discardWarnings);
+
+            WriteJournal.Entry unknown = console.writeJournalForTest().record(
+                    manager.active().orElseThrow(), "update", "Patient", "1", "v1",
+                    WriteJournal.Status.UNKNOWN, "TIMEOUT", Duration.ZERO);
+            assertFalse(console.mayClose(),
+                    "an unreviewed unknown outcome must stop the console closing");
+            assertEquals(1, console.discardWarnings);
+            assertEquals("closing this console", console.discardAction);
+            assertEquals(1, console.lastUnresolved.size(),
+                    "the warning must name every unreviewed outcome");
+            assertEquals("update", console.lastUnresolved.get(0).operation());
+
+            console.writeJournalForTest().markResolved(unknown);
+            assertTrue(console.mayClose(), "a reviewed outcome no longer blocks the close");
+            assertEquals(1, console.discardWarnings, "a reviewed entry must not warn again");
+
+            // A create whose id never came back is named by type, and accepting the warning
+            // still lets the user close.
+            console.writeJournalForTest().record(manager.active().orElseThrow(), "create",
+                    "Patient", null, null, WriteJournal.Status.UNKNOWN, "TIMEOUT",
+                    Duration.ZERO);
+            console.approveDiscard = true;
+            assertTrue(console.mayClose(), "accepting the warning lets the console close");
+            assertEquals(2, console.discardWarnings);
+            assertNull(console.lastUnresolved.get(0).resourceId(),
+                    "a create whose id never came back is still named");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Opening another script warns before dropping an unreviewed unknown write")
+    void openingAnotherScriptWarnsAboutAnUnreviewedUnknownWrite() throws Exception {
+        requireToolkit();
+        Path script = directory.resolve("replacement.jsh");
+        Files.writeString(script, "System.out.println(\"replacement\");\n");
+        WritableService service = new WritableService();
+        FhirServerManager manager = managerWithServer();
+        WriteProbeConsole console = onFxThread(() -> new WriteProbeConsole(service, manager,
+                summary -> true, true, script));
+
+        onFxThread(() -> {
+            console.writeJournalForTest().record(manager.active().orElseThrow(), "update",
+                    "Patient", "1", "v1", WriteJournal.Status.UNKNOWN, "TIMEOUT",
+                    Duration.ZERO);
+
+            console.openButtonForTest().fire();
+
+            assertEquals(1, console.discardWarnings,
+                    "Open must ask before clearing the journal");
+            assertEquals("opening another script", console.discardAction);
+            assertEquals(1, console.writeJournalForTest().size(),
+                    "refusing the warning must keep the journal");
+            assertTrue(console.editorTextForTest().isBlank(),
+                    "refusing the warning must not replace the buffer either");
+            assertTrue(console.boundFileForTest().isEmpty(),
+                    "refusing the warning must not bind the new file");
+
+            console.approveDiscard = true;
+            console.openButtonForTest().fire();
+
+            assertEquals(2, console.discardWarnings);
+            assertTrue(console.writeJournalForTest().entries().isEmpty(),
+                    "accepting the warning clears the journal with the buffer");
+            assertEquals(script, console.boundFileForTest().orElse(null),
+                    "accepting the warning loads the script");
+            assertEquals("System.out.println(\"replacement\");",
+                    console.editorTextForTest().strip());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Loading the example warns before dropping an unreviewed unknown write")
+    void loadingTheExampleWarnsAboutAnUnreviewedUnknownWrite() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        FhirServerManager manager = managerWithServer();
+        WriteProbeConsole console = onFxThread(() -> new WriteProbeConsole(service, manager,
+                summary -> true, true));
+
+        onFxThread(() -> {
+            console.writeJournalForTest().record(manager.active().orElseThrow(), "update",
+                    "Patient", "1", "v1", WriteJournal.Status.UNKNOWN, "TIMEOUT",
+                    Duration.ZERO);
+
+            console.exampleButtonForTest().fire();
+
+            assertEquals(1, console.discardWarnings,
+                    "loading the example must ask before clearing the journal");
+            assertEquals("loading the example", console.discardAction);
+            assertEquals(1, console.writeJournalForTest().size());
+            assertTrue(console.editorTextForTest().isBlank(),
+                    "refusing the warning must not load the example");
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("Closing the application asks a showing console before its journal is lost")
+    void closingTheApplicationAsksTheOpenConsole() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        FhirServerManager manager = managerWithServer();
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, manager,
+                    summary -> true, true);
+            created.show();
+            return created;
+        });
+
+        onFxThread(() -> {
+            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "a console with nothing unreviewed lets the application close");
+
+            console.writeJournalForTest().record(manager.active().orElseThrow(), "update",
+                    "Patient", "1", "v1", WriteJournal.Status.UNKNOWN, "TIMEOUT",
+                    Duration.ZERO);
+            assertFalse(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "an unreviewed unknown outcome must stop the application closing");
+            assertEquals("closing this console", console.discardAction,
+                    "the application must ask the console's own close question");
+
+            console.approveDiscard = true;
+            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "accepting the warning lets the application close");
+
+            console.close();
+            assertTrue(ScriptingConsoleDialog.confirmConsolesMayClose(),
+                    "a console that is no longer showing must not be asked again");
             return null;
         });
     }
@@ -1584,6 +2084,52 @@ class ScriptingConsoleSmokeTest {
     }
 
     @Test
+    @DisplayName("A delete whose id cannot be read is still restored conditionally")
+    void deleteUndoProceedsWhenTheIdCannotBeRead() throws Exception {
+        requireToolkit();
+        WritableService service = new WritableService();
+        Patient before = new Patient();
+        before.setId("1");
+        before.getMeta().setVersionId("v1");
+        before.addName().setFamily("Before");
+        service.readResource = before;
+        WriteProbeConsole console = onFxThread(() -> {
+            WriteProbeConsole created = new WriteProbeConsole(service, managerWithServer(),
+                    summary -> true, true);
+            created.allowWritesForTest().fire();
+            return created;
+        });
+
+        onFxThread(() -> {
+            console.bindingsForTest().fhir.delete("Patient", "1", "v1");
+            assertEquals(1, service.deleteCalls);
+            // A server that cannot answer this read, as a write-only token's server may not:
+            // the conditional write, not the read, is what keeps the restore safe.
+            service.failRead = true;
+            console.undoButtonForTest().fire();
+            return null;
+        });
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (!console.statusTextForTest().contains("Restored")
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+        onFxThread(() -> {
+            assertEquals(2, service.readCalls,
+                    "the undo must still try the read whose refusal it falls through");
+            assertEquals(1, service.updateCalls,
+                    "a read the server cannot answer must not block the restore it accepts");
+            assertTrue(service.lastUpdateOrigin.onlyIfAbsent(),
+                    "the restore must still carry If-None-Match: *");
+            assertEquals("Restored Patient/1.", console.statusTextForTest());
+            assertTrue(console.writeJournalTextForTest().contains("[undone]"),
+                    console.writeJournalTextForTest());
+            console.close();
+            return null;
+        });
+    }
+
+    @Test
     @DisplayName("A restore the server refuses with 412 is reported and the delete stays undoable")
     void aRestoreRefusedAsAConflictIsReported() throws Exception {
         requireToolkit();
@@ -1903,6 +2449,7 @@ class ScriptingConsoleSmokeTest {
         ServerOrigin lastDeleteOrigin;
         boolean failCreateAsTimeout;
         boolean failUpdateAsConflict;
+        boolean failRead;
         final List<SearchRequest> searchRequests = new java.util.ArrayList<>();
         final java.util.Set<String> failSearchIdentifiers = new java.util.LinkedHashSet<>();
         final java.util.Map<String, SearchResultPage> pages = new java.util.HashMap<>();
@@ -1949,8 +2496,14 @@ class ScriptingConsoleSmokeTest {
 
         @Override
         public org.hl7.fhir.instance.model.api.IBaseResource read(FhirServerConfiguration server,
-                String resourceType, String resourceId) {
+                String resourceType, String resourceId)
+                throws com.spiraleyes.fhirviewer.server.ServerOperationException {
             readCalls++;
+            if (failRead) {
+                throw new com.spiraleyes.fhirviewer.server.ServerOperationException(
+                        com.spiraleyes.fhirviewer.server.ServerOperationException.Kind.UNREACHABLE,
+                        "read Patient/" + resourceId + " was refused");
+            }
             return deletedIds.contains(resourceId) ? null : readResource;
         }
 
@@ -2007,6 +2560,10 @@ class ScriptingConsoleSmokeTest {
         WriteScope scopeToChoose;
         String reconciliationText;
         boolean approveUndo = true;
+        boolean approveDiscard;
+        int discardWarnings;
+        String discardAction;
+        List<WriteJournal.Entry> lastUnresolved = List.of();
 
         WriteProbeConsole(FhirServerService service, FhirServerManager manager,
                 WritePolicy.Confirmation confirmation, boolean approveWrites) {
@@ -2027,6 +2584,15 @@ class ScriptingConsoleSmokeTest {
                 ScriptingCoordinator coordinator) {
             super(new ThemeManager(), new FhirService(), service, manager,
                     coordinator, null, confirmation);
+            this.approveWrites = approveWrites;
+            this.fileToOpen = null;
+        }
+
+        WriteProbeConsole(FhirServerService service, FhirServerManager manager,
+                WritePolicy.Confirmation confirmation, boolean approveWrites,
+                SmartSessionHolder smartSessions) {
+            super(new ThemeManager(), new FhirService(), service, manager,
+                    new ScriptingCoordinator(), smartSessions, confirmation);
             this.approveWrites = approveWrites;
             this.fileToOpen = null;
         }
@@ -2053,6 +2619,15 @@ class ScriptingConsoleSmokeTest {
         }
 
         @Override
+        protected boolean confirmDiscardUnknownOutcomes(List<WriteJournal.Entry> unresolved,
+                String action, String proceedLabel) {
+            discardWarnings++;
+            discardAction = action;
+            lastUnresolved = List.copyOf(unresolved);
+            return approveDiscard;
+        }
+
+        @Override
         protected File chooseOpenLocation() {
             return fileToOpen == null ? null : fileToOpen.toFile();
         }
@@ -2064,6 +2639,12 @@ class ScriptingConsoleSmokeTest {
         DialogProbeConsole(FhirServerService service, FhirServerManager manager) {
             super(new ThemeManager(), new FhirService(), service, manager,
                     new ScriptingCoordinator(), null);
+        }
+
+        DialogProbeConsole(FhirServerService service, FhirServerManager manager,
+                SmartSessionHolder smartSessions) {
+            super(new ThemeManager(), new FhirService(), service, manager,
+                    new ScriptingCoordinator(), smartSessions);
         }
     }
 
