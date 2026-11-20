@@ -1,5 +1,6 @@
 package com.spiraleyes.fhirviewer.service.scripting.api;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -7,6 +8,9 @@ import java.util.Objects;
 import org.hl7.fhir.instance.model.api.IBaseMetaType;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
+import org.hl7.fhir.r4.model.Base;
+import org.hl7.fhir.r4.model.Identifier;
+import org.hl7.fhir.r4.model.Property;
 
 import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
 import com.spiraleyes.fhirviewer.server.FhirServerManager;
@@ -24,8 +28,13 @@ import com.spiraleyes.fhirviewer.server.ServerWriteResult;
  * subset of writes gated behind an explicit {@link WritePolicy}.
  *
  * <p>Reads are the default and always allowed. A script that wants to create,
- * update or delete must run with an enabled write policy, otherwise every write
+ * update, patch or delete must run with an enabled write policy, otherwise every write
  * is refused with a clear message before any request is made.
+ *
+ * <p>The write policy is checked again for every operation. That makes turning
+ * writes off in the console revoke an old {@code fhir} reference a script kept in
+ * the interactive session, and refuses a write if the active server changed after
+ * the grant was approved.
  *
  * <p>Network calls happen on whatever thread runs the script -- the console's
  * worker thread, never the JavaFX thread -- so a slow server freezes nothing but
@@ -40,19 +49,12 @@ public class FhirApi {
     private final FhirServerService serverService;
     private final FhirServerManager serverManager;
     private final WritePolicy writePolicy;
-    private final WritePolicy.Confirmation confirmation;
 
     public FhirApi(FhirServerService serverService, FhirServerManager serverManager,
             WritePolicy writePolicy) {
-        this(serverService, serverManager, writePolicy, null);
-    }
-
-    public FhirApi(FhirServerService serverService, FhirServerManager serverManager,
-            WritePolicy writePolicy, WritePolicy.Confirmation confirmation) {
         this.serverService = Objects.requireNonNull(serverService, "serverService");
         this.serverManager = Objects.requireNonNull(serverManager, "serverManager");
         this.writePolicy = writePolicy == null ? WritePolicy.READ_ONLY : writePolicy;
-        this.confirmation = confirmation;
     }
 
     /** Reads one resource by type and id, or {@code null} when the server says it does not exist. */
@@ -110,12 +112,20 @@ public class FhirApi {
     public ServerWriteResult create(IBaseResource resource) {
         writePolicy.requireWrite();
         Objects.requireNonNull(resource, "resource");
+        String type = resource.fhirType();
         FhirServerConfiguration server = activeServer("create");
+        writePolicy.requireWrite(server, "create", type);
+        long started = System.nanoTime();
         try {
-            return serverService.create(server, resource);
+            ServerWriteResult result = serverService.create(server, resource);
+            record(server, "create", type, result.resourceId(), result.versionId(),
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("create", type, result.resourceId(),
+                            result.versionId(), null));
+            return result;
         } catch (ServerOperationException e) {
-            throw new ScriptApiException("Cannot create " + resource.fhirType() + " on "
-                    + server.name() + ": " + e.getMessage(), e);
+            throw failedWrite("create", type, null, null, "on", server, e, started,
+                    identifiersOf(resource));
         }
     }
 
@@ -128,23 +138,39 @@ public class FhirApi {
         if (id == null || !id.hasIdPart()) {
             throw new ScriptApiException("Cannot update " + type + ": it has no server id.");
         }
+        String resourceId = id.getIdPart();
         FhirServerConfiguration server = activeServer("update");
+        writePolicy.requireWrite(server, "update", type);
+        IBaseResource before = readBefore(server, type, resourceId);
         String versionId = null;
         IBaseMetaType meta = resource.getMeta();
         if (meta != null) {
             versionId = meta.getVersionId();
         }
+        long started = System.nanoTime();
         try {
-            return serverService.update(server, resource,
-                    ServerOrigin.of(server.pluginId(), server.baseUrl(), type, id.getIdPart(), versionId));
+            ServerWriteResult result = serverService.update(server, resource,
+                    ServerOrigin.of(server.pluginId(), server.baseUrl(), type, resourceId, versionId));
+            record(server, "update", type, resourceId, result.versionId(),
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("update", type, resourceId, result.versionId(), before));
+            return result;
         } catch (ServerOperationException e) {
-            throw new ScriptApiException("Cannot update " + type + "/" + id.getIdPart()
-                    + " on " + server.name() + ": " + e.getMessage(), e);
+            throw failedWrite("update", type, resourceId, versionId, "on", server, e, started);
         }
     }
 
     /** Applies a partial update (patch) to one resource. Refused unless writes are enabled. */
     public ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format) {
+        return patch(resourceType, resourceId, body, format, null);
+    }
+
+    /**
+     * Applies a partial update with a known version. Passing the version sends
+     * {@code If-Match}, so the server can refuse a patch against a stale copy.
+     */
+    public ServerWriteResult patch(String resourceType, String resourceId, String body,
+            PatchFormat format, String versionId) {
         writePolicy.requireWrite();
         require(resourceType, resourceId);
         if (body == null || body.isBlank()) {
@@ -152,33 +178,61 @@ public class FhirApi {
         }
         Objects.requireNonNull(format, "format");
         FhirServerConfiguration server = activeServer("patch");
+        writePolicy.requireWrite(server, "patch", resourceType);
+        IBaseResource before = readBefore(server, resourceType, resourceId);
+        String version = blankToNull(versionId);
+        long started = System.nanoTime();
         try {
-            return serverService.patch(server,
-                    ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, null),
+            ServerWriteResult result = serverService.patch(server,
+                    ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, version),
                     body, format);
+            record(server, "patch", resourceType, resourceId, result.versionId(),
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("patch", resourceType, resourceId,
+                            result.versionId(), before));
+            return result;
         } catch (ServerOperationException e) {
-            throw new ScriptApiException("Cannot patch " + resourceType + "/" + resourceId
-                    + " on " + server.name() + ": " + e.getMessage(), e);
+            throw failedWrite("patch", resourceType, resourceId, version, "on", server, e, started);
         }
     }
 
     /** Deletes one resource by type and id. Refused unless writes are enabled. */
     public void delete(String resourceType, String resourceId) {
+        delete(resourceType, resourceId, null);
+    }
+
+    /**
+     * Deletes one resource with a known version. Passing the version sends
+     * {@code If-Match}, so the server can refuse to delete a resource that changed
+     * after it was read.
+     */
+    public void delete(String resourceType, String resourceId, String versionId) {
         writePolicy.requireWrite();
         require(resourceType, resourceId);
         FhirServerConfiguration server = activeServer("delete");
-        String summary = "Delete " + resourceType + "/" + resourceId + " on " + server.name();
-        WritePolicy.Confirmation handler = writePolicy.confirmation() != null
-                ? writePolicy.confirmation() : confirmation;
-        if (handler != null && !handler.confirm(summary)) {
+        writePolicy.requireWrite(server, "delete", resourceType);
+        String version = blankToNull(versionId);
+        String summary = "Delete " + resourceType + "/" + resourceId + " on " + server.name()
+                + " (" + server.baseUrl() + ")"
+                + (version == null ? "" : " version " + version);
+        long started = System.nanoTime();
+        if (!writePolicy.confirmDestructive(summary)) {
+            record(server, "delete", resourceType, resourceId, version,
+                    WriteJournal.Status.CANCELLED, "cancelled", started);
             throw new WriteDeniedException("Delete cancelled.");
         }
+        // Read only after the confirmation, so the before-image is as close as possible
+        // to the delete and a cancelled prompt costs no extra request.
+        IBaseResource before = readBefore(server, resourceType, resourceId);
         try {
             serverService.delete(server,
-                    ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, null));
+                    ServerOrigin.of(server.pluginId(), server.baseUrl(), resourceType, resourceId, version));
+            record(server, "delete", resourceType, resourceId, version,
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("delete", resourceType, resourceId, version, before));
         } catch (ServerOperationException e) {
-            throw new ScriptApiException("Cannot delete " + resourceType + "/" + resourceId
-                    + " from " + server.name() + ": " + e.getMessage(), e);
+            throw failedWrite("delete", resourceType, resourceId, version, "from", server, e,
+                    started);
         }
     }
 
@@ -205,6 +259,105 @@ public class FhirApi {
         return serverManager.active().orElseThrow(() -> new ScriptApiException(
                 "No server is selected. Configure one in Tools > FHIR Servers... "
                         + "and select it before " + operation + "."));
+    }
+
+    /**
+     * Records one write and, when the transport timed out, reports that its outcome is
+     * unknown instead of presenting it as a clean failure a script could safely retry.
+     */
+    private ScriptApiException failedWrite(String operation, String resourceType, String resourceId,
+            String versionId, String preposition, FhirServerConfiguration server,
+            ServerOperationException failure, long started) {
+        return failedWrite(operation, resourceType, resourceId, versionId, preposition, server,
+                failure, started, List.of());
+    }
+
+    /** As above, plus the identifiers a timed-out create can be searched for afterwards. */
+    private ScriptApiException failedWrite(String operation, String resourceType, String resourceId,
+            String versionId, String preposition, FhirServerConfiguration server,
+            ServerOperationException failure, long started, List<String> identifiers) {
+        boolean unknown = failure.kind() == ServerOperationException.Kind.TIMEOUT;
+        WriteJournal.Entry attempt = record(server, operation, resourceType, resourceId, versionId,
+                unknown ? WriteJournal.Status.UNKNOWN : WriteJournal.Status.FAILED,
+                failure.kind().name(), started);
+        WriteJournal journal = writePolicy.journal();
+        if (unknown && journal != null) {
+            // Only an unknown outcome is ever reviewed, so a plain failure records no hint.
+            journal.addIdentifiers(attempt, identifiers);
+        }
+        if (unknown) {
+            return new WriteOutcomeUnknownException(operation, server, failure);
+        }
+        String target = resourceType + (resourceId == null ? "" : "/" + resourceId);
+        return new ScriptApiException("Cannot " + operation + " " + target + " " + preposition
+                + " " + server.name() + ": " + failure.getMessage(), failure);
+    }
+
+    private WriteJournal.Entry record(FhirServerConfiguration server, String operation,
+            String resourceType, String resourceId, String versionId, WriteJournal.Status status,
+            String detail, long started) {
+        return record(server, operation, resourceType, resourceId, versionId, status, detail,
+                started, null);
+    }
+
+    private WriteJournal.Entry record(FhirServerConfiguration server, String operation,
+            String resourceType, String resourceId, String versionId, WriteJournal.Status status,
+            String detail, long started, WriteJournal.Undo undo) {
+        WriteJournal journal = writePolicy.journal();
+        if (journal == null) {
+            return null;
+        }
+        return journal.record(server, operation, resourceType, resourceId, versionId, status, detail,
+                Duration.ofNanos(Math.max(0L, System.nanoTime() - started)), undo);
+    }
+
+    /**
+     * Reads the resource immediately before a write so the console can offer a best-effort
+     * undo. A read failure must never block the write the user approved: the undo is
+     * optional, and a server that cannot answer this extra read may still accept the write.
+     */
+    private IBaseResource readBefore(FhirServerConfiguration server, String resourceType,
+            String resourceId) {
+        if (writePolicy.journal() == null || resourceType == null || resourceId == null) {
+            return null;
+        }
+        try {
+            return serverService.read(server, resourceType, resourceId);
+        } catch (ServerOperationException | RuntimeException unreadable) {
+            return null;
+        }
+    }
+
+    /**
+     * The identifiers a resource carries, each {@code system|value} or a bare value.
+     *
+     * <p>The server assigns the id of a create, so after a timeout these are the only stable
+     * handle the console has left; a resource with none returns an empty list and must be
+     * reconciled by hand. The console also checks a search hit against this: a token search on
+     * a bare value matches that value under any system, so a hit is only this write's resource
+     * if it carries the same identifier.</p>
+     */
+    public static List<String> identifiersOf(IBaseResource resource) {
+        if (!(resource instanceof Base base)) {
+            return List.of();
+        }
+        Property found = base.getChildByName("identifier");
+        if (found == null) {
+            return List.of();
+        }
+        List<String> identifiers = new ArrayList<>();
+        for (Base child : found.getValues()) {
+            if (child instanceof Identifier identifier && identifier.hasValue()) {
+                identifiers.add(identifier.hasSystem()
+                        ? identifier.getSystem() + "|" + identifier.getValue()
+                        : identifier.getValue());
+            }
+        }
+        return identifiers;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static void require(String... values) {

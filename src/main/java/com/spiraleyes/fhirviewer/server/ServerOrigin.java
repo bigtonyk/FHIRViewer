@@ -24,14 +24,22 @@ import java.util.Objects;
  *                   not exist on the server yet
  * @param versionId the {@code meta.versionId} last seen, or {@code null} when the
  *                  server did not report one (in which case no conflict check is possible)
+ * @param onlyIfAbsent whether the write may only apply when nothing exists at the id, so it
+ *                  carries {@code If-None-Match: *} instead of an {@code If-Match}
  */
 public record ServerOrigin(String pluginId, String baseUrl, String resourceType,
-        String resourceId, String versionId) {
+        String resourceId, String versionId, boolean onlyIfAbsent) {
 
     public ServerOrigin {
         Objects.requireNonNull(pluginId, "pluginId");
         Objects.requireNonNull(baseUrl, "baseUrl");
         Objects.requireNonNull(resourceType, "resourceType");
+    }
+
+    /** The form every ordinary write uses: no precondition on the id being free. */
+    public ServerOrigin(String pluginId, String baseUrl, String resourceType,
+            String resourceId, String versionId) {
+        this(pluginId, baseUrl, resourceType, resourceId, versionId, false);
     }
 
     /** An origin for a resource that exists on the server. */
@@ -79,6 +87,20 @@ public record ServerOrigin(String pluginId, String baseUrl, String resourceType,
         Objects.requireNonNull(result, "result");
         return new ServerOrigin(pluginId, baseUrl, resourceType,
                 result.resourceId(), result.versionId());
+    }
+
+    /**
+     * Returns a copy that may only be written if nothing exists at the id.
+     *
+     * <p>Used to restore a deleted resource: the version the delete removed is gone, so no
+     * {@code If-Match} can make that write conditional. The update carries
+     * {@code If-None-Match: *} instead, and a server that finds a resource at the id refuses
+     * it with {@code 412}, so a resource recreated in the meantime cannot be overwritten --
+     * not even in the gap between reading the id and writing it, which is the gap a read
+     * alone can only narrow.</p>
+     */
+    public ServerOrigin requiringAbsence() {
+        return new ServerOrigin(pluginId, baseUrl, resourceType, resourceId, versionId, true);
     }
 
     /**

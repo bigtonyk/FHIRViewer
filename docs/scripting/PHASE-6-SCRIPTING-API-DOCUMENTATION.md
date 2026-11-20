@@ -25,19 +25,27 @@ Scripts receive these final variables via `ScriptBindings`:
 - `int size()` — Number of resources on the current page
 
 **Writing (requires WritePolicy to be enabled):**
-- `IBaseResource create(IBaseResource resource)` — Create a new resource
+- `ServerWriteResult create(IBaseResource resource)` — Create a new resource
 - `ServerWriteResult update(IBaseResource resource)` — Update an existing resource
-- `void delete(String resourceType, String resourceId)` — Delete a resource
+- `ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format)` — Partially update a resource
+- `ServerWriteResult patch(String resourceType, String resourceId, String body, PatchFormat format, String versionId)` — Partially update a resource with `If-Match`
+- `void delete(String resourceType, String resourceId)` — Delete a resource after confirmation
+- `void delete(String resourceType, String resourceId, String versionId)` — Delete with `If-Match` after confirmation
 
 **Paging:**
 - `SearchResults nextPage(String pageToken)` — Load the next page
 - `SearchResults previousPage(String pageToken)` — Load the previous page
 
 **WritePolicy behavior:**
-- Writes are refused unless the session was started with an enabled `WritePolicy`
+- Writes are refused unless the session was started with an enabled `WritePolicy`; the Scripting Console exposes that as the **Allow server writes** opt-in, off by default and reset when a file is opened
+- The console grant is live and bound to the server named in the warning: turning it off revokes retained `fhir` references, and a server change is refused before the request
+- A run is limited to 50 writes before the console asks whether to continue; the grant expires after 15 minutes without a write, refreshes on every permitted attempt and does not expire while a run is active
+- The **Writes** tab journals each attempt without request bodies, and each run shows a write summary
 - `WritePolicy.READ_ONLY` — Writes disabled by default
 - `WritePolicy.enabled()` — Writes permitted
-- `WritePolicy.enabled(Confirmation)` — Writes permitted with a confirmation handler
+- `WritePolicy.enabled(Confirmation)` — Writes permitted with a confirmation handler for destructive operations
+- The console confirms every DELETE on the JavaFX thread before a request is sent; create, update and patch are covered by the opt-in
+- A write that times out may have reached the server; it throws `WriteOutcomeUnknownException` and must be read back before retrying
 | `viewer` | `ViewerApi` | Display resources/results/text in the console |
 ### `ViewerApi`
 

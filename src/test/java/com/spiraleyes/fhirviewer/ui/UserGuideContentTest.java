@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import com.spiraleyes.fhirviewer.service.scripting.api.FhirApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.SmartApi;
 import com.spiraleyes.fhirviewer.service.scripting.api.ViewerApi;
+import com.spiraleyes.fhirviewer.server.PatchFormat;
 
 /**
  * Tests the bundled user guide loads from the class path.
@@ -150,6 +151,16 @@ class UserGuideContentTest {
             FhirApi.class.getMethod("read", String.class, String.class);
             FhirApi.class.getMethod("search", String.class,
                     com.spiraleyes.fhirviewer.server.SearchCriterion[].class);
+            FhirApi.class.getMethod("create",
+                    org.hl7.fhir.instance.model.api.IBaseResource.class);
+            FhirApi.class.getMethod("update",
+                    org.hl7.fhir.instance.model.api.IBaseResource.class);
+            FhirApi.class.getMethod("patch", String.class, String.class, String.class,
+                    PatchFormat.class);
+            FhirApi.class.getMethod("patch", String.class, String.class, String.class,
+                    PatchFormat.class, String.class);
+            FhirApi.class.getMethod("delete", String.class, String.class);
+            FhirApi.class.getMethod("delete", String.class, String.class, String.class);
             ViewerApi.class.getMethod("showResource",
                     org.hl7.fhir.instance.model.api.IBaseResource.class);
         });
@@ -158,6 +169,40 @@ class UserGuideContentTest {
         assertTrue(smart.contains("smart.isSessionActive()"));
         assertTrue(smart.contains("smart.read(\"Patient\""));
         assertTrue(UserGuideContent.loadPhase6Guide().contains("fhir.read(\"Patient\""));
+    }
+
+    @Test
+    @DisplayName("The scripting guide documents opt-in server writes")
+    void scriptingGuideDocumentsWrites() {
+        String guide = UserGuideContent.loadPhase6Guide();
+
+        assertTrue(guide.contains("Allow server writes"),
+                "the guide must name the console opt-in");
+        assertFalse(guide.contains("read-only in this build"),
+                "the guide must not still say the console is read-only");
+        assertTrue(guide.contains("fhir.create(patient)"),
+                "the create example must be present");
+        assertTrue(guide.contains("PatchFormat.JSON_MERGE_PATCH"),
+                "the patch example must name its format");
+        assertTrue(guide.contains("fhir.delete"), "the delete example must be present");
+        assertTrue(guide.contains("saved credentials"),
+                "the guide must distinguish saved credentials from SMART");
+        assertTrue(guide.contains("50 writes"),
+                "the guide must document the write budget");
+        assertTrue(guide.contains("WriteOutcomeUnknownException"),
+                "the guide must document an uncertain write outcome");
+        assertTrue(guide.contains("Writes** tab"),
+                "the guide must point at the write journal");
+        assertTrue(guide.contains("Write scope..."),
+                "the guide must document operation and resource-type scopes");
+        assertTrue(guide.contains("Read-only server"),
+                "the guide must document the per-server read-only flag");
+        assertTrue(guide.contains("Allow writes in test runs"),
+                "the guide must document the separate suite write opt-in");
+        assertTrue(guide.contains("// cleanup:"),
+                "the guide must document suite cleanup");
+        assertTrue(guide.contains("Undo Last Write") && guide.contains("Review Unknown"),
+                "the guide must document undo and unknown-outcome review");
     }
 
     @Test

@@ -159,6 +159,7 @@ public class FhirServerService {
     /** Applies a partial update with an explicit authentication. */
     public ServerWriteResult patch(FhirServerConfiguration server, ServerOrigin origin, String body,
             PatchFormat format, ServerAuthentication authentication) throws ServerOperationException {
+        requireWritable(server);
         requireSameServer(server, origin, "patched");
         return pluginForChecked(server).patch(sessionOf(server, authentication), origin, body, format);
     }
@@ -256,6 +257,7 @@ public class FhirServerService {
     public ServerWriteResult create(FhirServerConfiguration server,
             org.hl7.fhir.instance.model.api.IBaseResource resource,
             ServerAuthentication authentication) throws ServerOperationException {
+        requireWritable(server);
         return pluginForChecked(server).create(sessionOf(server, authentication), resource);
     }
 
@@ -270,6 +272,7 @@ public class FhirServerService {
     public ServerWriteResult update(FhirServerConfiguration server,
             org.hl7.fhir.instance.model.api.IBaseResource resource, ServerOrigin origin,
             ServerAuthentication authentication) throws ServerOperationException {
+        requireWritable(server);
         requireSameServer(server, origin, "saved to");
         return pluginForChecked(server).update(sessionOf(server, authentication), resource, origin);
     }
@@ -283,8 +286,18 @@ public class FhirServerService {
     /** Deletes a resource from a server with the given authentication. */
     public void delete(FhirServerConfiguration server, ServerOrigin origin,
             ServerAuthentication authentication) throws ServerOperationException {
+        requireWritable(server);
         requireSameServer(server, origin, "deleted on");
         pluginForChecked(server).delete(sessionOf(server, authentication), origin);
+    }
+
+    /** Refuses a write to a server the user marked read-only, before any request is made. */
+    private static void requireWritable(FhirServerConfiguration server)
+            throws ServerOperationException {
+        if (server != null && server.writeProtected()) {
+            throw new ServerOperationException(ServerOperationException.Kind.BAD_REQUEST,
+                    server.name() + " is marked read-only, so it cannot accept writes.");
+        }
     }
 
     /**
@@ -313,6 +326,9 @@ public class FhirServerService {
      * instead of letting the user press a button that will be refused.
      */
     public boolean supportsWrite(FhirServerConfiguration server) {
+        if (server != null && server.writeProtected()) {
+            return false;
+        }
         FhirServerPlugin plugin = pluginFor(server);
         return plugin != null && plugin.supportsWrite();
     }
