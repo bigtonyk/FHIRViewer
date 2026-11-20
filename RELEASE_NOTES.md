@@ -19,6 +19,10 @@
   the id was taken by a new resource and that nothing was written, instead of
   overwriting it. A read that is refused or fails does not block the restore
   either, because the conditional write is what decides.
+- Undoing a create deletes the resource the write made, through whichever API made
+  it. For a SMART create that delete carries the session's bearer and the version
+  the create produced as `If-Match`, so a resource replaced at that id since the
+  create is left alone and the status line says nothing was deleted.
 - **Review Unknown** for a timed-out create searches the identifiers the
   submitted resource carried. A search hit counts only when the resource really
   carries that identifier, one lookup failing no longer abandons the others, and

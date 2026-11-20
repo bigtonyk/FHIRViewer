@@ -120,8 +120,12 @@ budget. Deleting a resource through either asks for confirmation immediately bef
 request, with Cancel as the default; cancelling sends nothing. A SMART attempt appears in
 the journal as `SMART session`, because it has no configured server entry. A SMART update,
 patch or delete captures the prior resource the way `fhir` does, and Undo Last Write
-restores it through the same session's bearer; a SMART create has no before-image, and
-neither has a write whose prior resource could not be read, so those are never offered.
+restores it through the same session's bearer; a SMART create records the id and version the
+server assigned, and Undo Last Write deletes it through the same session, exactly as it
+undoes a configured server's create. That delete carries the version the create produced as
+`If-Match`, so a resource somebody has replaced at the id since the create is left alone
+rather than removed. A write whose prior resource could not be read is never offered, and
+neither is a create whose id the server never returned.
 
 ## Validation and FHIRPath
 
@@ -284,7 +288,9 @@ fhir.delete("Patient", "example-id", "3");
 
 Undo is best effort and only covers writes made while this console stays open; it is not a
 server transaction rollback. Undoing a delete is refused rather than allowed to overwrite a
-resource recreated at the same id, because that restore carries `If-None-Match: *`.
+resource recreated at the same id, because that restore carries `If-None-Match: *`. Undoing
+a create deletes the resource it made, conditional on the version the create produced, so a
+resource replaced at that id since is left in place.
 `ServerWriteResult` exposes `resourceId()`, `versionId()` and `created()`.
 
 ### Page through a search

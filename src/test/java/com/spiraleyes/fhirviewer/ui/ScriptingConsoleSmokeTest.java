@@ -618,6 +618,117 @@ class ScriptingConsoleSmokeTest {
         }
     }
 
+    /**
+     * The console's SMART create undo, end to end: the entry a create leaves behind, the Undo
+     * button, a delete at the session's server carrying the version the create made, and no
+     * configured server involved at all.
+     */
+    @Test
+    @DisplayName("Undo Last Write deletes what a SMART create made, through the session")
+    void undoDeletesASmartCreatedResource() throws Exception {
+        requireToolkit();
+        String capability = "{\"resourceType\":\"CapabilityStatement\",\"status\":\"active\","
+                + "\"date\":\"2024-01-01\",\"kind\":\"instance\",\"fhirVersion\":\"4.0.1\","
+                + "\"format\":[\"json\"],\"rest\":[{\"mode\":\"server\","
+                + "\"resource\":[{\"type\":\"Patient\"}]}]}";
+        AtomicInteger deletes = new AtomicInteger();
+        AtomicReference<String> authorization = new AtomicReference<>();
+        AtomicReference<String> ifMatch = new AtomicReference<>();
+        HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        stub.createContext("/", exchange -> handleDeleteOfCreated(exchange, capability, deletes,
+                authorization, ifMatch));
+        stub.start();
+        String baseUrl = "http://127.0.0.1:" + stub.getAddress().getPort();
+        try {
+            FhirServerPluginRegistry registry = new FhirServerPluginRegistry();
+            registry.register(new StandardFhirRestPlugin(FhirContext.forR4()));
+            SmartSessionHolder holder = new SmartSessionHolder();
+            holder.set(new SmartAuthorizationSession(baseUrl, new SmartTokenResponse("tok-create",
+                    "Bearer", 3600L, "patient/*.write", "1", null, null, null), null),
+                    new SmartFhirAccess(registry));
+
+            WritableService service = new WritableService();
+            WriteProbeConsole console = onFxThread(() -> {
+                WriteProbeConsole created = new WriteProbeConsole(service,
+                        managerWithServer(), summary -> true, true, holder);
+                created.show();
+                created.allowWritesForTest().fire();
+                created.writeJournalForTest().record(SmartApi.JOURNAL_SERVER_NAME, baseUrl,
+                        "create", "Patient", "new-1", "1", WriteJournal.Status.SUCCEEDED, "",
+                        Duration.ZERO,
+                        new WriteJournal.Undo("create", "Patient", "new-1", "1", null));
+                assertFalse(created.undoButtonForTest().isDisable(),
+                        "a SMART create must be undoable, as a configured server's create is");
+                created.undoButtonForTest().fire();
+                return created;
+            });
+
+            long deadline = System.currentTimeMillis() + 10_000;
+            while ((deletes.get() < 1
+                    || !console.writeJournalTextForTest().contains("[undone]"))
+                    && System.currentTimeMillis() < deadline) {
+                Thread.sleep(25);
+            }
+
+            assertEquals(1, deletes.get(), "undoing a create should delete it once");
+            assertTrue(authorization.get() != null && authorization.get().contains("tok-create"),
+                    "the delete must carry the session's bearer: " + authorization.get());
+            assertTrue(ifMatch.get() != null && ifMatch.get().contains("1"),
+                    "the delete must name the version the create made: " + ifMatch.get());
+            assertEquals(0, service.deleteCalls,
+                    "a SMART create must not be undone through a configured server");
+
+            onFxThread(() -> {
+                List<WriteJournal.Entry> entries = console.writeJournalForTest().entries();
+                assertEquals(2, entries.size(), "the SMART create and its undo: "
+                        + console.writeJournalTextForTest());
+                assertTrue(console.writeJournalForTest().isUndone(entries.get(0)),
+                        "the reverted create must be marked undone");
+                assertEquals("undo", entries.get(1).operation());
+                assertEquals(SmartApi.JOURNAL_SERVER_NAME, entries.get(1).serverName(),
+                        "the reversal is journalled as the session it went through");
+                assertEquals(WriteJournal.Status.SUCCEEDED, entries.get(1).status(),
+                        console.writeJournalTextForTest());
+                console.close();
+                return null;
+            });
+        } finally {
+            stub.stop(0);
+        }
+    }
+
+    /** Answers the capability check and records the conditional delete the console sends. */
+    private static void handleDeleteOfCreated(HttpExchange exchange, String capability,
+            AtomicInteger deletes, AtomicReference<String> authorization,
+            AtomicReference<String> ifMatch) throws java.io.IOException {
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+        exchange.getRequestBody().readAllBytes();
+        exchange.getResponseHeaders().set("Content-Type", "application/fhir+json");
+        if (path.endsWith("/metadata")) {
+            byte[] metadata = capability.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, metadata.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(metadata);
+            }
+            return;
+        }
+        if ("DELETE".equals(method)) {
+            deletes.incrementAndGet();
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            ifMatch.set(exchange.getRequestHeaders().getFirst("If-Match"));
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+            return;
+        }
+        byte[] notFound = "{\"resourceType\":\"OperationOutcome\"}"
+                .getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(404, notFound.length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(notFound);
+        }
+    }
+
     /** Answers the capability check and records the restore the console sends. */
     private static void handleRestore(HttpExchange exchange, String capability,
             AtomicInteger restores, AtomicReference<String> authorization,

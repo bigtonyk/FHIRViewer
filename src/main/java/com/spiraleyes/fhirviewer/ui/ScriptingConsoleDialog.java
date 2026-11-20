@@ -726,7 +726,13 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
     private String undoWrite(WriteJournal.Entry entry, WriteJournal.Undo plan)
             throws Exception {
         if ("create".equals(plan.operation())) {
-            undoCreate(entry, plan);
+            // A create is undone by deleting what it made, and only the transport differs: a
+            // SMART entry's delete carries the session's bearer to the URL it names.
+            if (isSmartEntry(entry)) {
+                smartApi.deleteCreated(entry.serverBaseUrl(), plan);
+            } else {
+                undoCreate(entry, plan);
+            }
             recordUndo(entry, plan, WriteJournal.Status.SUCCEEDED, "");
             return "Undid create of " + plan.resourceType() + "/" + plan.resourceId() + ".";
         }
@@ -745,7 +751,7 @@ public class ScriptingConsoleDialog extends Dialog<Void> {
         return "Restored " + plan.resourceType() + "/" + plan.resourceId() + ".";
     }
 
-    /** Deletes the resource a create made. Only configured servers record create plans. */
+    /** Deletes the resource a create made on the configured server that made it. */
     private void undoCreate(WriteJournal.Entry entry, WriteJournal.Undo plan)
             throws ServerOperationException {
         FhirServerConfiguration server = configuredServerForUndo(entry);

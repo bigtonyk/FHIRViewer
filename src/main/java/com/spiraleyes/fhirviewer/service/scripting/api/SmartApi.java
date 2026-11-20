@@ -113,8 +113,12 @@ public class SmartApi {
         long started = System.nanoTime();
         try {
             ServerWriteResult result = access.create(current, resource);
+            // A create is undone by deleting what it made, so the id and the version the
+            // server assigned travel with the entry; there is no before-image to capture.
             record("create", type, result.resourceId(), result.versionId(),
-                    WriteJournal.Status.SUCCEEDED, "", started);
+                    WriteJournal.Status.SUCCEEDED, "", started,
+                    new WriteJournal.Undo("create", type, result.resourceId(),
+                            result.versionId(), null));
             return result;
         } catch (ServerOperationException e) {
             throw failedWrite("create", type, null, null, e, started);
@@ -275,16 +279,7 @@ public class SmartApi {
         if (plan.resourceType() == null || plan.resourceId() == null) {
             throw new ScriptApiException("The write has no resource id to restore.");
         }
-        String currentUrl = sessionBaseUrl();
-        if (currentUrl == null || access == null) {
-            throw new ScriptApiException(
-                    "No active SMART session, so its write cannot be undone here.");
-        }
-        if (!sameServer(currentUrl, serverBaseUrl)) {
-            throw new ScriptApiException("The active SMART session is not the one that made this"
-                    + " write (it is authorized for " + currentUrl + "), so the before-image"
-                    + " cannot be restored here.");
-        }
+        SmartAuthorizationSession current = undoSession(serverBaseUrl);
         String type = plan.resourceType();
         String id = plan.resourceId();
         boolean restoring = "delete".equals(plan.operation());
@@ -293,9 +288,9 @@ public class SmartApi {
         }
         try {
             if (restoring) {
-                access.restore(session, before);
+                access.restore(current, before);
             } else {
-                access.update(session, before, plan.versionId());
+                access.update(current, before, plan.versionId());
             }
         } catch (ServerOperationException refused) {
             if (restoring && refused.kind() == ServerOperationException.Kind.CONFLICT) {
@@ -305,6 +300,58 @@ public class SmartApi {
             }
             throw new ScriptApiException("Undo failed: " + refused.getMessage(), refused);
         }
+    }
+
+    /**
+     * Removes the resource a create made, as the console's Undo Last Write does.
+     *
+     * <p>The counterpart of {@link #restoreBeforeImage} for the one write with no
+     * before-image: local recovery rather than a script operation, so it ignores the grant's
+     * operation and resource scope, and it needs an active session for the URL the create went
+     * through because that bearer is the only credential. The delete carries the version the
+     * create produced as {@code If-Match}, so a resource someone has replaced at that id since
+     * is left alone and the server's refusal is reported instead of removing it.</p>
+     *
+     * @param serverBaseUrl the URL the journalled create was made against
+     * @param plan the recorded plan, which must carry the id the create returned
+     * @throws ScriptApiException when the session is gone or different, the plan has no id,
+     *         or the server refuses the delete
+     */
+    public void deleteCreated(String serverBaseUrl, WriteJournal.Undo plan) {
+        Objects.requireNonNull(plan, "plan");
+        if (plan.resourceType() == null || plan.resourceId() == null) {
+            throw new ScriptApiException("The created resource id is unknown.");
+        }
+        SmartAuthorizationSession current = undoSession(serverBaseUrl);
+        try {
+            access.delete(current, plan.resourceType(), plan.resourceId(), plan.versionId());
+        } catch (ServerOperationException refused) {
+            if (refused.kind() == ServerOperationException.Kind.CONFLICT) {
+                throw new ScriptApiException(plan.resourceType() + "/" + plan.resourceId()
+                        + " changed after the create (" + refused.getMessage() + "), so the"
+                        + " undo deleted nothing and will not remove a newer resource.", refused);
+            }
+            throw new ScriptApiException("Undo failed: " + refused.getMessage(), refused);
+        }
+    }
+
+    /**
+     * The session an undo may use: the one the journalled write was made through, still
+     * active, for the same server. A session since authorized for another URL never receives
+     * this write's recovery request.
+     */
+    private SmartAuthorizationSession undoSession(String serverBaseUrl) {
+        String currentUrl = sessionBaseUrl();
+        if (currentUrl == null || access == null) {
+            throw new ScriptApiException(
+                    "No active SMART session, so its write cannot be undone here.");
+        }
+        if (!sameServer(currentUrl, serverBaseUrl)) {
+            throw new ScriptApiException("The active SMART session is not the one that made this"
+                    + " write (it is authorized for " + currentUrl + "), so this write cannot be"
+                    + " undone here.");
+        }
+        return session;
     }
 
     /**

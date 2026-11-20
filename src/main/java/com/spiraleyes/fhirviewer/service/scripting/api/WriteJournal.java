@@ -27,8 +27,9 @@ import com.spiraleyes.fhirviewer.server.FhirServerConfiguration;
  *
  * <p>Undo is best effort. For update, patch and delete, the API stores a separate
  * before-image beside the entry so the console can offer to put the previous
- * resource back. Those images are held only in memory for the life of the console;
- * they are never rendered in the journal and never persisted.</p>
+ * resource back. A create needs none: the id it made is enough to delete it again.
+ * Those images are held only in memory for the life of the console; they are never
+ * rendered in the journal and never persisted.</p>
  */
 public final class WriteJournal {
 

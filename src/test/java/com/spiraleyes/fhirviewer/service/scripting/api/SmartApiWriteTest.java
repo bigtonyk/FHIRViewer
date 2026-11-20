@@ -63,6 +63,7 @@ class SmartApiWriteTest {
     private volatile boolean hideBeforeImage;
     private volatile boolean resourceAbsent;
     private volatile boolean refuseReads;
+    private volatile boolean deleteConflict;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -131,7 +132,10 @@ class SmartApiWriteTest {
             body = "{\"resourceType\":\"Patient\",\"id\":\"example-1\","
                     + "\"meta\":{\"versionId\":\"3\"}}";
         } else if ("DELETE".equals(exchange.getRequestMethod())) {
-            status = 204;
+            // An undo of a create deletes with If-Match, so the stub can refuse it the way a
+            // server does when the resource changed after the create.
+            status = deleteConflict ? 412 : 204;
+            body = deleteConflict ? OPERATION_OUTCOME : "";
         } else {
             status = 200;
             body = "{}";
@@ -380,5 +384,77 @@ class SmartApiWriteTest {
         assertTrue(refused.getMessage().contains("not the one that made this write"),
                 refused.getMessage());
         assertNull(lastMethod.get(), "nothing may be sent to the session's server");
+    }
+
+    @Test
+    @DisplayName("A create records the id and version it made, so undo is offered for it")
+    void createRecordsAnUndoPlan() {
+        WriteJournal journal = new WriteJournal();
+        SmartApi writing = api(WritePolicy.enabled(null, null, journal, 0, null, null));
+
+        writing.create(new Patient());
+
+        WriteJournal.Entry entry = journal.entries().get(0);
+        WriteJournal.Undo plan = journal.undoFor(entry).orElseThrow();
+        assertEquals("create", plan.operation());
+        assertTrue(plan.canUndo(), "a create whose id came back must be undoable");
+        assertNull(plan.before(), "a create has no before-image to restore");
+        assertEquals("new-1", plan.resourceId());
+        assertEquals("1", plan.versionId(), "the version the create made is what undo names");
+        assertEquals(entry, journal.lastUndoable().orElseThrow(),
+                "the console must offer undo for a SMART create it made");
+    }
+
+    @Test
+    @DisplayName("Undoing a SMART create deletes that id through the session, naming its version")
+    void undoOfCreateDeletesTheCreatedResource() {
+        WriteJournal journal = new WriteJournal();
+        SmartApi writing = api(WritePolicy.enabled(null, null, journal, 0, null, null));
+        writing.create(new Patient());
+        WriteJournal.Undo plan = journal.undoFor(journal.entries().get(0)).orElseThrow();
+
+        writing.deleteCreated(baseUrl, plan);
+
+        assertEquals("DELETE", lastMethod.get());
+        assertTrue(lastAuthorization.get().contains("tok-write"),
+                "the reversal must carry the session's bearer: " + lastAuthorization.get());
+        assertTrue(lastIfMatch.get() != null && lastIfMatch.get().contains("1"),
+                "the delete must name the version the create made: " + lastIfMatch.get());
+        assertNull(lastIfNoneMatch.get(), "a create's undo has a version to match");
+        assertEquals("", lastBody.get(), "a delete sends no body");
+    }
+
+    @Test
+    @DisplayName("Undoing a SMART create is refused, sending nothing, through another server's session")
+    void undoOfCreateRefusesAnotherServersSession() {
+        WriteJournal journal = new WriteJournal();
+        SmartApi writing = api(WritePolicy.enabled(null, null, journal, 0, null, null));
+        writing.create(new Patient());
+        WriteJournal.Undo plan = journal.undoFor(journal.entries().get(0)).orElseThrow();
+
+        ScriptApiException refused = assertThrows(ScriptApiException.class,
+                () -> writing.deleteCreated("http://other.example/fhir", plan));
+
+        assertTrue(refused.getMessage().contains("not the one that made this write"),
+                refused.getMessage());
+        assertEquals("POST", lastMethod.get(), "only the create may have been sent");
+    }
+
+    @Test
+    @DisplayName("A create's undo leaves a resource changed since the create alone")
+    void undoOfCreateRefusesAResourceChangedSinceTheCreate() {
+        WriteJournal journal = new WriteJournal();
+        SmartApi writing = api(WritePolicy.enabled(null, null, journal, 0, null, null));
+        writing.create(new Patient());
+        WriteJournal.Undo plan = journal.undoFor(journal.entries().get(0)).orElseThrow();
+
+        deleteConflict = true;
+        ScriptApiException refused = assertThrows(ScriptApiException.class,
+                () -> writing.deleteCreated(baseUrl, plan));
+
+        assertTrue(refused.getMessage().contains("changed after the create"),
+                refused.getMessage());
+        assertEquals("DELETE", lastMethod.get(),
+                "the conditional delete is what lets the server refuse it");
     }
 }
