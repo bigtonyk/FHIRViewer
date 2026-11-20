@@ -29,7 +29,7 @@ import java.util.Objects;
  * @param issuer          the FHIR server base URL, sent as the {@code iss} parameter; never blank
  * @param mode            standalone or EHR launch; never {@code null}
  * @param clientId        the registered OAuth client id; may be blank until registered
- * @param redirectUri     the registered redirect URI, where the flow uses one; may be blank
+ * @param redirectUri     the registered loopback redirect URI; blank means an ephemeral port
  * @param scopes          space separated SMART scopes to request; may be blank
  * @param launchParameter the {@code launch} parameter an EHR supplies; only used in EHR launch
  * @param audience        the {@code aud} request parameter; only used in standalone launch
@@ -159,6 +159,13 @@ public final class SmartLaunchConfig {
         }
         if (!mode.needsLaunchParameter() && launchParameter != null) {
             found.add("A launch parameter only applies to an EHR launch.");
+        }
+        if (redirectUri != null) {
+            try {
+                LoopbackRedirect.parse(redirectUri);
+            } catch (IllegalArgumentException bad) {
+                found.add(bad.getMessage());
+            }
         }
         if (!mode.allowsAudience() && audience != null) {
             found.add("An audience only applies to a standalone launch; an EHR launch gets its "

@@ -81,7 +81,7 @@ public final class SmartAuthorizationFlow {
                 "mode=" + config.mode() + ", scopes=" + config.scopes());
         SmartAuthState authState = SmartAuthState.generate();
         Pkce pkce = Pkce.generate();
-        LoopbackCallbackServer callback = listen(authState.state());
+        LoopbackCallbackServer callback = listen(authState.state(), config.redirectUri());
         try {
             callback.start();
             String redirectUri = callback.redirectUri();
@@ -141,14 +141,20 @@ public final class SmartAuthorizationFlow {
         }
     }
 
-    private static LoopbackCallbackServer listen(String state)
+    private static LoopbackCallbackServer listen(String state, String configuredRedirect)
             throws SmartAuthorizationException {
+        // checkReady has already rejected an unusable redirect URI.
+        LoopbackRedirect redirect = LoopbackRedirect.parse(configuredRedirect).orElse(null);
         try {
-            return new LoopbackCallbackServer(state);
+            return new LoopbackCallbackServer(state, redirect);
         } catch (IOException e) {
+            String message = redirect == null
+                    ? "The local callback listener could not start."
+                    : "The local callback listener could not use port " + redirect.port()
+                            + " from the redirect URI; another program may be using it. "
+                            + "Close it, or register and enter a different port.";
             throw new SmartAuthorizationException(
-                    SmartAuthorizationException.Kind.NETWORK,
-                    "The local callback listener could not start.", e);
+                    SmartAuthorizationException.Kind.NETWORK, message, e);
         }
     }
 

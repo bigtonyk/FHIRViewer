@@ -50,6 +50,24 @@ class SmartLaunchConfigTest {
     }
 
     @Test
+    @DisplayName("A registered loopback redirect URI is accepted; a remote one is a problem")
+    void redirectUriMustBeLoopback() {
+        SmartLaunchConfig fixed = SmartLaunchConfig.builder()
+                .id("id-r1").name("Fixed port").issuer("https://example.org/fhir")
+                .clientId("public-client").redirectUri("http://127.0.0.1:8765/callback")
+                .build();
+        assertTrue(fixed.isComplete(), String.valueOf(fixed.problems()));
+
+        SmartLaunchConfig remote = SmartLaunchConfig.builder()
+                .id("id-r2").name("Remote").issuer("https://example.org/fhir")
+                .clientId("public-client").redirectUri("https://app.example.com/callback")
+                .build();
+        assertFalse(remote.isComplete());
+        assertTrue(remote.problems().stream().anyMatch(p -> p.contains("redirect URI")),
+                String.valueOf(remote.problems()));
+    }
+
+    @Test
     @DisplayName("A launch with no iss or client id says exactly what is missing")
     void missingEssentialsAreNamed() {
         SmartLaunchConfig config = SmartLaunchConfig.builder()

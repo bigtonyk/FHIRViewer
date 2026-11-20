@@ -76,7 +76,7 @@ final class SmartLaunchFormPanel {
         nameField.setPromptText("My SMART launch");
         issuerField.setPromptText("https://example.com/fhir");
         clientIdField.setPromptText("public client id");
-        redirectUriField.setPromptText("Leave blank unless the flow registered one");
+        redirectUriField.setPromptText("Blank for any port, or the registered http://127.0.0.1:<port>/callback");
         scopesField.setPromptText("openid fhirUser launch/patient system/Patient.read");
         launchField.setPromptText("the launch parameter the EHR supplied");
         audienceField.setPromptText("Usually the issuer URL");
