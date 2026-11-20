@@ -5,6 +5,8 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -20,7 +22,10 @@ import java.util.Objects;
  * {@code redirect_uri}, {@code scope}, {@code state},
  * {@code code_challenge}/{@code code_challenge_method=S256}, {@code aud}
  * (the FHIR base URL, required for standalone launch), and {@code nonce}
- * when OIDC identity scopes are requested.</p>
+ * when OIDC identity scopes are requested. It may also send {@code launch}
+ * (an EHR launch's context token), {@code prompt}, and extra parameters a
+ * server needs (see {@link AuthorizationParameters}), which follow the core
+ * parameters and can never replace one.</p>
  */
 public final class SmartAuthorizationRequest {
 
@@ -39,6 +44,8 @@ public final class SmartAuthorizationRequest {
     private final Pkce pkce;
     private final String audience;
     private final String launchParameter;
+    private final String prompt;
+    private final List<Map.Entry<String, String>> extraParameters;
 
     private SmartAuthorizationRequest(Builder builder) {
         this.authorizationUrl = builder.authorizationUrl;
@@ -49,6 +56,8 @@ public final class SmartAuthorizationRequest {
         this.pkce = builder.pkce;
         this.audience = builder.audience;
         this.launchParameter = builder.launchParameter;
+        this.prompt = builder.prompt;
+        this.extraParameters = List.copyOf(builder.extraParameters);
     }
 
     /** @return the full authorization URL to open in the system browser */
@@ -71,6 +80,12 @@ public final class SmartAuthorizationRequest {
         }
         if (launchParameter != null && !launchParameter.isBlank()) {
             params.add(new String[] {"launch", launchParameter.strip()});
+        }
+        if (prompt != null && !prompt.isBlank()) {
+            params.add(new String[] {"prompt", prompt.strip()});
+        }
+        for (Map.Entry<String, String> extra : extraParameters) {
+            params.add(new String[] {extra.getKey(), extra.getValue()});
         }
         try {
             URI base = new URI(authorizationUrl);
@@ -170,6 +185,8 @@ public final class SmartAuthorizationRequest {
         private Pkce pkce;
         private String audience;
         private String launchParameter;
+        private String prompt;
+        private final List<Map.Entry<String, String>> extraParameters = new ArrayList<>();
 
         private Builder(String authorizationEndpoint) {
             if (authorizationEndpoint == null || authorizationEndpoint.isBlank()) {
@@ -234,8 +251,28 @@ public final class SmartAuthorizationRequest {
             return this;
         }
 
+        /** @param value the OIDC {@code prompt}, for example {@code login}; may be blank */
+        public Builder prompt(String value) {
+            this.prompt = value;
+            return this;
+        }
+
+        /**
+         * Adds parameters a server needs beyond the SMART set, after the core ones.
+         *
+         * @param values names and values; a reserved name, or one the request already
+         *               sets, is refused by {@link #build()}
+         */
+        public Builder extraParameters(List<Map.Entry<String, String>> values) {
+            if (values != null) {
+                extraParameters.addAll(values);
+            }
+            return this;
+        }
+
         /** @return the validated request */
         public SmartAuthorizationRequest build() {
+            checkExtraParameters();
             if (clientId == null || clientId.isBlank()) {
                 throw new IllegalArgumentException("An OAuth client id is required.");
             }
@@ -267,6 +304,32 @@ public final class SmartAuthorizationRequest {
             Objects.requireNonNull(authState, "authState");
             Objects.requireNonNull(pkce, "pkce");
             return new SmartAuthorizationRequest(this);
+        }
+
+        /**
+         * Refuses an extra parameter that would replace one the request sets itself.
+         *
+         * <p>The launch configuration reports the same thing to the user first; this is
+         * the backstop that keeps a request with two {@code redirect_uri} values, or a
+         * second {@code state}, from ever being built, whatever the caller checked.</p>
+         */
+        private void checkExtraParameters() {
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            for (Map.Entry<String, String> extra : extraParameters) {
+                String key = extra.getKey() == null ? "" : extra.getKey().toLowerCase(Locale.ROOT);
+                boolean taken = AuthorizationParameters.RESERVED.contains(key)
+                        || (key.equals("launch") && launchParameter != null
+                                && !launchParameter.isBlank())
+                        || (key.equals("prompt") && prompt != null && !prompt.isBlank());
+                if (key.isBlank() || taken || !seen.add(key)) {
+                    throw new IllegalArgumentException("The authorization parameter \""
+                            + extra.getKey() + "\" cannot be sent: the request already sets it.");
+                }
+                if (extra.getValue() == null || extra.getValue().isBlank()) {
+                    throw new IllegalArgumentException("The authorization parameter \""
+                            + extra.getKey() + "\" has no value.");
+                }
+            }
         }
     }
 }

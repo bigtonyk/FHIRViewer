@@ -62,7 +62,7 @@ final class SmartResourcePane extends VBox {
             showNothingYet();
             return;
         }
-        if (session.isExpired()) {
+        if (session.needsReauthorization()) {
             stateValue.setText("The access token has expired. Authorize again "
                     + "before reading.");
             readButton.setDisable(true);

@@ -27,6 +27,10 @@ import org.slf4j.LoggerFactory;
  * idiom: {@code HttpServer.create(new InetSocketAddress("127.0.0.1", 0),
  * 0)}.</p>
  *
+ * <p>When the launch names a registered redirect URI ({@link LoopbackRedirect}), the server
+ * binds that fixed port and serves that path instead, and reports the URI exactly as
+ * entered, so the {@code redirect_uri} sent matches the server's registration.</p>
+ *
  * <p>One callback, then done. The first request to the expected path is
  * validated (path, {@code state}, success vs. OAuth error) and becomes the
  * outcome; later requests are refused without becoming a second outcome.
@@ -44,6 +48,8 @@ public final class LoopbackCallbackServer implements AutoCloseable {
 
     private final HttpServer http;
     private final String expectedState;
+    private final String callbackPath;
+    private final String fixedRedirectUri;
     private final BlockingQueue<CallbackOutcome> outcomes = new LinkedBlockingQueue<>(1);
     private volatile boolean consumed;
 
@@ -52,12 +58,35 @@ public final class LoopbackCallbackServer implements AutoCloseable {
      * @throws IOException when the loopback socket cannot be bound
      */
     public LoopbackCallbackServer(String expectedState) throws IOException {
+        this(expectedState, null);
+    }
+
+    /**
+     * @param expectedState the {@code state} the callback must echo; never blank
+     * @param redirect the registered redirect to bind, or {@code null} for an ephemeral
+     *        port on {@link #CALLBACK_PATH}
+     * @throws IOException when the loopback socket cannot be bound, typically because a
+     *         fixed port is already in use
+     */
+    public LoopbackCallbackServer(String expectedState, LoopbackRedirect redirect)
+            throws IOException {
         if (expectedState == null || expectedState.isBlank()) {
             throw new IllegalArgumentException("An expected state value is required.");
         }
         this.expectedState = expectedState;
-        this.http = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        this.http.createContext(CALLBACK_PATH, this::handle);
+        if (redirect == null) {
+            this.callbackPath = CALLBACK_PATH;
+            this.fixedRedirectUri = null;
+            this.http = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        } else {
+            this.callbackPath = redirect.path();
+            this.fixedRedirectUri = redirect.uri();
+            this.http = HttpServer.create(
+                    new InetSocketAddress(redirect.host(), redirect.port()), 0);
+        }
+        // A context on the callback path only, so a stray request elsewhere (a favicon,
+        // a port probe) gets the HTTP server's own 404 and cannot use up the one callback.
+        this.http.createContext(callbackPath, this::handle);
         this.http.setExecutor(null);
     }
 
@@ -68,6 +97,9 @@ public final class LoopbackCallbackServer implements AutoCloseable {
 
     /** @return the redirect URI carrying this server's real port */
     public String redirectUri() {
+        if (fixedRedirectUri != null) {
+            return fixedRedirectUri;
+        }
         return "http://127.0.0.1:" + http.getAddress().getPort() + CALLBACK_PATH;
     }
 
@@ -154,7 +186,7 @@ public final class LoopbackCallbackServer implements AutoCloseable {
             }
             URI request = exchange.getRequestURI();
             String rawPath = request.getRawPath();
-            if (!CALLBACK_PATH.equals(rawPath)) {
+            if (!callbackPath.equals(rawPath)) {
                 offer(new CallbackOutcome.Invalid(
                         "The browser returned to an unexpected address. Close this tab and "
                                 + "start the authorization again."));

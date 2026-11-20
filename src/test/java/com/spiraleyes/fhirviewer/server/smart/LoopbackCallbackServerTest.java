@@ -123,6 +123,45 @@ class LoopbackCallbackServerTest {
         }
     }
 
+    @Test
+    @DisplayName("A registered redirect binds its fixed port and path and is reported as entered")
+    void fixedRedirectBindsItsPortAndPath() throws Exception {
+        int port = freePort();
+        LoopbackRedirect redirect = LoopbackRedirect
+                .parse("http://localhost:" + port + "/smart/cb").orElseThrow();
+        try (LoopbackCallbackServer server = new LoopbackCallbackServer("state-7", redirect)) {
+            server.start();
+            assertEquals(port, server.port());
+            assertEquals("http://localhost:" + port + "/smart/cb", server.redirectUri());
+            assertEquals(404, get("http://127.0.0.1:" + port + "/favicon.ico"),
+                    "a request elsewhere must not use up the callback");
+            get("http://127.0.0.1:" + port + "/smart/cb?code=fixed-code&state=state-7");
+            LoopbackCallbackServer.CallbackOutcome outcome = server.await(5, TimeUnit.SECONDS);
+            assertEquals(new LoopbackCallbackServer.CallbackOutcome.Success("fixed-code"),
+                    outcome);
+        }
+    }
+
+    @Test
+    @DisplayName("A fixed port already in use fails to bind instead of picking another")
+    void fixedPortInUseFails() throws Exception {
+        try (java.net.ServerSocket taken = new java.net.ServerSocket(0, 1,
+                java.net.InetAddress.getByName("127.0.0.1"))) {
+            LoopbackRedirect redirect = LoopbackRedirect
+                    .parse("http://127.0.0.1:" + taken.getLocalPort() + "/callback")
+                    .orElseThrow();
+            assertThrows(IOException.class,
+                    () -> new LoopbackCallbackServer("state-8", redirect));
+        }
+    }
+
+    static int freePort() throws IOException {
+        try (java.net.ServerSocket probe = new java.net.ServerSocket(0, 1,
+                java.net.InetAddress.getByName("127.0.0.1"))) {
+            return probe.getLocalPort();
+        }
+    }
+
     private static int get(String url) throws IOException, InterruptedException {
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
