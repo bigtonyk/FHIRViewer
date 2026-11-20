@@ -78,7 +78,10 @@ public final class SmartAuthorizationFlow {
         diagnostics.record(SmartDiagnosticsEvent.Phase.AUTHORIZATION,
                 SmartDiagnosticsEvent.Kind.REQUEST_INITIATED,
                 "Authorization request built for " + SmartDiscoveryService.originOf(config.issuer()),
-                "mode=" + config.mode() + ", scopes=" + config.scopes());
+                "mode=" + config.mode() + ", scopes=" + config.scopes()
+                        + ", prompt=" + (config.forceLogin() ? "login" : "not sent")
+                        + ", extra parameters: "
+                        + AuthorizationParameters.namesOf(config.authorizationParameters()));
         SmartAuthState authState = SmartAuthState.generate();
         Pkce pkce = Pkce.generate();
         LoopbackCallbackServer callback = listen(authState.state(), config.redirectUri());
@@ -169,7 +172,12 @@ public final class SmartAuthorizationFlow {
                     .redirectUri(redirectUri)
                     .scopes(config.scopes())
                     .authState(authState)
-                    .pkce(pkce);
+                    .pkce(pkce)
+                    .extraParameters(AuthorizationParameters.parse(
+                            config.authorizationParameters()));
+            if (config.forceLogin()) {
+                builder.prompt("login");
+            }
             if (config.mode() == SmartLaunchMode.EHR_LAUNCH) {
                 // EHR launch: send the EHR-supplied launch token, not aud.
                 // The issuer is the resource server and does not need aud.

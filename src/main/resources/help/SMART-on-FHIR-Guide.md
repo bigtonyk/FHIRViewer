@@ -24,13 +24,14 @@ ordinary server features, and this guide is the SMART on-ramp.
 7. [Inspect what you were granted](#inspect-what-you-were-granted)
 8. [Read a resource through the authorized session](#read-a-resource-through-the-authorized-session)
 9. [EHR launch simulation](#ehr-launch-simulation)
-10. [Log out and start again](#log-out-and-start-again)
-11. [Sample workflows](#sample-workflows)
-12. [Write through the authorized session](#write-through-the-authorized-session)
-13. [Coding a SMART workflow](#coding-a-smart-workflow)
-14. [Troubleshooting](#troubleshooting)
-15. [Security notes](#security-notes)
-16. [Known limitations](#known-limitations)
+10. [Federated login with Smile CDR](#federated-login-with-smile-cdr)
+11. [Log out and start again](#log-out-and-start-again)
+12. [Sample workflows](#sample-workflows)
+13. [Write through the authorized session](#write-through-the-authorized-session)
+14. [Coding a SMART workflow](#coding-a-smart-workflow)
+15. [Troubleshooting](#troubleshooting)
+16. [Security notes](#security-notes)
+17. [Known limitations](#known-limitations)
 
 ---
 
@@ -109,8 +110,17 @@ You need a SMART-enabled FHIR server and a registered **public** OAuth client on
 | Redirect URI | Blank for any free port, or the exact loopback URI you registered |
 | Scopes | Space-separated, e.g. `launch/patient patient/*.read` |
 | Mode | **Standalone** or **EHR launch** |
+| Authorization parameters | Optional. Extra request parameters, one `name=value` per line; see below |
+| Force re-login | Optional. Sends `prompt=login` so the server asks you to sign in again |
 
 3. Fill the **Launch** field only in EHR mode — paste the opaque launch token.
+   - **Authorization parameters** are for servers that need more than SMART defines: an
+     identity-provider hint (`kc_idp_hint` for Keycloak, `idp` on some others),
+     `login_hint`, `acr_values`, or a `launch` value in a standalone launch. Lines starting
+     with `#` are ignored. The parameters the launch sets itself (`client_id`,
+     `redirect_uri`, `scope`, `state`, `nonce`, the PKCE pair, `aud`, `response_type`,
+     `response_mode`, `request`, `request_uri`) cannot be set here, and Validate says so.
+     They are saved with the launch, so do not put anything secret in them.
 4. Press **Validate** to check the form without contacting any server. It reports problems
    such as a blank client ID or a malformed scope. The status line is explicit about what it
    did: "no server has been contacted".
@@ -254,6 +264,55 @@ session can renew itself. Renewals appear in the Diagnostics tab, with tokens re
 
 ---
 
+## Federated login with Smile CDR
+
+Smile CDR can send the sign-in on to an upstream OpenID Connect provider (Keycloak, Okta,
+Entra ID and others), which its documentation calls *federated OAuth2/OIDC login*. To
+FHIRViewer this is an ordinary SMART launch. The Workbench talks only to Smile CDR's
+`/oauth/authorize` and `/oauth/token`; Smile CDR sends the browser to the upstream provider
+and back, and then issues its own access token and ID token. Nothing about the upstream
+provider is configured in FHIRViewer.
+
+**On the Smile CDR side** (your administrator's job): federated login enabled in the SMART
+Outbound Security module, one OIDC server definition per upstream provider, and an OIDC
+client definition for FHIRViewer with:
+
+- **Client Required to Authenticate** turned off, since FHIRViewer is a public client with no
+  secret.
+- A redirect URI with a fixed port, such as `http://127.0.0.1:8765/callback`. Smile CDR
+  compares redirect URIs exactly, so a random port will not match.
+- The SMART scopes you want, plus `offline_access` or `online_access` if sessions should
+  renew themselves. Smile CDR's access tokens are short-lived (about a minute by default).
+
+**In the Workbench:**
+
+1. Set **FHIR server (iss)** to the Smile CDR FHIR endpoint and **Client ID** to the
+   client definition's id.
+2. Enter the registered URI in **Redirect URI**.
+3. Request scopes such as `openid fhirUser patient/*.read offline_access`.
+4. **Choosing the provider.** With one upstream provider, Smile CDR goes straight to it.
+   With several, it shows its own selection page. A Smile CDR interceptor on the
+   `SMART_FEDERATED_OIDC_PRE_PROVIDER_SELECTION` pointcut can choose for you; Smile CDR's
+   example reads a `launch` value starting with the provider's registration id. To use one
+   like that, put a line such as `launch=<registrationId>-standalone` in **Authorization
+   parameters**. What the value must look like is decided by your interceptor, not by
+   FHIRViewer.
+5. Discover and Authorize as usual. The browser goes to Smile CDR, on to the upstream
+   provider's sign-in page, and back to the Workbench.
+
+**Signing in as someone else.** Log out in the Workbench clears FHIRViewer's session only.
+The browser stays signed in to Smile CDR and to the upstream provider, so the next Authorize
+may finish without asking for a password. Tick **Force re-login** to send `prompt=login`,
+the only `prompt` value Smile CDR supports. To also end the upstream provider's session, sign
+out of it in the browser.
+
+**If the ID token is refused** with "issued by an unexpected issuer", the token's `iss` does
+not match the issuer in Smile CDR's discovery document. That is a server configuration
+mismatch; request no identity scopes (`openid`, `fhirUser`) to work without an ID token
+until it is fixed.
+
+---
+
 ## Log out and start again
 
 1. Press **Log out** in the Workbench. The Session panel resets to *"No session exists yet."*,
@@ -266,6 +325,9 @@ session can renew itself. Renewals appear in the Diagnostics tab, with tokens re
    session, if there is one. Press **Open** (or **New**) to load a configuration, then
    Discover and Authorize again when you want a different launch. Authorizing again replaces
    any previous session and logs the old one out.
+4. Logging out does not sign the browser out of the server. If the next Authorize signs you
+   straight back in as the same user, tick **Force re-login** on the launch (see
+   [Federated login with Smile CDR](#federated-login-with-smile-cdr)).
 
 ---
 

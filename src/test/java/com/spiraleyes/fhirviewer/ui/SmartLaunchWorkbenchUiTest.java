@@ -219,6 +219,8 @@ class SmartLaunchWorkbenchUiTest {
                     .redirectUri("http://localhost:8080/callback")
                     .scopes("openid patient/*.read")
                     .launchParameter("launch-1")
+                    .authorizationParameters("kc_idp_hint=corporate\nlogin_hint=someone")
+                    .forceLogin(true)
                     .build();
 
             SmartLaunchFormPanel form = new SmartLaunchFormPanel();
@@ -237,6 +239,8 @@ class SmartLaunchWorkbenchUiTest {
         assertEquals("http://localhost:8080/callback", back.redirectUri());
         assertEquals("openid patient/*.read", back.scopes());
         assertEquals("launch-1", back.launchParameter());
+        assertEquals("kc_idp_hint=corporate\nlogin_hint=someone", back.authorizationParameters());
+        assertTrue(back.forceLogin());
     }
 
     @Test

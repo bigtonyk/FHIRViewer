@@ -175,7 +175,7 @@ class SmartLaunchConfigTest {
 
         java.util.Set<String> allowed = java.util.Set.of(
                 "id", "name", "issuer", "mode", "clientId", "redirectUri", "scopes",
-                "launch", "audience", "selected");
+                "launch", "audience", "authorizationParameters", "forceLogin", "selected");
         java.util.Properties properties = new java.util.Properties();
         try (java.io.Reader reader = Files.newBufferedReader(store.file(),
                 StandardCharsets.UTF_8)) {

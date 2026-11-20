@@ -33,6 +33,9 @@ import java.util.Objects;
  * @param scopes          space separated SMART scopes to request; may be blank
  * @param launchParameter the {@code launch} parameter an EHR supplies; only used in EHR launch
  * @param audience        the {@code aud} request parameter; only used in standalone launch
+ * @param authorizationParameters extra {@code name=value} lines for the authorization
+ *                        request; see {@link AuthorizationParameters}
+ * @param forceLogin      whether the request sends {@code prompt=login}
  */
 public final class SmartLaunchConfig {
 
@@ -45,6 +48,8 @@ public final class SmartLaunchConfig {
     private final String scopes;
     private final String launchParameter;
     private final String audience;
+    private final String authorizationParameters;
+    private final boolean forceLogin;
 
     private SmartLaunchConfig(Builder builder) {
         this.id = builder.id;
@@ -56,6 +61,9 @@ public final class SmartLaunchConfig {
         this.scopes = emptyToNull(builder.scopes);
         this.launchParameter = emptyToNull(builder.launchParameter);
         this.audience = emptyToNull(builder.audience);
+        this.authorizationParameters =
+                AuthorizationParameters.normalize(builder.authorizationParameters);
+        this.forceLogin = builder.forceLogin;
     }
 
     public String id() {
@@ -104,6 +112,22 @@ public final class SmartLaunchConfig {
     }
 
     /**
+     * Extra authorization request parameters, one {@code name=value} per line, or
+     * {@code null}.
+     */
+    public String authorizationParameters() {
+        return authorizationParameters;
+    }
+
+    /**
+     * True when the authorization request sends {@code prompt=login}, so the server asks
+     * the user to sign in again even when its own browser session is still alive.
+     */
+    public boolean forceLogin() {
+        return forceLogin;
+    }
+
+    /**
      * A copy of this configuration with a new name and identity.
      *
      * <p>Used by the workbench's duplicate action, which has to produce a new identity rather
@@ -121,6 +145,8 @@ public final class SmartLaunchConfig {
                 .scopes(scopes)
                 .launchParameter(launchParameter)
                 .audience(audience)
+                .authorizationParameters(authorizationParameters)
+                .forceLogin(forceLogin)
                 .build();
     }
 
@@ -171,6 +197,7 @@ public final class SmartLaunchConfig {
             found.add("An audience only applies to a standalone launch; an EHR launch gets its "
                     + "resource server from the issuer.");
         }
+        found.addAll(AuthorizationParameters.problems(authorizationParameters, mode, forceLogin));
         return found;
     }
 
@@ -227,6 +254,8 @@ public final class SmartLaunchConfig {
         private String scopes;
         private String launchParameter;
         private String audience;
+        private String authorizationParameters;
+        private boolean forceLogin;
 
         private Builder() {
         }
@@ -283,6 +312,18 @@ public final class SmartLaunchConfig {
 
         public Builder audience(String value) {
             this.audience = value;
+            return this;
+        }
+
+        /** @param value extra {@code name=value} lines for the authorization request */
+        public Builder authorizationParameters(String value) {
+            this.authorizationParameters = value;
+            return this;
+        }
+
+        /** @param value whether the authorization request sends {@code prompt=login} */
+        public Builder forceLogin(boolean value) {
+            this.forceLogin = value;
             return this;
         }
 
