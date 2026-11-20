@@ -3,9 +3,11 @@ package com.spiraleyes.fhirviewer.ui;
 import java.util.List;
 import java.util.UUID;
 
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Control;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.ColumnConstraints;
@@ -56,6 +58,9 @@ final class SmartLaunchFormPanel {
     private final TextField scopesField = new TextField();
     private final TextField launchField = new TextField();
     private final TextField audienceField = new TextField();
+    private final TextArea parametersArea = new TextArea();
+    private final CheckBox forceLoginBox =
+            new CheckBox("Ask the server to sign in again (prompt=login)");
 
     private final Label launchLabel;
     private final Label audienceLabel;
@@ -76,10 +81,25 @@ final class SmartLaunchFormPanel {
         nameField.setPromptText("My SMART launch");
         issuerField.setPromptText("https://example.com/fhir");
         clientIdField.setPromptText("public client id");
-        redirectUriField.setPromptText("Leave blank unless the flow registered one");
+        redirectUriField.setPromptText(
+                "Blank for any port, or the registered http://127.0.0.1:<port>/callback");
         scopesField.setPromptText("openid fhirUser launch/patient system/Patient.read");
         launchField.setPromptText("the launch parameter the EHR supplied");
         audienceField.setPromptText("Usually the issuer URL");
+        parametersArea.setPromptText("Optional, one name=value per line, for example\n"
+                + "kc_idp_hint=corporate-sso\nlaunch=<registrationId>-standalone");
+        parametersArea.setPrefRowCount(3);
+        parametersArea.setWrapText(false);
+        parametersArea.setTooltip(new Tooltip(
+                "Sent with the authorization request after the SMART parameters, for servers "
+                        + "that need more: an identity provider hint, login_hint, acr_values, "
+                        + "or a launch value Smile CDR's federated provider selection reads. "
+                        + "The parameters the launch sets itself cannot be replaced."));
+        forceLoginBox.setTooltip(new Tooltip(
+                "Sends prompt=login, so the server asks for a sign-in even if the browser is "
+                        + "still signed in, for example to switch to another user after "
+                        + "logging out here. Logging out here does not end the browser's "
+                        + "session with the server or its identity provider."));
 
         launchLabel = rowLabel("Launch parameter");
         audienceLabel = rowLabel("Audience (aud)");
@@ -136,6 +156,8 @@ final class SmartLaunchFormPanel {
         // other in one cell.
         addRow(grid, row++, launchLabel, launchField);
         addRow(grid, row++, audienceLabel, audienceField);
+        addRow(grid, row++, "Authorization parameters", parametersArea);
+        addRow(grid, row++, "Force re-login", forceLoginBox);
 
         // The hint spans both columns so it can use the full width rather than being
         // squeezed into the control column.
@@ -148,7 +170,8 @@ final class SmartLaunchFormPanel {
     /** The fields a test drives, so it can fill the form as a user would. */
     List<Control> fields() {
         return List.of(configBox, nameField, issuerField, modeBox, clientIdField,
-                redirectUriField, scopesField, launchField, audienceField);
+                redirectUriField, scopesField, launchField, audienceField, parametersArea,
+                forceLoginBox);
     }
 
     /** The configuration selector, so the dialog can list the saved launches into it. */
@@ -201,6 +224,14 @@ final class SmartLaunchFormPanel {
 
     TextField audienceField() {
         return audienceField;
+    }
+
+    TextArea parametersArea() {
+        return parametersArea;
+    }
+
+    CheckBox forceLoginBox() {
+        return forceLoginBox;
     }
     /**
      * Replaces the drop-down's contents with the saved configuration names.
@@ -276,6 +307,8 @@ final class SmartLaunchFormPanel {
         scopesField.clear();
         launchField.clear();
         audienceField.clear();
+        parametersArea.clear();
+        forceLoginBox.setSelected(false);
         modeBox.getSelectionModel().select(SmartLaunchMode.STANDALONE);
     }
 
@@ -289,6 +322,8 @@ final class SmartLaunchFormPanel {
         scopesField.setText(nullToEmpty(config.scopes()));
         launchField.setText(nullToEmpty(config.launchParameter()));
         audienceField.setText(nullToEmpty(config.audience()));
+        parametersArea.setText(nullToEmpty(config.authorizationParameters()));
+        forceLoginBox.setSelected(config.forceLogin());
         applyModeVisibility();
     }
 
@@ -339,6 +374,8 @@ final class SmartLaunchFormPanel {
                 .scopes(scopesField.getText())
                 .launchParameter(launchField.getText())
                 .audience(audienceField.getText())
+                .authorizationParameters(parametersArea.getText())
+                .forceLogin(forceLoginBox.isSelected())
                 .build();
     }
 

@@ -168,6 +168,9 @@ public final class SmartLaunchStore {
         if (audience != null) {
             builder.audience(audience);
         }
+        builder.authorizationParameters(properties.getProperty(key + "authorizationParameters"));
+        builder.forceLogin(
+                Boolean.parseBoolean(trimmed(properties.getProperty(key + "forceLogin"))));
         return builder;
     }
 
@@ -223,6 +226,11 @@ public final class SmartLaunchStore {
                 writeIfSet(properties, key + "scopes", config.scopes());
                 writeIfSet(properties, key + "launch", config.launchParameter());
                 writeIfSet(properties, key + "audience", config.audience());
+                writeIfSet(properties, key + "authorizationParameters",
+                        config.authorizationParameters());
+                if (config.forceLogin()) {
+                    properties.setProperty(key + "forceLogin", "true");
+                }
             }
         }
         if (selectedName != null && trimmed(selectedName) != null) {
