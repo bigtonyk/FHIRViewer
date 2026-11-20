@@ -1,9 +1,10 @@
 # SMART on FHIR — Launch Guide
 
 How to add a SMART-enabled FHIR server to FHIRViewer, discover what it advertises, sign in
-through the system browser, and read resources you are entitled to. The SMART Launch Workbench
-lives in **Tools → SMART Launch Workbench...**; the User Guide's Part B covers the ordinary
-server features, and this guide is the SMART on-ramp.
+through the system browser, and read resources you are entitled to — and, from the Scripting
+Console, create, update, patch and delete them under the same token's scopes. The SMART Launch
+Workbench lives in **Tools → SMART Launch Workbench...**; the User Guide's Part B covers the
+ordinary server features, and this guide is the SMART on-ramp.
 
 > **This feature needs a SMART-enabled FHIR server.** A plain FHIR server will be diagnosed as
 > `not SMART` at Discover and will not launch. Use a test server (the HL7 FHIR R4 reference
@@ -25,10 +26,11 @@ server features, and this guide is the SMART on-ramp.
 9. [EHR launch simulation](#ehr-launch-simulation)
 10. [Log out and start again](#log-out-and-start-again)
 11. [Sample workflows](#sample-workflows)
-12. [Coding a SMART workflow](#coding-a-smart-workflow)
-13. [Troubleshooting](#troubleshooting)
-14. [Security notes](#security-notes)
-15. [Known limitations](#known-limitations)
+12. [Write through the authorized session](#write-through-the-authorized-session)
+13. [Coding a SMART workflow](#coding-a-smart-workflow)
+14. [Troubleshooting](#troubleshooting)
+15. [Security notes](#security-notes)
+16. [Known limitations](#known-limitations)
 
 ---
 
@@ -42,6 +44,9 @@ replace **File → Open from FHIR Server...** or the server plugins. It adds:
   secret and no saved credentials.
 - **Standalone launch** and **EHR launch simulation** modes.
 - **Authorized reads** of the patient context the token grants, through the existing viewer.
+- **Scripted reads and writes** through the same session: the Scripting Console's `smart`
+  binding creates, updates, patches and deletes under the token's scopes, with its own
+  opt-in (see [Write through the authorized session](#write-through-the-authorized-session)).
 - **Diagnostics** — a structured, redacted event list with export and clear.
 
 The rest of the application — tree, views, editing, validation, server connections — is
@@ -242,8 +247,9 @@ itself:
 
 ## Sample workflows
 
-Both workflows below are read-only. The Workbench reads through the authorized session; it
-does not offer writes, so a SMART token cannot change data through this screen.
+Both workflows below are read-only. The Workbench itself only reads through the authorized
+session; writes through that token are possible from the Scripting Console alone, as
+[Write through the authorized session](#write-through-the-authorized-session) describes.
 
 ### Workflow 1 — standalone review of the launch patient
 
@@ -293,11 +299,81 @@ it does not prove compatibility with a vendor that is not a documented test harn
 
 ---
 
+## Write through the authorized session
+
+The Workbench does not write. Writes go through the Scripting Console's `smart` binding, under
+the same token the session was issued.
+
+1. Authorize in **Tools → SMART Launch Workbench...**, then open
+   **Tools → Scripting Console...**. The session stays available to the console after the
+   Workbench closes.
+2. Select a writable server in **Tools → FHIR Servers** and tick **Allow server writes**. The
+   console binds its grant to that configured server, so a SMART session on its own cannot turn
+   writes on; the warning names both the configured server and the URL the SMART session is
+   authorized for. Approve it.
+3. Run the script. Every SMART write needs that grant: turning writes off, changing the active
+   server, an unusable server, or 15 idle minutes revokes it for `smart` as well.
+
+```java
+if (!smart.isWriteEnabled()) {
+    log.warn("Turn on Allow server writes in this console first.");
+} else {
+    var patient = new org.hl7.fhir.r4.model.Patient();
+    patient.addName().setFamily("Scripted");
+    var created = smart.create(patient);
+    log.info("Created " + created.resourceId() + " version " + created.versionId());
+}
+```
+
+What a SMART write does and does not have:
+
+- **The session's bearer and nothing else.** Every request carries only the session's token,
+  so it can reach only the URL the session was authorized for. `fhir` writes use the
+  configured server's saved credentials; `smart` writes never do.
+- **The server's scopes decide.** A write the token is not entitled to fails with a `403` as
+  a `ScriptApiException` and is journalled as a failed attempt, never retried. The console's
+  grant permits a write; it cannot widen the token.
+- **The console's rules apply unchanged.** The write scope narrows operations and resource
+  types, the 50-write budget pauses long runs, `smart.delete` asks for confirmation naming the
+  session's server, and the **Writes** tab records the attempt as `SMART session` because no
+  configured server owns it.
+- **A timeout is an unknown outcome.** A write that timed out after it may have been sent
+  raises `WriteOutcomeUnknownException` instead of an ordinary failure, so read the resource
+  through the session before retrying. **Review Unknown** cannot settle a SMART entry — it
+  looks the entry up among configured servers — so reconcile that one by hand.
+
+**Undo Last Write** reverses a SMART write through the same session, and only while that
+session is still active and still authorized for the URL the write names: a session since
+re-authorized for another server is refused rather than sent the before-image.
+
+- An update or patch is reverted by writing the captured resource back with `If-Match` naming
+  the version the write produced, because the before-image's own version predates that write.
+- A delete is reverted by a restore carrying `If-None-Match: *`, so an id something has taken
+  since is refused instead of overwritten; the console reads the id first so that refusal is
+  reported plainly, and a read the token is not allowed to make does not block the conditional
+  restore.
+- A create is reverted by deleting the id the create returned, conditional on the version the
+  create produced, so a resource replaced at that id since is left in place and the status
+  line says nothing was deleted.
+
+Undo is a separate, confirmed recovery write outside the grant's operation and resource
+scope, but it still needs writes on. It is best effort and not a server rollback. A
+before-image that could not be read is never offered, and neither is a create whose id the
+server never returned.
+
+**Run Tests** uses the separate **Allow writes in test runs** opt-in for SMART writes too:
+without it the `smart` binding a suite runs with is read-only, and with it a `// cleanup:`
+block can remove the fixtures a case created through the session.
+
+---
+
 ## Coding a SMART workflow
 
 The Scripting Console exposes a `smart` binding with `isSessionActive()`, `grantedScopes()`,
-`launchPatientId()`, `launchEncounterId()`, and `read(resourceType, id)`. It never exposes the
-access token.
+`launchPatientId()`, `launchEncounterId()`, `read(resourceType, id)`, `isWriteEnabled()`,
+`sessionBaseUrl()`, and the write calls `create(...)`, `update(...)`, `patch(...)` and
+`delete(...)` described in [Write through the authorized session](#write-through-the-authorized-session).
+It never exposes the access token.
 
 Authorize in **Tools → SMART Launch Workbench...**, then close the Workbench and open
 **Tools → Scripting Console...**. The authorized session stays in application memory for
@@ -341,6 +417,10 @@ guarantee patient context. Check `launchPatientId()` before calling `read`.
 | Authorization fails with `invalid_grant` | The authorization code expired or was already used | Press Authorize again and sign in promptly |
 | "The access token has expired" | The token's stated lifetime passed | Press Authorize again for a new session |
 | Read fails with `401` or `403` | The token was rejected or lacks the needed scope | Re-authorize with the scopes the resource requires |
+| `smart.create` throws `WriteDeniedException` | Writes are off for the console, or the grant expired or was revoked | Tick **Allow server writes** again and approve the warning |
+| A SMART write fails with `403` | The session's scopes do not cover that resource or interaction | Re-authorize asking for scope the server will grant; the console's grant cannot widen the token |
+| Undo says the session is not the one that made this write | A later authorization replaced the session, possibly for another server | Authorize again for the original server while the console is still open |
+| Review Unknown says the server `SMART session` is no longer configured | The review resolves entries against configured servers, and a SMART entry names none | Read the resource through the session and reconcile it by hand |
 | Read returns no patient | The launch granted no patient context | Normal for identity-scoped launches; request `launch/patient` if you need one |
 | Session panel is always empty | Authorization succeeded but granted no scopes | Check that the server actually granted what you requested |
 | Discovery works but Authorize stays disabled | The discovered document had problems | Open the Capabilities panel and read the problem list |
@@ -382,5 +462,14 @@ client secret, authorization header, or patient data.
 - **A non-matching document issuer is reported but not resolved.** The Workbench does not
   guess which address is right; that is a deployment decision.
 - **EHR launch is a client-side simulation only.** It does not integrate with a real EHR.
+- **SMART writes need a writable configured server.** The console binds its write grant to the
+  server selected in Tools > FHIR Servers, so an authorized SMART session alone cannot turn
+  writes on; the write itself still goes only to the session's server.
+- **Review Unknown does not reconcile a SMART write.** It resolves an entry against configured
+  servers and a SMART entry names none, so a timed-out SMART write is reconciled by reading
+  through the session.
+- **Undo covers only the current console and session.** A SMART reversal needs the session that
+  made the write, still active and still authorized for the same URL; logging out,
+  re-authorizing for another server, or closing the console ends it.
 - **Manual end-to-end verification** against a public SMART test server is recommended before
   production use; this guide contains no committed test credentials.
